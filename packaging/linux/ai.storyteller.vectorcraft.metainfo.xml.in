@@ -7,7 +7,7 @@
   <project_license>MIT OR Apache-2.0</project_license>
   <name>Kaleiform</name>
   <summary>Open-source vector illustration and CJK typography</summary>
-  <developer id="io.github.Pengjingyu1992">
+  <developer id="io.github.pengjingyu1992">
     <name>Kaleiform contributors</name>
   </developer>
   <url type="homepage">https://github.com/Pengjingyu1992/Kaleiform</url>
