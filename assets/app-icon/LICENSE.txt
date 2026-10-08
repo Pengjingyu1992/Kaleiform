@@ -1,0 +1,15 @@
+Kaleiform app icon (the original image `kaleiform-1024.png` and every platform derivative in this
+directory).
+
+Original artwork created for this project at the request of its maintainer. Licensed like the rest
+of Kaleiform, under either of
+
+  * Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+  * MIT license (https://opensource.org/licenses/MIT)
+
+at your option.
+
+The supplied reference photograph informed the palette only. No photograph pixels, people, logos or
+other reference artwork are included in the icon.
+
+Regenerate platform files from `kaleiform-1024.png` with `packaging/icons.sh` on macOS.

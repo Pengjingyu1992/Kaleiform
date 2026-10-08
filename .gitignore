@@ -1,0 +1,19 @@
+*~
+plan/
+target/
+/dist
+/corpus
+/log
+.DS_Store
+# A craft-fonts checkout for CRAFT_FONTS_DIR (CI and release workflows check it out here)
+/craft-fonts
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+*.log
+*.dSYM/
+/release-audit/
