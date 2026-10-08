@@ -133,7 +133,7 @@ if [ "$NOTARIZE" = 1 ]; then
 fi
 
 # ---- DMG ---------------------------------------------------------------------------------------
-ditto -c -k --norsrc --noextattr --noqtn --keepParent "$APP" "$APP_ZIP"
+python3 "$HERE/zip.py" "$APP" "$APP_ZIP"
 echo "==> building $DMG"
 STAGE="$WORK/dmg"
 mkdir -p "$STAGE"
