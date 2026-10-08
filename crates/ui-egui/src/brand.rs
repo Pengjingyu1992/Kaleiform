@@ -1,9 +1,9 @@
 //! The square Kaleiform logo (`assets/app-icon/`, see its README), decoded once per context into a
-//! mipmapped texture so it stays crisp in the app bar and About box.
+//! mipmapped texture so it stays crisp in the About box.
 
 use egui::{Color32, Context, Id, Rect, TextureHandle, TextureOptions, Ui, pos2};
 
-/// 512 px wide: sharp at 66 pt on a 2× display, and mipmaps keep the 22 pt app-bar logo clean.
+/// 512 px wide: sharp at 66 pt on a 2x display.
 const LOGO_PNG: &[u8] = include_bytes!("../../../assets/app-icon/kaleiform-runtime.png");
 
 /// The icon's pixels (one transparent pixel if it couldn't be decoded, which a test rules out).
@@ -49,12 +49,14 @@ mod tests {
     }
 
     #[test]
-    fn the_app_bar_paints_the_square_logo_from_one_cached_texture() {
+    fn the_logo_painter_reuses_one_cached_texture() {
         let ctx = Context::default();
         crate::theme::install_fonts(&ctx);
-        let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
-        let mut frame = || {
-            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::chrome::app_bar(&mut app, ui));
+        let frame = || {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(66.0, 66.0), egui::Sense::hover());
+                paint_logo(ui, r);
+            });
             let uploads = out.textures_delta.set.values().flat_map(|d| d.iter()).filter(|d| d.image.size() == [512, 512]).count();
             out.textures_delta.clear();
             let logos: Vec<Rect> = out
@@ -70,9 +72,22 @@ mod tests {
         let (uploads, logos) = frame();
         assert_eq!(uploads, 1);
         assert_eq!(logos.len(), 1);
-        assert_eq!(logos[0].size(), egui::vec2(22.0, 22.0));
+        assert_eq!(logos[0].size(), egui::vec2(66.0, 66.0));
         // Later frames reuse the texture.
         let (uploads, logos) = frame();
         assert_eq!((uploads, logos.len()), (0, 1));
+    }
+
+    #[test]
+    fn the_app_bar_does_not_upload_the_brand_logo() {
+        let ctx = Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
+        for integrated in [false, true] {
+            app.integrated_titlebar = integrated;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::chrome::app_bar(&mut app, ui));
+            assert!(ctx.data(|d| d.get_temp::<TextureHandle>(Id::new("kaleiform-brand-logo"))).is_none());
+            out.textures_delta.clear();
+        }
     }
 }

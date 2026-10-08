@@ -12,23 +12,21 @@ use crate::theme::{self, Tokens};
 use crate::widgets;
 use crate::{VectorcraftApp, icons, menus, titlebar};
 
-/// The application bar: brand mark, Home, menus, search and the workspace switcher
+/// The application bar: Home, menus, search and the workspace switcher
 /// at the right. With [`VectorcraftApp::custom_titlebar`] it is also the window's title bar
 /// ([`titlebar`]): the caption buttons take the right end and the rest of the bar drags the window.
 pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let custom = app.custom_titlebar;
     let left = if app.integrated_titlebar { 78 } else { 8 };
+    // macOS traffic lights are centred 16 pt below the window's top edge.
+    let height = if app.integrated_titlebar { 32.0 } else { 44.0 };
     let frame = egui::Frame::NONE.fill(t.app_bar).inner_margin(egui::Margin { left, right: if custom { 0 } else { 14 }, top: 0, bottom: 0 });
-    let bar = egui::Panel::top("app_bar").exact_size(44.0).frame(frame.stroke(Stroke::new(1.0, t.border))).show(ui, |ui| {
+    let bar = egui::Panel::top("app_bar").exact_size(height).frame(frame.stroke(Stroke::new(1.0, t.border))).show(ui, |ui| {
         if custom {
             titlebar::drag_area(ui, ui.max_rect());
         }
         ui.horizontal_centered(|ui| {
-            // Square brand logo.
-            let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-            crate::brand::paint_logo(ui, r);
-            ui.add_space(4.0);
             let on_home = app.ui.home.is_some() || app.session.active().is_none();
             if widgets::icon_button(ui, "house", tl!("Home"), on_home, 24.0).clicked() {
                 app.run("app.home", json!({})).ok();
@@ -655,6 +653,44 @@ pub fn hint_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
 mod tests {
     use serde_json::json;
     use vectorcraft_engine::Session;
+
+    #[test]
+    fn app_bar_home_aligns_with_the_macos_traffic_lights() {
+        for integrated in [false, true] {
+            for width in [800.0, 1440.0] {
+                for scale in [1.0, 1.5, 2.0] {
+                    let ctx = egui::Context::default();
+                    crate::theme::install_fonts(&ctx);
+                    crate::theme::apply(&ctx, Default::default());
+                    let mut app = crate::VectorcraftApp::new(Session::new(), Default::default());
+                    app.integrated_titlebar = integrated;
+                    app.native_menu = integrated;
+                    app.custom_titlebar = !integrated;
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+                    for _ in 0..2 {
+                        let mut input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                        input.viewports.get_mut(&egui::ViewportId::ROOT).expect("root viewport").native_pixels_per_point = Some(scale);
+                        let mut out = ctx.run_ui(input, |ui| super::app_bar(&mut app, ui));
+                        out.textures_delta.clear();
+                    }
+                    let home = ctx
+                        .viewport(|vp| {
+                            vp.prev_pass
+                                .widgets
+                                .layers()
+                                .flat_map(|(_, w)| w.iter())
+                                .filter(|w| w.sense.senses_click() && w.rect.size() == egui::vec2(24.0, 24.0))
+                                .min_by(|a, b| a.rect.left().total_cmp(&b.rect.left()))
+                                .map(|w| w.rect)
+                        })
+                        .expect("Home button");
+                    let center = if integrated { 16.0 } else { 22.0 };
+                    assert!((home.center().y - center).abs() <= 1.0 / scale, "{integrated}, {width}, {scale}: {home:?}");
+                    assert!((home.left() - if integrated { 79.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn hints_name_keys_as_the_menus_do() {
