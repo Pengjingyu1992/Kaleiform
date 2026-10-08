@@ -7,6 +7,9 @@
 
 Kaleiform is an open-source derivative of VectorCraft, retaining its Rust vector illustration engine and platform entry points. Its local additions focus on Chinese-language workflows. See UPSTREAM.md for provenance and README.md for tested release platforms.
 
+首版发布验证补充：修复异常 PDF 路径坐标触发导出库整数溢出退出的问题；超范围图形会被省略并报告警告。
+macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 App 的严格签名校验。
+
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 
 _Last updated: 2026-10-08 (after M4.14–M4.98, M8.1–M8.20, M14.4–M14.7, the MCP prompts, resource templates, completions and logging, the 2026-10-07 issue fixes, the Layers panel rework and the 2026-10-08 community contributions: Pen and shape-tool modifiers, path editing, Layers, Artboards, Swatches/Brushes and dialogs, Japanese composition and PDF text, Hebrew/Arabic type, interface languages (Spanish among them), the font menu, saved selections, MCP and EPS, the missing-font export warning (#319), open paths in the Shape Builder (#374), PDF/`.ai` import keeping strokes live and hidden and nested layers (#372), per-corner Live Corners (#381), SVG type opening at the size it draws at (#396), the Wayland clipboard with copied-file paste (#398), ruler guides that can be selected, moved and deleted (#414), two batches of Preferences options that were stored but unused (#394) skeleton reads with `document.find` for large documents over MCP (#416) and anchors dragged with Direct Selection snapping to points, segments and smart guides; see [Honest assessment](#honest-assessment-2026-10-05))._

@@ -64,6 +64,21 @@ fn export_is_valid_pdf() {
 }
 
 #[test]
+fn export_extreme_path_coordinates_warns_without_crashing() {
+    for x in [f64::from(i32::MIN), -1e15, 1e15] {
+        let mut d = doc(100.0, 100.0);
+        add(&mut d, rect_node(Rect::new(x.min(0.0), 0.0, x.max(50.0), 50.0), Color::rgb(1.0, 0.0, 0.0)));
+        add(&mut d, rect_node(Rect::new(10.0, 60.0, 30.0, 80.0), Color::rgb(0.0, 0.0, 1.0)));
+        let report = export_with_report(&d, &PdfOptions::default()).expect("safe export");
+        assert!(report.warnings.iter().any(|w| w.contains("coordinates outside")), "{:?}", report.warnings);
+        let out = import(&report.bytes).expect("valid PDF");
+        let nodes = leaves(&out);
+        assert_eq!(nodes.len(), 1);
+        assert!(close(nodes[0].geometric_bounds().unwrap(), Rect::new(10.0, 60.0, 30.0, 80.0), 0.01));
+    }
+}
+
+#[test]
 fn metadata_creator_and_title() {
     let mut d = doc(100.0, 100.0);
     d.title = "Poster".into();

@@ -518,7 +518,22 @@ fn xf(a: Affine) -> Transform {
     Transform::from_row(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32, c[4] as f32, c[5] as f32)
 }
 
+fn path_coordinates_safe(bp: &BezPath) -> bool {
+    // pdf-writer converts integral f32 coordinates to i32 and takes their absolute value.
+    // Keep a margin below that limit, including rounding, to avoid i32::MIN overflow.
+    let safe = |p: kurbo::Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= 1e9 && p.y.abs() <= 1e9;
+    bp.elements().iter().all(|el| match *el {
+        PathEl::MoveTo(p) | PathEl::LineTo(p) => safe(p),
+        PathEl::QuadTo(a, p) => safe(a) && safe(p),
+        PathEl::CurveTo(a, b, p) => safe(a) && safe(b) && safe(p),
+        PathEl::ClosePath => true,
+    })
+}
+
 fn to_path(bp: &BezPath) -> Option<Path> {
+    if !path_coordinates_safe(bp) {
+        return None;
+    }
     let mut pb = PathBuilder::new();
     for el in bp.elements() {
         match *el {
@@ -996,7 +1011,12 @@ impl Exporter<'_> {
     }
 
     fn shape(&mut self, s: &mut Surface, n: &Node, bp: &BezPath, r: FillRule, page: Rect) {
-        let Some(path) = to_path(bp) else { return };
+        let Some(path) = to_path(bp) else {
+            if !path_coordinates_safe(bp) {
+                self.warn("a path with non-finite coordinates or coordinates outside +/-1 billion points was omitted from the PDF");
+            }
+            return;
+        };
         let bounds = bp.bounding_box();
         for item in &n.appearance.items {
             match item {

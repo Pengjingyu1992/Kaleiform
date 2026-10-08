@@ -84,8 +84,10 @@ The rules are in craftrules `standards/fonts.md`, the build option in
   (`entitlements.plist`) are deliberately empty.
 - **Notarization:** the app is zipped and sent with `xcrun notarytool submit --wait`, then the
   ticket is stapled and checked with `stapler validate` and `spctl`. The app goes on a DMG
-  (`hdiutil makehybrid` and `convert`, with an `Applications` link to drag onto), which is signed,
-  notarized and stapled too.
+  (`hdiutil create -fs APFS`, with an `Applications` link to drag onto), which is signed,
+  notarized and stapled too. APFS preserves the signed app without the extra FinderInfo
+  introduced by HFS hybrid images; verify both the mounted app and an ordinary copied app
+  with `codesign --verify --deep --strict` before publishing.
 - **CLI:** the universal `vectorcraft-cli` is signed the same way, zipped, and the zip is
   notarized. A bare executable can't hold a stapled ticket, so Gatekeeper looks the CLI's ticket up
   online the first time a downloaded copy runs.
