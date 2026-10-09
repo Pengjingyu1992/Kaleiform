@@ -11,6 +11,7 @@ Kaleiform is an open-source derivative of VectorCraft, retaining its Rust vector
 macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 App 的严格签名校验。
 本地界面修订：移除标题栏 Logo；macOS 顶栏缩为 32 点，使主页按钮与原生窗口按钮垂直居中对齐，Dock 和“关于”图标保留。
 2026-10-09 图标修订：以维护者提供的红色小狗图片统一替换项目 Logo、各平台 App 图标及应用内“关于”图片，保留 1:1 比例。
+2026-10-09 图标修复：去除主图自带的白色外沿，背景延伸至画布边缘；macOS 圆角外侧保持透明，不再出现白色边框。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 

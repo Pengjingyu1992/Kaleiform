@@ -1,8 +1,9 @@
 Kaleiform app icon (the supplied image `kaleiform-1024.png` and every platform derivative in this
 directory).
 
-Red puppy artwork supplied by the project maintainer for Kaleiform on 2026-10-09. Licensed like
-the rest of Kaleiform, under either of
+Red puppy artwork supplied by the project maintainer for Kaleiform on 2026-10-09, with an
+AI-assisted outer-background extension to remove the white matte. Licensed like the rest of
+Kaleiform, under either of
 
   * Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
   * MIT license (https://opensource.org/licenses/MIT)
