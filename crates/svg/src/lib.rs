@@ -208,7 +208,8 @@ pub struct ExportOptions {
     /// One positioned `<tspan>` per line of type instead of one per style run, tab stop and
     /// justified word (smaller; viewers then space the line with their own font metrics).
     pub fewer_tspans: bool,
-    /// Keep hidden layers, written hidden (`display:none`), as Save does; exports leave them out.
+    /// Keep hidden layers and objects, written hidden (`display="none"`), as Save does; exports
+    /// leave them out unless asked.
     pub hidden_layers: bool,
     /// The file's character encoding (see [`Output::bytes`]).
     pub encoding: Encoding,

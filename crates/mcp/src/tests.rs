@@ -223,7 +223,7 @@ fn headless_end_to_end() {
 
     // Resources.
     let v = rpc(&mut s, 10, "resources/list", json!({}));
-    assert_eq!(v["result"]["resources"].as_array().unwrap().len(), 2);
+    assert_eq!(v["result"]["resources"].as_array().unwrap().len(), 3);
     let v = rpc(&mut s, 11, "resources/read", json!({"uri": "vectorcraft://document"}));
     let text = v["result"]["contents"][0]["text"].as_str().unwrap();
     assert!(serde_json::from_str::<Value>(text).unwrap()["layers"].is_array());
@@ -539,6 +539,30 @@ fn selection_preferences_apply_to_pointer_gestures() {
     assert_eq!(click(&mut s, 7, 250.0, json!({})), json!([front]), "the path does");
 }
 
+/// A Shift-drag marquee reaches agents (#483): `pointer_gesture` with `mods.shift` toggles the
+/// objects it reaches, so a selected one leaves the selection and an unselected one joins it.
+#[test]
+fn shift_marquee_gesture_toggles_the_selection() {
+    let mut s = server();
+    let square = |s: &mut Server, id: u64, x: u64| {
+        let r = call(s, id, "draw_shape", json!({"shape": "rectangle", "x": x, "y": 100, "width": 50, "height": 50}));
+        serde_json::from_str::<Value>(&text_of(&r)).unwrap()["id"].as_u64().unwrap()
+    };
+    let (a, b, c) = (square(&mut s, 1, 100), square(&mut s, 2, 200), square(&mut s, 3, 300));
+    let r = call(&mut s, 4, "run_command", json!({"command": "select.set", "params": {"ids": [a, b]}}));
+    assert_eq!(r["isError"], false, "{r}");
+    let events = json!([{"kind": "down", "x": 180, "y": 80}, {"kind": "drag", "x": 300, "y": 200}, {"kind": "up", "x": 380, "y": 200}]);
+    for tool in ["selection", "directSelection"] {
+        let r = call(&mut s, 5, "pointer_gesture", json!({"tool": tool, "events": events, "mods": {"shift": true}}));
+        assert_eq!(r["isError"], false, "{r}");
+        let sel = &serde_json::from_str::<Value>(&text_of(&r)).unwrap()["selection"];
+        // The Selection tool takes b out and adds c; Direct Selection's marquee then toggles their
+        // anchors back: b's are selected again and c, whole, leaves.
+        let want = if tool == "selection" { json!([a, c]) } else { json!([a, b]) };
+        assert_eq!(*sel, want, "{tool}");
+    }
+}
+
 /// Type preferences reach agents (#394): type the Type tool places starts with placeholder text,
 /// selected; Alt+→ tracks it by Tracking and Cmd+Shift+. steps its size by Size/Leading.
 #[test]
@@ -563,4 +587,31 @@ fn type_preferences_apply_to_agents() {
     let r = call(&mut s, 5, "press_key", json!({"key": ".", "mods": {"cmd": true, "shift": true}}));
     assert_eq!(r["isError"], false, "{r}");
     assert_eq!(style(&mut s, 6), (size + 4.0, tracking + 50.0));
+}
+
+/// The drawing tools snap to Smart Guides over MCP as with the mouse (#506): a Rectangle drawn
+/// from near another object's corner starts on it, and a Pen anchor placed beside that object's
+/// centre lines up with it.
+#[test]
+fn drawing_gestures_snap_to_smart_guides() {
+    let mut s = server();
+    let r = call(&mut s, 1, "run_command", json!({"command": "file.new", "params": {"width": 800, "height": 600}}));
+    assert_eq!(r["isError"], false, "{r}");
+    let r = call(&mut s, 2, "draw_shape", json!({"shape": "rectangle", "x": 100, "y": 100, "width": 100, "height": 100}));
+    assert_eq!(r["isError"], false, "{r}");
+    let bounds = |s: &mut Server, n: u64, events: Value, tool: &str| {
+        let r = call(s, n, "pointer_gesture", json!({"tool": tool, "events": events}));
+        assert_eq!(r["isError"], false, "{r}");
+        let id = serde_json::from_str::<Value>(&text_of(&r)).unwrap()["selection"][0].clone();
+        let doc: Value = serde_json::from_str(&text_of(&call(s, n + 1, "inspect_document", json!({})))).unwrap();
+        let made = doc["layers"][0]["children"].as_array().unwrap().iter().find(|c| c["id"] == id).expect("drawn").clone();
+        let b = &made["bounds"];
+        [&b["x"], &b["y"], &b["width"], &b["height"]].map(|v| v.as_f64().unwrap())
+    };
+    let events = json!([{"kind": "move", "x": 202, "y": 203}, {"kind": "down", "x": 202, "y": 203}, {"kind": "drag", "x": 330, "y": 341}, {"kind": "up", "x": 330, "y": 341}]);
+    assert_eq!(bounds(&mut s, 3, events, "rectangle"), [200.0, 200.0, 130.0, 141.0]);
+    let r = call(&mut s, 5, "run_command", json!({"command": "select.none", "params": {}}));
+    assert_eq!(r["isError"], false, "{r}");
+    let events = json!([{"kind": "down", "x": 300, "y": 420}, {"kind": "up", "x": 300, "y": 420}, {"kind": "move", "x": 151.5, "y": 431}, {"kind": "down", "x": 151.5, "y": 431}, {"kind": "up", "x": 151.5, "y": 431}]);
+    assert_eq!(bounds(&mut s, 6, events, "pen"), [150.0, 420.0, 150.0, 11.0]);
 }

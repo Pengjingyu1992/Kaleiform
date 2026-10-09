@@ -4,10 +4,11 @@
 //! or a copied file that is one of them) into the internal clipboard with the `clipboard.import*`
 //! commands. The host installs the platform side as
 //! [`Services::system_clipboard`](crate::Services::system_clipboard); without it (the web) Copy
-//! publishes SVG text through egui and Paste takes SVG text only.
+//! publishes SVG text through egui and Paste takes SVG text, and the pictures and files the host
+//! reads from a paste itself ([`VectorcraftApp::paste_from_host`]).
 
 use serde_json::{Value, json};
-use vectorcraft_engine::cmd::clipboard::{EMF, Flavour, PASTE_ORDER, PDF, SVG, TEXT, looks_like_svg};
+use vectorcraft_engine::cmd::clipboard::{BITMAP, EMF, Flavour, PASTE_ORDER, PDF, SVG, TEXT, is_address, looks_like_svg};
 
 use crate::VectorcraftApp;
 
@@ -22,6 +23,11 @@ pub trait SystemClipboard {
     /// Does the clipboard hold one of `mimes`? Cheap enough to ask a few times a second.
     fn has(&mut self, mimes: &[&'static str]) -> bool;
 }
+
+/// Makes a second system-clipboard handle, to check off the UI thread whether Paste has something
+/// to take ([`Services::clipboard_probe`](crate::Services::clipboard_probe)). It is called on that
+/// thread and the handle lives and dies there, so the handle needn't be `Send`.
+pub type ClipboardProbeFactory = Box<dyn FnOnce() -> Box<dyn SystemClipboard> + Send>;
 
 /// The command (and its params) that loads `f` into the internal clipboard, centred on `center`.
 pub(crate) fn import_command(f: &Flavour, center: Option<[f64; 2]>) -> (&'static str, Value) {
@@ -59,23 +65,39 @@ impl VectorcraftApp {
         }
     }
 
+    /// Paste `f`, which the host read from the system clipboard itself (a web page's paste carries
+    /// pictures and files, egui's Paste event text only), as the paste chord `held` pastes:
+    /// unless a field or the Type tool has the keyboard, as with the paste keys.
+    pub fn paste_from_host(&mut self, ctx: &egui::Context, f: Flavour, held: egui::Modifiers) {
+        if ctx.egui_wants_keyboard_input() || self.session.tool_wants_text() {
+            return;
+        }
+        self.clipboard_in = Some(f);
+        crate::menus::invoke(self, crate::shortcuts::paste_command(held), json!({}));
+    }
+
     /// Before a paste: what another app put on the system clipboard replaces the internal
     /// clipboard (centred in the view). What we published ourselves keeps the lossless internal
     /// copy. An error means nothing should be pasted.
     pub(crate) fn adopt_system_clipboard(&mut self) -> Result<(), String> {
-        let event_text = self.clipboard_in.take();
+        let pasted = self.clipboard_in.take();
         let center = self.view().map(|v| [v.center.x, v.center.y]);
-        let (cmd, params) = match self.services.system_clipboard.as_mut() {
-            Some(cb) => {
+        let (cmd, params) = match (pasted, self.services.system_clipboard.as_mut()) {
+            // A picture or file the host read from the paste.
+            (Some(f), _) if f.mime != TEXT => import_command(&f, center),
+            (_, Some(cb)) => {
                 if cb.holds_ours() {
                     return Ok(());
                 }
                 let Some(f) = cb.read(&PASTE_ORDER) else { return Ok(()) };
+                // Text that is only an address goes with a browser's copied picture: the picture.
+                let f = if f.mime == TEXT && is_address(&String::from_utf8_lossy(&f.data)) { cb.read(&[BITMAP]).unwrap_or(f) } else { f };
                 import_command(&f, center)
             }
             // Text only: SVG markup is art, other text is left alone.
-            None => {
-                let text = event_text.or_else(|| self.services.clipboard_read.as_mut().and_then(|f| f()));
+            (pasted, None) => {
+                let text =
+                    pasted.map(|f| String::from_utf8_lossy(&f.data).into_owned()).or_else(|| self.services.clipboard_read.as_mut().and_then(|f| f()));
                 let Some(text) = text.filter(|t| looks_like_svg(t)) else { return Ok(()) };
                 if self.clipboard_published.as_deref() == Some(text.as_str()) {
                     return Ok(());

@@ -3,13 +3,15 @@
 //! Each click adds a point and the path curves smoothly through all points. Alt-click or
 //! double-click a point toggles it between smooth and corner; drag a point to move it; click the
 //! first point to close; Backspace/Delete removes the last touched point; Esc/Enter ends the path.
-//! A rubber band shows the curve to the cursor (Enable Rubber Band for Curvature Tool).
+//! A rubber band shows the curve to the cursor (Enable Rubber Band for Curvature Tool). Each point
+//! placed or dragged snaps to Smart Guides ([`DrawSnap`]), as the Pen's anchors do.
 
 use serde_json::{Value, json};
-use vectorcraft_doc::NodeId;
+use vectorcraft_doc::{NodeId, Selection};
 use vectorcraft_geom::Point;
 
 use super::{FEEDBACK, catmull_rom};
+use crate::guides::{DrawSnap, Leave, Targets};
 use crate::{Action, Cursor, Mods, Overlay, PointerEvent, PointerKind, Tool, ToolContext, ToolKey};
 
 #[derive(Default)]
@@ -22,6 +24,7 @@ pub struct CurvatureTool {
     /// Last touched point (Backspace removes it).
     current: Option<usize>,
     hover: Option<Point>,
+    snap: DrawSnap,
 }
 
 impl CurvatureTool {
@@ -55,6 +58,12 @@ impl CurvatureTool {
         self.id = None;
         self.drag = None;
         self.current = None;
+        self.snap.clear();
+    }
+
+    /// The segment to the next point leaves the last one.
+    fn leave(&self, cx: &ToolContext) -> Option<Leave> {
+        self.pts.last().map(|(p, _)| Leave::segment(cx, *p, false))
     }
 }
 
@@ -73,11 +82,12 @@ impl Tool for CurvatureTool {
         }
         match ev.kind {
             PointerKind::Move => {
-                self.hover = Some(p);
+                let from = active.and_then(|_| self.leave(cx));
+                self.hover = Some(self.snap.hover(cx, p, active.as_slice(), from.as_ref()));
                 vec![]
             }
             PointerKind::Down => {
-                if active.is_some() {
+                if let Some(id) = active {
                     if let Some(i) = self.hit_point(cx, p) {
                         self.current = Some(i);
                         if ev.mods.alt {
@@ -88,10 +98,15 @@ impl Tool for CurvatureTool {
                             self.closed = true;
                             return vec![Action::Exec("path.curvature".into(), self.params())];
                         }
+                        // The point dragged and the curve through it move: the rest pull.
+                        let sel = Selection { objects: vec![id], anchors: [(id, [(0, i)].into())].into(), ..Selection::default() };
+                        self.snap.hold(cx, || Targets::for_anchor_drag(cx.doc, &sel));
                         self.drag = Some((i, p, false));
                         return vec![];
                     }
                     if !self.closed {
+                        let from = self.leave(cx);
+                        let p = self.snap.press(cx, p, &[id], from.as_ref());
                         self.pts.push((p, ev.mods.alt));
                         self.current = Some(self.pts.len() - 1);
                         return vec![Action::Exec("path.curvature".into(), self.params())];
@@ -99,6 +114,7 @@ impl Tool for CurvatureTool {
                 }
                 // Start a new path.
                 self.reset();
+                let p = self.snap.press(cx, p, &[], None);
                 self.pts.push((p, false));
                 self.current = Some(0);
                 vec![Action::Exec("path.curvature".into(), self.params()), Action::Notify("created".into())]
@@ -113,16 +129,20 @@ impl Tool for CurvatureTool {
                     out.push(Action::Begin("Curvature".into()));
                     self.drag = Some((i, start, true));
                 }
+                let p = self.snap.drag(cx, p, None);
                 if let Some(pt) = self.pts.get_mut(i) {
                     pt.0 = p;
                 }
                 out.push(Action::Preview("path.curvature".into(), self.params()));
                 out
             }
-            PointerKind::Up => match self.drag.take() {
-                Some((_, _, true)) => vec![Action::Commit],
-                _ => vec![],
-            },
+            PointerKind::Up => {
+                self.snap.clear();
+                match self.drag.take() {
+                    Some((_, _, true)) => vec![Action::Commit],
+                    _ => vec![],
+                }
+            }
             PointerKind::DoubleClick => {
                 if active.is_none() {
                     return vec![];
@@ -163,10 +183,10 @@ impl Tool for CurvatureTool {
         if dragging { vec![Action::Commit] } else { vec![] }
     }
     fn overlays(&self, cx: &ToolContext) -> Vec<Overlay> {
+        let mut o = self.snap.guides().to_vec();
         if self.active(cx).is_none() {
-            return vec![];
+            return o;
         }
-        let mut o = vec![];
         if cx.curvature_rubber_band
             && !self.closed
             && self.drag.is_none()
@@ -216,5 +236,20 @@ mod tests {
         t.pts = vec![(Point::new(100.0, 100.0), false); 4];
         let a = t.pointer(&cx2, &PointerEvent::new(PointerKind::Down, 400.0, 400.0));
         assert!(matches!(&a[0], Action::Exec(_, v) if v["id"] == id.0 && v["points"].as_array().unwrap().len() == 5));
+    }
+
+    /// Points snap to Smart Guides (#506): the first lands on another object's anchor and says so.
+    #[test]
+    fn points_snap_to_smart_guides() {
+        let (d, _) = doc_with_rect();
+        let s = Selection::default();
+        let p = paint();
+        let cx = cx(&d, &s, &p);
+        let mut t = CurvatureTool::default();
+        let a = t.pointer(&cx, &PointerEvent::new(PointerKind::Down, 202.0, 99.0));
+        assert!(matches!(&a[0], Action::Exec(_, v) if v["points"][0]["x"] == 200.0 && v["points"][0]["y"] == 100.0), "{a:?}");
+        assert!(t.overlays(&cx).iter().any(|o| matches!(o, Overlay::Label { text, .. } if text == "anchor")));
+        t.pointer(&cx, &PointerEvent::new(PointerKind::Up, 202.0, 99.0));
+        assert!(t.overlays(&cx).is_empty());
     }
 }

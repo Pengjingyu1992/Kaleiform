@@ -1,5 +1,6 @@
 //! Optional content groups become layers: name, visibility (the default configuration's or the
-//! view state's), print state, lock and nesting; art that is off comes in as a hidden layer.
+//! view state's), print state, lock and nesting; art that is off comes in as a hidden layer, and
+//! art past what is read of a huge page never shows or prints a hidden layer.
 
 use vectorcraft_color::Color;
 use vectorcraft_doc::{Document, Node, NodeKind};
@@ -150,6 +151,20 @@ fn page_fill(before: &str, after: &str, ai: bool) -> Document {
     import(&pdf_with_catalog(&[page], &[&objs[0], &objs[1]], &catalog, None)).unwrap()
 }
 
+/// A file with an editor's private data says that art off its artboards isn't in the part read
+/// (#472); a plain PDF has nothing to say.
+#[test]
+fn an_ai_file_notes_that_its_art_off_the_artboards_is_not_read() {
+    for ai in [false, true] {
+        let page = PdfPage {
+            entries: if ai { "/PieceInfo << /Illustrator << /Private << /AIPrivateData1 7 /NumBlock 1 >> >> >>".into() } else { String::new() },
+            ..PdfPage::new(100.0, 100.0, "1 0 0 rg 10 10 30 30 re f")
+        };
+        let r = import_with_report(&pdf_with_catalog(&[page], &[], "", None), &ImportOptions::default()).unwrap();
+        assert_eq!(r.warnings, if ai { vec![crate::import::OFF_ARTBOARD_NOTE.to_string()] } else { vec![] });
+    }
+}
+
 fn path_count(d: &Document) -> usize {
     let mut n = 0;
     d.walk(|c| n += usize::from(matches!(c.kind, NodeKind::Path { .. })));
@@ -297,4 +312,80 @@ fn thousands_of_layers_hidden_ones_included_all_come_in() {
     let d = import(&pdf_with_catalog(&[page], &objs, &catalog, None)).unwrap();
     assert_eq!(d.layers.len(), N);
     assert!(d.layers.iter().enumerate().all(|(i, l)| l.visible == (i % 2 == 1) && l.children().is_some_and(|c| c.len() == 1)));
+}
+
+/// Import `bytes` with the scan's operator limit lowered to `n`.
+fn import_with_max_ops(bytes: &[u8], n: usize) -> ImportReport {
+    let old = crate::import_scan::TEST_MAX_OPS.replace(n);
+    let r = import_with_report(bytes, &ImportOptions::default());
+    crate::import_scan::TEST_MAX_OPS.set(old);
+    r.unwrap()
+}
+
+#[test]
+fn art_past_the_scan_limit_never_shows_a_hidden_layer() {
+    // "Shapes" draws 100 operators before its square, then "Hidden" (off, not printed) its own.
+    let (objs, catalog, ids) = groups(1, "/OFF [{B}]");
+    let filler = "q Q ".repeat(50);
+    let page = PdfPage {
+        resources: format!("/Properties << /MC0 {} 0 R /MC1 {} 0 R >>", ids[0], ids[1]),
+        ..PdfPage::new(
+            100.0,
+            100.0,
+            &format!("/OC /MC0 BDC {filler}1 0 0 rg 10 10 30 30 re f EMC /OC /MC1 BDC 0 0 1 rg 50 50 30 30 re f EMC 0 1 0 rg 0 0 5 5 re f"),
+        )
+    };
+    let bytes = pdf_with_catalog(&[page], &[&objs[0], &objs[1]], &catalog, None);
+    // Within the limit, every group is told apart.
+    assert_eq!(names(&import(&bytes).unwrap()), ["Shapes", "Hidden", "Page 1"]);
+    let r = import_with_max_ops(&bytes, 60);
+    let d = &r.document;
+    assert_eq!(names(d), ["Shapes", "Page 1 (unsorted)", "Page 1"], "{:?}", r.warnings);
+    // The art drawn past the limit in a group already open stays in it.
+    assert!(d.layers[0].visible);
+    assert_eq!(colors(&d.layers[0]), [Color::rgb(1.0, 0.0, 0.0)]);
+    // The hidden group's art, past it, can't be told apart: it neither shows nor prints.
+    let unsorted = &d.layers[1];
+    assert!(!unsorted.visible && !printable(unsorted));
+    assert_eq!(colors(unsorted), [Color::rgb(0.0, 0.0, 1.0)]);
+    // Art outside any group is the page's, as before.
+    assert!(d.layers[2].visible && printable(&d.layers[2]));
+    assert_eq!(colors(&d.layers[2]), [Color::rgb(0.0, 1.0, 0.0)]);
+    assert!(r.warnings.iter().any(|w| w.contains("more than can be read") && w.contains("hidden, non-printing")), "{:?}", r.warnings);
+}
+
+#[test]
+fn art_past_the_scan_limit_of_shown_layers_stays_shown() {
+    // Every group shows and prints: what can't be told apart goes to the page's layer, shown.
+    let bytes = three_groups([&ocg("A", ""), &ocg("B", ""), &ocg("C", "")], &[], "");
+    let r = import_with_max_ops(&bytes, 4);
+    let d = &r.document;
+    assert_eq!(names(d), ["A", "Page 1"], "{:?}", r.warnings);
+    assert_eq!(colors(&d.layers[0]), [Color::rgb(1.0, 0.0, 0.0)]);
+    assert!(d.layers[1].visible && printable(&d.layers[1]));
+    assert_eq!(colors(&d.layers[1]), [Color::rgb(0.0, 0.0, 1.0), Color::rgb(0.0, 1.0, 0.0)]);
+    assert!(r.warnings.iter().any(|w| w.contains("went to its page's layer")), "{:?}", r.warnings);
+}
+
+/// The editor's private data of a `.ai` is its `AIPrivateData` streams, joined in order.
+#[test]
+fn an_ai_files_private_data_is_its_streams_joined() {
+    let (a, b) = (first_extra(1), first_extra(1) + 1);
+    let page = |ai: bool| PdfPage {
+        entries: if ai {
+            format!("/PieceInfo << /Illustrator << /Private << /AIPrivateData1 {a} 0 R /AIPrivateData2 {b} 0 R /NumBlock 2 >> >> >>")
+        } else {
+            String::new()
+        },
+        ..PdfPage::new(100.0, 100.0, "1 0 0 rg 10 10 30 30 re f")
+    };
+    let (one, two) = (stream("", "%AI24_ZStandard_Data first "), stream("", "second"));
+    let ai = pdf_with_catalog(&[page(true)], &[&one, &two], "", None);
+    assert_eq!(illustrator_data(&ai, None).unwrap(), b"%AI24_ZStandard_Data first second");
+    // A PDF without them has none; neither has bytes that aren't a PDF.
+    assert!(illustrator_data(&pdf_with_catalog(&[page(false)], &[&one, &two], "", None), None).is_none());
+    assert!(illustrator_data(b"not a pdf", None).is_none());
+    // Only a plain or a deflated stream is read: a chain of filters is refused, not run unbounded.
+    let chained = stream("/Filter [/ASCIIHexDecode /ASCIIHexDecode]", "61>");
+    assert!(illustrator_data(&pdf_with_catalog(&[page(true)], &[&chained, &two], "", None), None).is_none());
 }

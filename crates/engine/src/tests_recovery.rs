@@ -123,6 +123,22 @@ fn a_crash_leaves_copies_that_restore_modified_and_titled() {
 }
 
 #[test]
+fn a_restored_copy_still_refuses_to_replace_the_file_an_import_left_things_out_of() {
+    let (mut s, store) = session();
+    s.doc_mut().unwrap().path = Some("/art/Poster.eps".into());
+    s.doc_mut().unwrap().imported_from = Some("/art/Poster.eps".into());
+    s.doc_mut().unwrap().import_losses = vec!["hidden layers have art this can't read".into()];
+    s.execute("file.recovery.save", &json!({})).unwrap();
+    drop(s);
+
+    let mut s = relaunch(&store);
+    s.execute("file.recovery.restore", &json!({})).unwrap();
+    let st = s.doc().unwrap();
+    assert_eq!(st.imported_from.as_deref(), Some("/art/Poster.eps"));
+    assert_eq!(st.import_losses, ["hidden layers have art this can't read"]);
+}
+
+#[test]
 fn another_running_apps_copies_are_never_offered() {
     let store = Arc::new(MemoryStore::default());
     let mut a = session_in(&store);

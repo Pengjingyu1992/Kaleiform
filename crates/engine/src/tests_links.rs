@@ -320,7 +320,8 @@ fn a_placed_document_brings_its_links_with_the_files_pixels() {
     let doc_path = dir.file("part.vectorcraft");
     save(&mut s, &doc_path);
     let mut s = session();
-    s.execute("file.place", &json!({"path": doc_path})).unwrap();
+    // As an editable copy (placed linked, it stays one locked object).
+    s.execute("file.place", &json!({"path": doc_path, "link": false})).unwrap();
     let doc = &s.doc().unwrap().doc;
     let mut placed = vec![];
     doc.visit_images(|_, im| placed.push(im.clone()));

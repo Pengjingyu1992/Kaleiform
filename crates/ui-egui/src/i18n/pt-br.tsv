@@ -78,6 +78,9 @@
 	 to transform  |  	 para transformar  |  
 	 to zoom in  |  	 para ampliar  |  
 	 to zoom into an area	 para ampliar uma área
+	Hold	Manter pressionado
+	 right or left to zoom in or out  |  	 para a direita ou a esquerda para ampliar ou reduzir  |  
+	 to keep zooming	 para continuar o zoom
 	 to zoom out  |  	 para reduzir  |  
 	 while dragging to move perpendicular to the plane  |  	 ao arrastar para mover perpendicularmente ao plano  |  
 	(closest)	(mais próximo)
@@ -135,6 +138,7 @@
 	Add to Selection	Adicionar à Seleção
 	Add to Swatches	Adicionar às Amostras
 	Additional Plug-ins Folder	Pasta Adicional de Plug-ins
+	Additional Fonts Folder	Pasta Adicional de Fontes
 	Adjust Adjoining Width Points	Ajustar Pontos de Largura Adjacentes
 	Adjust Color Balance…	Ajustar Equilíbrio de Cores…
 	Adjust Colors	Ajustar Cores
@@ -246,6 +250,7 @@
 	Auto Size New Area Type	Dimensionar Automaticamente Novo Texto de Área
 	Auto Spell Check	Verificação Ortográfica Automática
 	Auto-Collapse Iconic Panels	Recolher Automaticamente Painéis Icônicos
+	Show Tool Group Labels	Mostrar Rótulos dos Grupos de Ferramentas
 	Auto-Rotate (turn the paper to each artboard)	Girar Automaticamente (gire o papel para cada mesa de trabalho)
 	Automatic	Automático
 	Automatic flatness	Achatamento automático
@@ -444,6 +449,8 @@
 	Construction Guides	Guias de Construção
 	Contextual Alternates	Variantes Contextuais
 	Contextual Task Bar	Barra de Tarefas Contextual
+	Pin Bar Position	Fixar Posição da Barra
+	Reset Bar Position	Redefinir Posição da Barra
 	Control	Controle
 	Convert	Converter
 	Convert All Spot Colors to Process	Converter Todas as Cores Spot em Processo
@@ -492,7 +499,7 @@
 	Create New {kind} Style	Criar Novo Estilo de {kind}
 	Create Object Mosaic…	Criar Mosaico de Objetos…
 	Create Outlines	Criar Contornos
-	Create PDF layers from top-level layers	Criar camadas de PDF a partir das camadas de nível superior
+	Create PDF layers from layers and sublayers	Criar camadas de PDF a partir das camadas e subcamadas
 	Create PDF-Compatible File	Criar Arquivo Compatível com PDF
 	Create Path	Criar Caminho
 	Create Slice	Criar Fatia
@@ -505,6 +512,7 @@
 	Created:	Criado:
 	Crop	Recortar
 	Crop Image	Recortar Imagem
+	Mask	Máscara
 	Crop Marks	Marcas de Corte
 	Crop To	Recortar Para
 	Crystallize Tool	Ferramenta Cristalizar
@@ -663,6 +671,8 @@
 	Duotone Gradients	Gradientes Duotônicos
 	Duplicate	Duplicar
 	Duplicate Artboard	Duplicar Mesa de Trabalho
+	Copy Artboard	Copiar Mesa de Trabalho
+	Cut Artboard	Recortar Mesa de Trabalho
 	Duplicate Artboards	Duplicar Mesas de Trabalho
 	Duplicate Brush	Duplicar Pincel
 	Duplicate Character Style	Duplicar Estilo de Caractere
@@ -722,6 +732,8 @@
 	Em Box Bottom/Left	Base/Esquerda da Caixa Eme
 	Em Box Center	Centro da Caixa Eme
 	Em Box Top/Right	Topo/Direita da Caixa Eme
+	ICF Top/Right	Topo/Direita do ICF
+	ICF Bottom/Left	Base/Esquerda do ICF
 	Em Dash	Travessão
 	Em Space	Espaço Em
 	Embed	Incorporar
@@ -855,6 +867,7 @@
 	Fill and Stroke	Preenchimento e Traçado
 	Fill new strokes	Preencher novos traçados
 	Fill with Placeholder Text	Preencher com Texto de Placeholder
+	Insert Inline Symbol	Inserir Símbolo no Texto
 	Fill:	Preenchimento:
 	Find	Localizar
 	Find Font	Localizar Fonte
@@ -1000,7 +1013,9 @@
 	Hide Artboards	Ocultar Mesas de Trabalho
 	Hide Bounding Box	Ocultar Caixa Delimitadora
 	Hide Code	Ocultar Código
-	Hide Contextual Task Bar	Ocultar Barra de Tarefas Contextual
+	Hide Bar	Ocultar Barra
+	More Options	Mais Opções
+	Show Properties Panel	Mostrar Painel Propriedades
 	Hide Corner Widget	Ocultar Widget de Canto
 	Hide Corner Widget for angles greater than	Ocultar Widget de Canto para ângulos maiores que
 	Hide Edges	Ocultar Bordas
@@ -1229,13 +1244,11 @@
 	Make a theme on Create and save it.	Crie um tema em Criar e salve-o.
 	Make all bleed settings the same	Tornar todas as configurações de sangria iguais
 	Make and Expand	Criar e Expandir
-	Make and Expand…	Criar e Expandir…
 	Make the bleed values differ	Fazer os valores de sangria diferirem
 	Make with Mesh…	Criar com Malha…
 	Make with Top Object	Criar com Objeto Superior
 	Make with Warp…	Criar com Distorção…
 	Make/Release Clipping Mask	Criar/Liberar Máscara de Recorte
-	Make…	Criar…
 	Manage Workspaces	Gerenciar Espaços de Trabalho
 	Manage Workspaces…	Gerenciar Espaços de Trabalho…
 	Manually	Manualmente
@@ -1244,6 +1257,9 @@
 	Marker…	Marcador…
 	Marks	Marcas
 	Match User Interface Brightness	Corresponder ao Brilho da Interface do Usuário
+	Light Gray	Cinza Claro
+	Medium Gray	Cinza Médio
+	Dark Gray	Cinza Escuro
 	Materials…	Materiais…
 	Matte:	Fosco:
 	Maximize	Maximizar
@@ -1729,7 +1745,17 @@
 	Rating:	Avaliação:
 	Real World:	Mundo Real:
 	Real-time Drawing and Editing	Desenho e Edição em Tempo Real
-	Rearrange All Artboards (on the roadmap)	Reorganizar Todas as Mesas de Trabalho (no roadmap)
+	Rearrange All Artboards	Reorganizar Todas as Mesas de Trabalho
+	Rearrange All	Reorganizar Tudo
+	Layout Order:	Ordem do Layout:
+	Change to Left-to-Right Layout	Mudar para Layout da Esquerda para a Direita
+	Grid by Row	Grade por Linha
+	Grid by Column	Grade por Coluna
+	Arrange by Row	Organizar em Linha
+	Arrange by Column	Organizar em Coluna
+	Move Artwork with Artboard	Mover Arte com a Mesa de Trabalho
+	Scale Artwork with Artboard	Dimensionar Arte com a Mesa de Trabalho
+	Artboards: {n}	Mesas de Trabalho: {n}
 	Rearrange All Artboards…	Reorganizar Todas as Mesas de Trabalho…
 	Recall Selection	Relembrar Seleção
 	Recent Colors	Cores Recentes
@@ -1873,6 +1899,8 @@
 	Reverse Spine	Inverter Coluna
 	Revert	Reverter
 	Revert to the saved version of “{name}”?	Reverter para a versão salva de “{name}”?
+	Replace “{name}”, the file this document was opened from?	Substituir “{name}”, o arquivo do qual este documento foi aberto?
+	Opening it left out what Kaleiform can't read yet ({what}), so replacing it loses that for good. Save under another name to keep it.	Ao abri-lo, ficou de fora o que o Kaleiform ainda não consegue ler ({what}), então substituí-lo perde isso para sempre. Salve com outro nome para mantê-lo.
 	Revolve…	Revolver…
 	Right Grid:	Grade Direita:
 	Right Indent	Recuo Direito
@@ -2101,6 +2129,8 @@
 	Show Grid (⌘')	Mostrar Grade (⌘')
 	Show Guides	Mostrar Guias
 	Show Hidden Characters	Mostrar Caracteres Ocultos
+	Bold	Negrito
+	Italic	Itálico
 	Show Images in Outline Mode	Mostrar Imagens no Modo de Contorno
 	Show Indic Options	Mostrar Opções do Índico
 	Show Link Info	Mostrar Informações do Link
@@ -2145,7 +2175,7 @@
 	Simplify…	Simplificar…
 	Simulate Colored Paper	Simular Papel Colorido
 	Simulate Paper	Simular Papel
-	Single / Double Column	Coluna Única / Dupla
+	Double Column	Coluna Dupla
 	Single Left Quotation Mark	Aspa Esquerda Única
 	Single Quotes:	Aspas Simples:
 	Single Right Quotation Mark	Aspa Direita Única
@@ -2231,7 +2261,10 @@
 	Stroke Color	Cor do Traçado
 	Stroke Options	Opções de Traçado
 	Stroke Weight	Peso do Traçado
+	Character:	Caractere:
+	Character options	Opções de caractere
 	Stroke options	Opções de traçado
+	Transform options	Opções de transformação
 	Stroke:	Traçado:
 	Style	Estilo
 	Style Name:	Nome do Estilo:
@@ -2527,6 +2560,7 @@
 	Zoom Tool	Ferramenta Zoom
 	Zoom to Selection	Ampliar para a Seleção
 	Zoom with Mouse Wheel	Zoom com a Roda do Mouse
+	Scrub Numeric Fields by Dragging	Ajustar Campos Numéricos Arrastando
 	[Default] is protected: New… starts an editable copy.	[Padrão] é protegido: Novo… inicia uma cópia editável.
 	[Unnamed]	[Sem Nome]
 	above	acima
@@ -2611,3 +2645,36 @@
 	Version	Versão
 	% of all commits	% de todos os commits
 	Lines +/−	Linhas +/−
+	Drag to move	Arraste para mover
+	Drag to float as a toolbar	Arraste para flutuar como barra de ferramentas
+	Put back in the toolbar	Devolver à barra de ferramentas
+	Float Panel	Flutuar Painel
+	Dock Panel	Encaixar Painel
+	Float Tool Group	Flutuar Grupo de Ferramentas
+
+# The macOS menu bar (native_menu): the app and Window menus' system items, Settings pages.
+	Services	Serviços
+	Hide Kaleiform	Ocultar o Kaleiform
+	Hide Others	Ocultar Outros
+	Zoom	Zoom
+	Bring All to Front	Trazer Todas para a Frente
+	Settings	Configurações
+	Break Link	Quebrar Vínculo
+	On: one locked object showing the document, updated when it changes.	Ativado: um objeto bloqueado que mostra o documento, atualizado quando ele muda.
+	Off: an editable copy of its art, embedded in this document.	Desativado: uma cópia editável da arte, incorporada neste documento.
+	Images: link to the file instead of only embedding it.	Imagens: vincular ao arquivo em vez de apenas incorporá-lo.
+	Kaleiform documents: one locked object, updated when the file changes.	Documentos do Kaleiform: um objeto bloqueado, atualizado quando o arquivo muda.
+	A file dialog is open: choose there first	Há uma caixa de diálogo de arquivos aberta: escolha nela primeiro
+	Shaper	Formador
+	Expand Shaper Group	Expandir Grupo Formador
+	Release Shaper Group	Liberar Grupo Formador
+	Select Shaper Face	Selecionar Face do Formador
+	Constrain	Restringir
+	Free Transform	Transformação Livre
+	Perspective Distort	Distorção de Perspectiva
+
+# Photoshop-style raster effects (Effect menu, their dialogs).
+	Radial Blur…	Desfoque Radial…
+	Smart Blur…	Desfoque Inteligente…
+	Sharpen	Nitidez
+	Unsharp Mask…	Máscara de Nitidez…

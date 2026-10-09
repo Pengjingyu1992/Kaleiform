@@ -70,7 +70,9 @@ impl Tool for EyedropperTool {
         if ev.kind != PointerKind::Down {
             return vec![];
         }
-        let opts = vectorcraft_doc::hit::HitOptions { path_only: false, ..cx.hit_options() };
+        // A click inside a fill or among characters samples it too, whatever Object and Type
+        // Object Selection by Path Only say.
+        let opts = vectorcraft_doc::hit::HitOptions { path_only: false, type_path_only: false, ..cx.hit_options() };
         let Some(h) = hit_test(cx.doc, ev.pos, opts) else { return vec![] };
         let src = paint_owner(cx.doc, h.leaf);
         let Some(n) = cx.doc.node(src) else { return vec![] };

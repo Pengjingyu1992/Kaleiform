@@ -35,6 +35,8 @@ pub const DEFAULT_ADDR: &str = "127.0.0.1:7979";
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_conventions;
+#[cfg(test)]
 mod tests_distortkeys;
 #[cfg(test)]
 mod tests_exportas;
@@ -48,6 +50,8 @@ mod tests_gradient;
 mod tests_links;
 #[cfg(test)]
 mod tests_liquify;
+#[cfg(test)]
+mod tests_pen;
 #[cfg(test)]
 mod tests_persp;
 #[cfg(test)]

@@ -40,6 +40,7 @@ pub mod layer_options;
 pub mod layers_panel_options;
 pub mod liquify;
 pub mod missing_links;
+pub(crate) mod modal;
 pub mod new_color_group;
 mod new_document;
 pub mod new_swatch;
@@ -59,6 +60,7 @@ pub mod print;
 pub mod print_presets;
 mod psd_options;
 pub mod raster_effects;
+pub mod rearrange_artboards;
 pub mod recolor;
 mod recovery;
 pub mod saturate;
@@ -93,13 +95,13 @@ pub use export_for_screens::open as open_export_for_screens;
 pub(crate) use export_for_screens::{
     KIND as EXPORT_FOR_SCREENS, formats as screen_formats, open_assets as open_export_for_screens_assets, saved_rows as screen_saved_rows,
 };
+pub(crate) use new_document::preset_name;
 pub use new_document::{open as open_new_document, preset_card};
 pub use png_options::open as open_raster_options;
 pub use save_pdf::{open as open_save_pdf, open_preset as open_pdf_preset};
 pub use tools::open_tool_dialog;
 
 use crate::state::Dialog;
-use crate::theme::{self, Tokens};
 use crate::{VectorcraftApp, widgets};
 
 type DialogResult = Result<Value, String>;
@@ -277,6 +279,7 @@ registry! {
     PerspectivePlane: [perspective_plane::KIND] => perspective_plane::SPEC,
     LayerOptions: [layer_options::KIND] => layer_options::SPEC,
     LayersPanelOptions: [layers_panel_options::KIND] => layers_panel_options::SPEC,
+    RearrangeArtboards: [rearrange_artboards::KIND] => rearrange_artboards::SPEC,
 }
 
 /// The button labels the shared dialog frame can show (OK, discard and the fixed Cancel/Close),
@@ -315,7 +318,8 @@ pub fn cancel(app: &mut VectorcraftApp) {
 /// Apply the open dialog (OK).
 pub fn confirm(app: &mut VectorcraftApp) -> DialogResult {
     let Some(d) = app.ui.dialog.clone() else { return Err("no dialog open".into()) };
-    (spec(&d.kind).confirm)(app, &d)
+    // A file dialog it shows off the UI thread confirms the dialog as it is again.
+    crate::picks::as_entry(app, || crate::picks::Entry::Confirm(Box::new(d.clone())), |app| (spec(&d.kind).confirm)(app, &d))
 }
 
 pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
@@ -342,62 +346,48 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     if let Some(window) = spec.window {
         return window(app, ctx);
     }
-    let t = Tokens::get(ctx);
     let mut ok = false;
     let mut cancel = false;
     let mut discard = false;
-    egui::Area::new(egui::Id::new("modal-dim")).order(egui::Order::Middle).fixed_pos(egui::pos2(0.0, 0.0)).show(ctx, |ui| {
-        // Modal, but the canvas isn't dimmed so previews stay readable (as in the reference app).
-        ui.allocate_rect(ctx.content_rect(), egui::Sense::click());
-    });
     let heading = (spec.heading)(&d);
-    egui::Window::new(heading.as_str())
-        // One window per kind, so a dialog never inherits another dialog's size.
-        .id(egui::Id::new(("dialog", d.kind.as_str())))
-        .order(egui::Order::Foreground)
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, -40.0])
-        .frame(egui::Frame::window(&ctx.global_style()).fill(t.panel).inner_margin(egui::Margin::same(MARGIN)))
-        .show(ctx, |ui| {
-            // Never wider than the window (a large UI scale in a small window): the text wraps.
-            let room = (ctx.content_rect().width() - 2.0 * (f32::from(MARGIN) + EDGE_GAP)).max(EDGE_GAP);
-            ui.set_min_width(spec.min_width.min(room));
-            ui.set_max_width(spec.max_width.map_or(room, |w| w.min(room)));
-            ui.label(egui::RichText::new(heading.as_str()).font(theme::semibold(16.0)).color(t.text));
-            ui.add_space(12.0);
-            // Just opened: its first field takes the keyboard focus, as in the reference app (type a
-            // value, press Enter). Only the body's fields can take it.
-            if focus_first {
-                ui.data_mut(|m| m.insert_temp(widgets::dialog_focus_flag(), true));
+    modal::show(ctx, &heading, egui::Id::new(("dialog", d.kind.as_str())), -40.0, MARGIN, |ui| {
+        // Never wider than the window (a large UI scale in a small window): the text wraps.
+        let room = (ctx.content_rect().width() - 2.0 * (f32::from(MARGIN) + EDGE_GAP)).max(EDGE_GAP);
+        ui.set_min_width(spec.min_width.min(room));
+        ui.set_max_width(spec.max_width.map_or(room, |w| w.min(room)));
+        modal::heading(ui, &heading);
+        ui.add_space(12.0);
+        // Just opened: its first field takes the keyboard focus, as in the reference app (type a
+        // value, press Enter). Only the body's fields can take it.
+        if focus_first {
+            ui.data_mut(|m| m.insert_temp(widgets::dialog_focus_flag(), true));
+        }
+        cancel = (spec.body)(app, ui, &mut d);
+        // Taken (the flag is gone): done. Still there (the window's measuring frame): next frame.
+        if focus_first && ui.data_mut(|m| m.remove_temp::<bool>(widgets::dialog_focus_flag())).is_none() {
+            ui.data_mut(|m| m.remove::<bool>(focus_id));
+        }
+        ui.add_space(16.0);
+        // The button row is as wide as the fields above it and as tall as the buttons: a
+        // right-to-left layout would otherwise take all the room left in the window, so the
+        // window could never shrink to its content.
+        let row = egui::vec2(ui.min_rect().width(), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(label) = spec.ok.map(|ok| spec.ok_label.map_or(ok, |f| f(app)))
+                && widgets::primary_button(ui, label).clicked()
+            {
+                ok = true;
             }
-            cancel = (spec.body)(app, ui, &mut d);
-            // Taken (the flag is gone): done. Still there (the window's measuring frame): next frame.
-            if focus_first && ui.data_mut(|m| m.remove_temp::<bool>(widgets::dialog_focus_flag())).is_none() {
-                ui.data_mut(|m| m.remove::<bool>(focus_id));
+            ui.add_space(8.0);
+            if widgets::secondary_button(ui, if spec.ok.is_some() { "Cancel" } else { "Close" }).clicked() {
+                cancel = true;
             }
-            ui.add_space(16.0);
-            // The button row is as wide as the fields above it and as tall as the buttons: a
-            // right-to-left layout would otherwise take all the room left in the window, so the
-            // window could never shrink to its content.
-            let row = egui::vec2(ui.min_rect().width(), ui.spacing().interact_size.y);
-            ui.allocate_ui_with_layout(row, egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(label) = spec.ok.map(|ok| spec.ok_label.map_or(ok, |f| f(app)))
-                    && widgets::primary_button(ui, label).clicked()
-                {
-                    ok = true;
-                }
-                ui.add_space(8.0);
-                if widgets::secondary_button(ui, if spec.ok.is_some() { "Cancel" } else { "Close" }).clicked() {
-                    cancel = true;
-                }
-                if let Some(label) = spec.discard {
-                    ui.add_space(28.0);
-                    discard = widgets::secondary_button(ui, label).clicked();
-                }
-            });
+            if let Some(label) = spec.discard {
+                ui.add_space(28.0);
+                discard = widgets::secondary_button(ui, label).clicked();
+            }
         });
+    });
     if spec.ok.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
         ok = true;
     }
@@ -482,3 +472,6 @@ mod tests_scale;
 
 #[cfg(test)]
 mod tests_perspective;
+
+#[cfg(test)]
+mod tests_modal;

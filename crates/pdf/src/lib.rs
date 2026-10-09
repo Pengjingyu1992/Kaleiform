@@ -10,7 +10,7 @@
 //!   text in embedded subset fonts (Advanced). Colours are converted, tagged with ICC profiles and
 //!   given an output intent as the Output settings say. Hidden objects,
 //!   guides and template layers are skipped, and so are non-printing layers unless asked for.
-//!   Top-level layers can be PDF layers (optional content groups with their visibility, print
+//!   Layers and sublayers can be PDF layers (optional content groups with their visibility, print
 //!   state and lock), and overprinting fills and strokes overprint (Advanced).
 //!   Each page is its artboard (the trim box) grown by the bleed (the bleed box) and by the
 //!   printer's marks around it (the media box), drawn in Registration. [`PdfSettings`] is the Save PDF
@@ -48,6 +48,7 @@ mod images;
 mod import;
 mod import_color;
 mod import_image;
+mod import_lines;
 mod import_mask;
 mod import_scan;
 mod import_shading;
@@ -68,8 +69,8 @@ mod syntax;
 pub use editing::{EDITING_FILE, Editing, LEGACY_EDITING_FILE, editing, editing_with};
 pub use encrypt::Encryption;
 pub use export::{export, export_with_report, page_areas};
-pub use import::{import, import_with_report};
-pub use pages::{PageInfo, PdfInfo, info, is_postscript};
+pub use import::{OFF_ARTBOARD_NOTE, import, import_with_report};
+pub use pages::{PageInfo, PdfInfo, illustrator_data, info, is_postscript};
 pub use post::{THUMBNAIL_SIZE, Thumbnail};
 pub use presets::*;
 pub use print::*;
@@ -230,6 +231,8 @@ mod tests_import_color;
 mod tests_import_fidelity;
 #[cfg(test)]
 mod tests_import_layers;
+#[cfg(test)]
+mod tests_import_lines;
 #[cfg(test)]
 mod tests_import_options;
 #[cfg(test)]

@@ -10,6 +10,8 @@
 # language names, OpenType, the built-in workspace names and the bracketed perspective grid preset
 # names.
 	About Kaleiform	O aplikaci Kaleiform
+	Align to Path	Zarovnat k cestě
+	Cut Path at Selected Anchor Points	Rozdělit cestu ve vybraných kotevních bodech
 	Settings…	Nastavení…
 	Language	Jazyk
 	UI Brightness	Jas rozhraní
@@ -130,6 +132,7 @@
 	Expand…	Rozložit…
 	Expand Appearance	Rozložit vzhled
 	Crop Image	Oříznout obraz
+	Mask	Maska
 	Rasterize…	Rastrovat…
 	Create Gradient Mesh…	Vytvořit přechodovou síť…
 	Create Object Mosaic…	Vytvořit mozaiku objektů…
@@ -139,6 +142,7 @@
 	Make Pixel Perfect	Zarovnat na obrazové body
 	Slice	Řez
 	Make	Vytvořit
+	Make and Expand	Vytvořit a rozložit
 	Release	Uvolnit
 	Create from Guides	Vytvořit z vodítek
 	Create from Selection	Vytvořit z výběru
@@ -195,8 +199,6 @@
 	Merge	Sloučit
 	Gap Options…	Možnosti mezer…
 	Image Trace	Vektorizace obrazu
-	Make…	Vytvořit…
-	Make and Expand…	Vytvořit a rozložit…
 	Text Wrap	Obtékání textu
 	Text Wrap Options…	Možnosti obtékání textu…
 	Clipping Mask	Ořezová maska
@@ -280,7 +282,10 @@
 	Create Outlines	Převést na křivky
 	Optical Margin Alignment	Optické zarovnání okrajů
 	Fill with Placeholder Text	Vyplnit zástupným textem
+	Insert Inline Symbol	Vložit symbol do textu
 	Show Hidden Characters	Zobrazit skryté znaky
+	Bold	Tučné
+	Italic	Kurzíva
 	Hide Hidden Characters	Skrýt skryté znaky
 	Type Orientation	Orientace textu
 	Horizontal	Vodorovně
@@ -486,10 +491,12 @@
 	Manage Workspaces…	Spravovat pracovní prostory…
 	Control	Ovládací panel
 	Contextual Task Bar	Kontextový panel úloh
+	Pin Bar Position	Připnout polohu panelu
+	Reset Bar Position	Obnovit polohu panelu
 	Tools	Nástroje
 	Toolbars	Panely nástrojů
 	Advanced	Rozšířený
-	Single / Double Column	Jeden / dva sloupce
+	Double Column	Dva sloupce
 	Actions	Akce
 	Asset Export	Export prvků
 	Attributes	Atributy
@@ -599,3 +606,44 @@
 	Version	Verze
 	% of all commits	% všech commitů
 	Lines +/−	Řádky +/−
+	Drag to move	Přetažením přesunete
+	Drag to float as a toolbar	Přetažením vytvoříte plovoucí panel nástrojů
+	Put back in the toolbar	Vrátit do panelu nástrojů
+	Float Panel	Plovoucí panel
+	Dock Panel	Ukotvit panel
+	Float Tool Group	Plovoucí skupina nástrojů
+
+# The macOS menu bar (native_menu): the app and Window menus' system items, Settings pages.
+	Services	Služby
+	Hide Kaleiform	Skrýt Kaleiform
+	Hide Others	Skrýt ostatní
+	Minimize	Minimalizovat
+	Zoom	Zvětšit
+	Bring All to Front	Převést vše do popředí
+	Settings	Nastavení
+	General	Obecné
+	Selection & Anchor Display	Výběr a zobrazení kotevních bodů
+	Units	Jednotky
+	Guides & Grid	Vodítka a mřížka
+	Hyphenation	Dělení slov
+	Performance & Storage	Výkon a úložiště
+	User Interface	Uživatelské rozhraní
+	Performance	Výkon
+	File Handling	Práce se soubory
+	Clipboard Handling	Práce se schránkou
+	Appearance of Black	Vzhled černé
+	Devices	Zařízení
+	A file dialog is open: choose there first	Je otevřené dialogové okno souboru: nejprve vyberte v něm
+	Shaper	Shaper
+	Expand Shaper Group	Rozšířit skupinu Shaper
+	Release Shaper Group	Uvolnit skupinu Shaper
+	Select Shaper Face	Vybrat oblast Shaper
+	Constrain	Omezit
+	Free Transform	Volná transformace
+	Perspective Distort	Perspektivní deformace
+
+# Photoshop-style raster effects (Effect menu, their dialogs).
+	Radial Blur…	Radiální rozostření…
+	Smart Blur…	Chytré rozostření…
+	Sharpen	Zostření
+	Unsharp Mask…	Maska rozostření…

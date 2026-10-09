@@ -3,12 +3,14 @@
 //! Pure Rust. External tools (`cargo`, `curl`, `tar`) are
 //! invoked through `std::process::Command`.
 
+mod affinity_corpus;
 mod app_icon;
 mod assets;
 mod brands;
 mod bundle;
 mod ico;
 mod layers;
+mod sha256;
 mod stats;
 mod version;
 
@@ -24,8 +26,9 @@ commands:
   layers          enforce the crate dependency layering (plan/architecture.md §3)
   wasm            cargo check --target wasm32-unknown-unknown for the wasm-safe crates
   ci              fmt --check, clippy -D warnings, test, assets, brands, layers, wasm (stops at first failure)
-  corpus [--download]
-                  show where test corpora live; --download fetches PngSuite into corpus/pngsuite
+  corpus [--download] [--affinity]
+                  show where test corpora live; --download fetches PngSuite into corpus/pngsuite,
+                  --affinity the pinned public Affinity documents into corpus/affinity
   bundle          build dist/虹构.app (macOS) with assets/app-icon/kaleiform.icns
   ico <out.ico> <png>...
                   pack PNGs into a Windows .ico (used by packaging/icons.sh)
@@ -43,6 +46,7 @@ fn main() -> ExitCode {
         Some("layers") => cmd_layers(),
         Some("wasm") => cmd_wasm(),
         Some("ci") => cmd_ci(),
+        Some("corpus") if rest.contains(&"--affinity") => affinity_corpus::fetch(),
         Some("corpus") => cmd_corpus(rest.contains(&"--download")),
         Some("bundle") => bundle::run(&root()),
         Some("ico") => ico::run(&rest),
@@ -235,6 +239,8 @@ Tests that use a corpus skip cleanly when it is absent.
   corpus/tiff/       libtiff pics (optional)
   corpus/exr/        OpenEXR sample images (optional)
   corpus/raw/        raw.pixls.us samples, CC0 (optional)
+  corpus/affinity/   public Affinity documents (CC0/MIT/Apache-2.0) at pinned commits, sha256
+                     verified: oracles for the Affinity reader. Fetch: cargo xtask corpus --affinity
 ",
         corpus.display()
     );

@@ -357,9 +357,13 @@ fn text_exported_as_outlines() {
     let mut d = doc(300.0, 100.0);
     let t = TextObject::point(Point::new(10.0, 50.0), "Hello", CharStyle { size: 24.0, ..CharStyle::default() });
     add(&mut d, Node::new(NodeId(0), NodeKind::Text(Box::new(t))));
-    let s = uncompressed(&d);
+    let mut outlined = PdfOptions::uncompressed();
+    outlined.settings.advanced.outline_text = true;
+    let s = String::from_utf8_lossy(&export(&d, &outlined).unwrap()).into_owned();
     assert!(!s.contains("/Font"), "no fonts when outlining text");
-    let r = import_with_report(&export(&d, &PdfOptions::default()).unwrap(), &ImportOptions::default()).unwrap();
+    // Real text in an embedded font by default, as a PDF from Illustrator has it (#733).
+    assert!(uncompressed(&d).contains("/FontFile"), "a font embedded by default");
+    let r = import_with_report(&export(&d, &outlined).unwrap(), &ImportOptions::default()).unwrap();
     let l = leaves(&r.document);
     assert!(!l.is_empty());
     assert!(l.iter().all(|n| matches!(n.kind, NodeKind::Path { .. })));
@@ -447,6 +451,20 @@ fn import_handmade_pdf() {
     // Gray 0.5 and the `cm` translation.
     assert_eq!(l[2].appearance.fill_paint().color().unwrap().to_hex(), "#808080");
     assert!(close(l[2].geometric_bounds().unwrap(), Rect::new(150.0, 270.0, 190.0, 300.0), 1e-6));
+}
+
+/// Art off the page opens on the pasteboard round its artboard, not cut away (#472).
+#[test]
+fn import_keeps_art_outside_the_page() {
+    let content = "0 0 1 rg 10 10 50 30 re f 0 1 0 rg -300 -300 50 50 re f 1 0 0 rg 500 500 20 20 re f";
+    let d = import(&handmade_pdf(content, "[0 0 200 300]")).unwrap();
+    assert!(close(d.artboards[0].rect, Rect::new(0.0, 0.0, 200.0, 300.0), 1e-9));
+    let bounds: Vec<Rect> = leaves(&d).iter().map(|n| n.geometric_bounds().unwrap()).collect();
+    let want = [Rect::new(10.0, 260.0, 60.0, 290.0), Rect::new(-300.0, 550.0, -250.0, 600.0), Rect::new(500.0, -220.0, 520.0, -200.0)];
+    assert_eq!(bounds.len(), want.len(), "{bounds:?}");
+    for (b, w) in bounds.iter().zip(want) {
+        assert!(close(*b, w, 1e-6), "{b:?} vs {w:?}");
+    }
 }
 
 #[test]

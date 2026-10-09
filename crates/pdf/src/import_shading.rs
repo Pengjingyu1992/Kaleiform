@@ -9,7 +9,7 @@ use hayro_interpret::pattern::ShadingPattern;
 use hayro_interpret::shading::{ShadingFunction, ShadingType};
 use kurbo::{BezPath, Circle, Point, Rect, Shape, Vec2};
 use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
-use vectorcraft_doc::live::{GradientMesh, H_DOWN, H_LEFT, H_RIGHT, H_UP, MeshPoint, lerp_color};
+use vectorcraft_doc::live::{GradientMesh, lerp_color};
 use vectorcraft_doc::{Node, NodeKind, OpacityMask};
 
 use crate::import::round3;
@@ -150,40 +150,6 @@ fn mesh_color(v: &[f32], function: Option<&ShadingFunction>, sp: &ShadingPattern
     })
 }
 
-/// A 1×1 gradient mesh from a patch's four corners (bottom-left, top-left, top-right,
-/// bottom-right in the patch's u/v order), each with its handles towards its neighbours.
-fn patch_mesh(corners: [(Point, [Vec2; 4], Color); 4]) -> GradientMesh {
-    let point = |(p, handles, color): (Point, [Vec2; 4], Color)| MeshPoint { p, color, opacity: 1.0, handles };
-    let [a, b, c, d] = corners;
-    // Row 0 is v = 0 (corners a, d), row 1 is v = 1 (b, c); columns follow u.
-    GradientMesh { rows: 1, cols: 1, points: vec![point(a), point(d), point(b), point(c)] }
-}
-
-/// Handles of a mesh corner: right, left, down, up (unused ones stay at the point).
-fn handles(right: Vec2, left: Vec2, down: Vec2, up: Vec2) -> [Vec2; 4] {
-    let mut h = [Vec2::ZERO; 4];
-    (h[H_RIGHT], h[H_LEFT], h[H_DOWN], h[H_UP]) = (right, left, down, up);
-    h
-}
-
-/// A 1×1 mesh from a patch's twelve boundary points (in the PDF's order: u runs cp0 → cp9 along
-/// cp11 and cp10, v runs cp0 → cp3 along cp1 and cp2) and its corner colours (at cp0, cp3, cp6,
-/// cp9); `None` if a point isn't finite.
-fn boundary_mesh(cp: &[Point], colors: [Color; 4]) -> Option<GradientMesh> {
-    let cp: &[Point; 12] = cp.get(..12)?.try_into().ok()?;
-    if !cp.iter().all(|p| p.is_finite()) {
-        return None;
-    }
-    let h = |a: usize, b: usize| cp[b] - cp[a];
-    let [c0, c1, c2, c3] = colors;
-    Some(patch_mesh([
-        (cp[0], handles(h(0, 11), Vec2::ZERO, h(0, 1), Vec2::ZERO), c0),
-        (cp[3], handles(h(3, 4), Vec2::ZERO, Vec2::ZERO, h(3, 2)), c1),
-        (cp[6], handles(Vec2::ZERO, h(6, 5), Vec2::ZERO, h(6, 7)), c2),
-        (cp[9], handles(Vec2::ZERO, h(9, 10), h(9, 8), Vec2::ZERO), c3),
-    ]))
-}
-
 /// A patch mesh or triangle mesh shading as gradient meshes in document space (one per patch;
 /// a triangle is a patch with two corners together). `None`: not a mesh, or too big.
 pub(crate) fn mesh_shading(sp: &ShadingPattern, colors: &mut Colors<'_>) -> Option<Vec<GradientMesh>> {
@@ -196,7 +162,7 @@ pub(crate) fn mesh_shading(sp: &ShadingPattern, colors: &mut Colors<'_>) -> Opti
             }
             for p in patches {
                 let colors = [0, 1, 2, 3].map(|i| mesh_color(p.colors.get(i).map_or(&[][..], |c| c.as_slice()), function.as_ref(), sp, colors));
-                out.extend(boundary_mesh(&p.control_points.map(|q| m * q), colors));
+                out.extend(GradientMesh::coons(&p.control_points.map(|q| m * q), colors));
             }
         }
         // A tensor patch's boundary is a Coons patch's (its four inner points are dropped).
@@ -206,7 +172,7 @@ pub(crate) fn mesh_shading(sp: &ShadingPattern, colors: &mut Colors<'_>) -> Opti
             }
             for p in patches {
                 let colors = [0, 1, 2, 3].map(|i| mesh_color(p.colors.get(i).map_or(&[][..], |c| c.as_slice()), function.as_ref(), sp, colors));
-                out.extend(boundary_mesh(&p.control_points.map(|q| m * q), colors));
+                out.extend(p.control_points.map(|q| m * q).first_chunk::<12>().and_then(|cp| GradientMesh::coons(cp, colors)));
             }
         }
         ShadingType::TriangleMesh { triangles, function } => {
@@ -215,16 +181,7 @@ pub(crate) fn mesh_shading(sp: &ShadingPattern, colors: &mut Colors<'_>) -> Opti
             }
             for t in triangles {
                 let v = [&t.p0, &t.p1, &t.p2].map(|v| (m * v.point, mesh_color(v.colors.as_slice(), function.as_ref(), sp, colors)));
-                if !v.iter().all(|(p, _)| p.is_finite()) {
-                    continue;
-                }
-                let [a, b, c] = v;
-                out.push(patch_mesh([
-                    (a.0, [Vec2::ZERO; 4], a.1),
-                    (b.0, [Vec2::ZERO; 4], b.1),
-                    (c.0, [Vec2::ZERO; 4], c.1),
-                    (c.0, [Vec2::ZERO; 4], c.1),
-                ]));
+                out.extend(GradientMesh::triangle(v));
             }
         }
         _ => return None,

@@ -32,6 +32,8 @@ pub(crate) enum Obj {
     /// An executable name: looked up and run.
     Exec(Rc<str>),
     Str(Shared<u8>),
+    /// An executable string (`cvx`): run, it runs its text as a program.
+    ExecStr(Shared<u8>),
     /// An array; executable ones are procedures.
     Array {
         items: Shared<Obj>,
@@ -85,7 +87,7 @@ impl Obj {
     pub fn text(&self) -> Option<Rc<str>> {
         match self {
             Self::Name(n) | Self::Exec(n) => Some(n.clone()),
-            Self::Str(s) => Some(Rc::from(String::from_utf8_lossy(&s.borrow()).as_ref())),
+            Self::Str(s) | Self::ExecStr(s) => Some(Rc::from(String::from_utf8_lossy(&s.borrow()).as_ref())),
             _ => None,
         }
     }
@@ -117,7 +119,7 @@ impl Obj {
             Self::Int(_) => "integertype",
             Self::Real(_) => "realtype",
             Self::Name(_) | Self::Exec(_) => "nametype",
-            Self::Str(_) => "stringtype",
+            Self::Str(_) | Self::ExecStr(_) => "stringtype",
             Self::Array { .. } => "arraytype",
             Self::Dict(_) => "dicttype",
             Self::Op(_) => "operatortype",
@@ -326,5 +328,21 @@ ops! {
     ResourceForAll = "resourceforall", Show = "show", AShow = "ashow",
     WidthShow = "widthshow", AWidthShow = "awidthshow", XShow = "xshow", YShow = "yshow", XYShow = "xyshow",
     KShow = "kshow", CShow = "cshow", GlyphShow = "glyphshow", StringWidth = "stringwidth", CharPath = "charpath",
-    SetCacheDevice = "setcachedevice", SetCharWidth = "setcharwidth",
+    SetCacheDevice = "setcachedevice", SetCharWidth = "setcharwidth", SetCacheDevice2 = "setcachedevice2", RootFont = "rootfont",
+    // Forms, devices and files programs probe (no output device or file system here).
+    ExecForm = "execform", NullDevice = "nulldevice", PdfMark = "pdfmark", Status = "status", Token = "token",
+    BytesAvailable = "bytesavailable", ResetFile = "resetfile", Write = "write", WriteString = "writestring",
+    WriteHexString = "writehexstring", Echo = "echo", StrokePath = "strokepath", PathForAll = "pathforall",
+    // Queries and settings without an effect on the art.
+    CurrentHsbColor = "currenthsbcolor", CurrentColorRendering = "currentcolorrendering",
+    FindColorRendering = "findcolorrendering", CurrentColorScreen = "currentcolorscreen", CurrentSmoothness = "currentsmoothness",
+    SetHalftonePhase = "sethalftonephase", CurrentHalftonePhase = "currenthalftonephase", SetDevParams = "setdevparams",
+    CurrentDevParams = "currentdevparams", Gcheck = "gcheck", Scheck = "scheck", CurrentShared = "currentshared",
+    SetShared = "setshared", ClearDictStack = "cleardictstack", ExecStack = "execstack", SetCacheParams = "setcacheparams",
+    CurrentCacheParams = "currentcacheparams", CacheStatus = "cachestatus", UCacheStatus = "ucachestatus",
+    SetVmThreshold = "setvmthreshold", VmReclaim = "vmreclaim", StartJob = "startjob", CurrentObjectFormat = "currentobjectformat",
+    Revision = "revision", SerialNumber = "serialnumber", Read = "read", FilePosition = "fileposition",
+    SetFilePosition = "setfileposition", DeleteFile = "deletefile", RenameFile = "renamefile", Run = "run",
+    // User paths.
+    UFill = "ufill", UEoFill = "ueofill", UStroke = "ustroke", UAppend = "uappend", UPath = "upath", SetBBox = "setbbox",
 }

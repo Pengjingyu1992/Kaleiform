@@ -118,6 +118,27 @@ fn ai_files_are_pdfs_that_save_and_reopen_editable() {
     assert_eq!(s.doc().unwrap().path, None);
 }
 
+/// #526: the exports (`document.export`, the CLI's `--export` and `convert`) write `.ai` as Save
+/// As does, leaving the document's own path alone.
+#[test]
+fn exports_write_ai_as_save_as_does() {
+    let mut s = rich();
+    let before = comparable(&s.doc().unwrap().doc);
+    let path = tmp("exported.ai");
+    let r = s.execute("document.export", &json!({"path": path})).unwrap();
+    assert_eq!(r["format"], "ai", "{r}");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes.starts_with(b"%PDF") && vectorcraft_pdf::editing(&bytes).is_some_and(|e| e.intact), "PDF-compatible, carrying the document");
+    assert_eq!(s.doc().unwrap().path, None, "an export doesn't give the document a path");
+    let r = s.execute("document.open", &json!({"path": path})).unwrap();
+    assert_eq!((&r["format"], &r["restored"]), (&json!("ai"), &json!(true)), "{r}");
+    assert_eq!(comparable(&s.doc().unwrap().doc), before);
+    // Its options as Save As takes them; no path gives the bytes.
+    let r = s.execute("document.export", &json!({"format": "ai", "pdfCompatible": false})).unwrap();
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("without PDF content"))), "{r}");
+    assert!(b64(&r).starts_with(b"%PDF"));
+}
+
 #[test]
 fn ait_templates_open_their_document_untitled() {
     let mut s = rich();

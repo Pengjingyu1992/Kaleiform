@@ -147,3 +147,19 @@ fn the_document_background_is_the_default_export_background() {
     assert_eq!(png(&mut s, json!({"format": "png", "background": "transparent"})).get_pixel(0, 0)[3], 0, "the option wins");
     assert_eq!(png(&mut s, json!({"format": "webp", "background": "black"})).get_pixel(0, 0).0, [0, 0, 0, 255]);
 }
+
+#[test]
+fn an_image_opens_at_the_size_its_resolution_declares() {
+    let mut s = session(72.0, 36.0, 1);
+    let hi = b64(&s.execute("document.export", &json!({"format": "png", "ppi": 300, "background": "white"})).unwrap());
+    let lo = b64(&s.execute("document.export", &json!({"format": "png", "background": "white"})).unwrap());
+    let lo = super::ppi::with_png_resolution(&lo, (72.0, 72.0));
+    for (png, w, h, what) in [(hi, 72.0, 36.0, "300 ppi: 300 x 150 px is 1 x 0.5 in"), (lo, 72.0, 36.0, "72 ppi: 1 px = 1 pt")] {
+        s.execute("document.open", &json!({"name": "art.png", "dataBase64": vectorcraft_format::base64_encode(&png)})).unwrap();
+        let doc = &s.doc().unwrap().doc;
+        let ab = doc.artboards[0].rect;
+        assert!((ab.width() - w).abs() < 1e-6 && (ab.height() - h).abs() < 1e-6, "{what}: artboard {ab:?}");
+        let art = doc.art_bounds().expect("the image");
+        assert!((art.width() - w).abs() < 1e-6 && (art.height() - h).abs() < 1e-6, "{what}: the image fills it, {art:?}");
+    }
+}

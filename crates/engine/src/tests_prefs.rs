@@ -123,34 +123,37 @@ fn prefs_serde_round_trip_and_tolerates_missing_fields() {
     assert_eq!(partial.corner_radius, 12.0);
 }
 
-/// Performance › Graphics Processor (#306): power saving by default, set by value or label, kept
-/// through a save/load round trip, and a bad value is an error that changes nothing.
+/// Performance › Graphics Processor (#306, #502): automatic by default, set by value or label,
+/// kept through a save/load round trip, and a bad value (0.5.0's `powerSaving` among them) is an
+/// error that changes nothing.
 #[test]
-fn gpu_preference_defaults_to_power_saving_and_validates() {
+fn gpu_preference_defaults_to_automatic_and_validates() {
     let mut s = Session::new();
-    assert_eq!(s.prefs.gpu_preference, "powerSaving");
-    assert_eq!(s.execute("prefs.get", &json!({"key": "gpuPreference"})).unwrap(), json!("powerSaving"));
+    assert_eq!(s.prefs.gpu_preference, "automatic");
+    assert_eq!(s.execute("prefs.get", &json!({"key": "gpuPreference"})).unwrap(), json!("automatic"));
     s.execute("prefs.set", &json!({"key": "gpuPreference", "value": "highPerformance"})).unwrap();
     assert_eq!(s.prefs.gpu_preference, "highPerformance");
     s.execute("prefs.set", &json!({"key": "gpuPreference", "value": "Power Saving (integrated)"})).unwrap();
-    assert_eq!(s.prefs.gpu_preference, "powerSaving");
-    for bad in [json!("turbo"), json!(""), json!(1), json!(null), json!(["highPerformance"])] {
+    assert_eq!(s.prefs.gpu_preference, "lowPower");
+    s.execute("prefs.set", &json!({"key": "gpuPreference", "value": "automatic"})).unwrap();
+    assert_eq!(s.prefs.gpu_preference, "automatic");
+    for bad in [json!("powerSaving"), json!("turbo"), json!(""), json!(1), json!(null), json!(["highPerformance"])] {
         assert!(s.execute("prefs.set", &json!({"key": "gpuPreference", "value": bad})).is_err(), "{bad}");
-        assert_eq!(s.prefs.gpu_preference, "powerSaving");
+        assert_eq!(s.prefs.gpu_preference, "automatic");
     }
-    let p = Prefs { gpu_preference: "highPerformance".into(), ..Default::default() };
+    let p = Prefs { gpu_preference: "lowPower".into(), ..Default::default() };
     let back: Prefs = serde_json::from_value(p.to_json()).unwrap();
-    assert_eq!(back.gpu_preference, "highPerformance");
+    assert_eq!(back.gpu_preference, "lowPower");
     // Preference files written before the preference existed get the default.
     let old: Prefs = serde_json::from_value(json!({"gpuPerformance": true})).unwrap();
-    assert_eq!(old.gpu_preference, "powerSaving");
+    assert_eq!(old.gpu_preference, "automatic");
     let l = s.execute("prefs.list", &json!({})).unwrap();
     let row = l.as_array().unwrap().iter().find(|e| e["key"] == "gpuPreference").unwrap().clone();
     assert_eq!(row["category"], "Performance");
-    assert_eq!(row["options"], json!(["powerSaving", "highPerformance"]));
+    assert_eq!(row["options"], json!(["automatic", "lowPower", "highPerformance"]));
     s.execute("prefs.set", &json!({"key": "gpuPreference", "value": "highPerformance"})).unwrap();
     s.execute("prefs.reset", &json!({"category": "Performance"})).unwrap();
-    assert_eq!(s.prefs.gpu_preference, "powerSaving");
+    assert_eq!(s.prefs.gpu_preference, "automatic");
 }
 
 /// Selection & Anchor Display › Tolerance, Object Selection by Path Only and Command Click to
@@ -277,6 +280,109 @@ fn snap_to_point_lands_a_dragged_selection_on_anchors() {
     assert_eq!(drag(&mut s, v), (276.5, 76.0), "1.8 px is beyond 1 px");
     set_pref(&mut s, "snapToPointTolerance", json!(2));
     assert_eq!(drag(&mut s, ViewInfo { snap_to_point: false, ..v }), (276.5, 76.0), "View › Snap to Point off");
+}
+
+/// Smart Guides › Spacing Guides (#394): a square dragged 21 pt to the right of a row of two
+/// squares 20 pt apart lands 20 pt from it, with the gaps marked; off, it stays at 21.
+#[test]
+fn spacing_guides_space_a_dragged_square_like_its_row() {
+    use vectorcraft_tools::PointerKind::{Down, Drag, Up};
+    let mut s = new_doc();
+    square(&mut s, 20.0, 300.0);
+    square(&mut s, 90.0, 300.0);
+    let m = square(&mut s, 200.0, 305.0);
+    let v = ViewInfo::default();
+    s.select_tool("selection", v).unwrap();
+    // `m` grabbed by its centre and dragged so its left edge is 21 pt from the second square.
+    let drag = |s: &mut Session| {
+        gesture(s, v, &[(Down, 225.0, 330.0), (Drag, 200.0, 330.0), (Drag, 186.0, 330.0)]);
+        let marks = s.overlays(v).iter().filter(|o| matches!(o, vectorcraft_tools::Overlay::Line { a, b, .. } if a.y == b.y)).count();
+        gesture(s, v, &[(Up, 186.0, 330.0)]);
+        let at = top_left(s, m).0;
+        s.execute("edit.undo", &json!({})).unwrap();
+        (at, marks)
+    };
+    let (at, marks) = drag(&mut s);
+    assert_eq!(at, 160.0, "20 pt from it");
+    assert!(marks >= 2, "both gaps marked");
+    set_pref(&mut s, "spacingGuides", json!(false));
+    assert_eq!(drag(&mut s), (161.0, 0), "off: where it was dragged");
+}
+
+/// Preferences › Smart Guides (#394): Color, Alignment Guides, Anchor/Path Labels, Measurement
+/// Labels, Transform Tools and Snapping Tolerance change what the Selection tool shows while a
+/// square is dragged into line with another, and how far the pull reaches; a hidden guide still
+/// snaps.
+#[test]
+fn smart_guide_display_preferences_filter_the_overlays() {
+    use vectorcraft_tools::Overlay;
+    use vectorcraft_tools::PointerKind::{Down, Drag, Up};
+    let mut s = new_doc();
+    square(&mut s, 100.0, 100.0);
+    let b = square(&mut s, 200.0, 100.0);
+    let v = ViewInfo::default();
+    s.select_tool("selection", v).unwrap();
+    let count = |s: &mut Session, f: &dyn Fn(&Overlay) -> bool| s.overlays(v).iter().filter(|o| f(o)).count();
+    let line = |o: &Overlay| matches!(o, Overlay::Line { .. });
+    let label = |o: &Overlay| matches!(o, Overlay::Label { .. });
+    let measure = |o: &Overlay| matches!(o, Overlay::Measure { .. });
+    // `b` grabbed by its centre and dragged so its left edge comes `off` px from the first
+    // square's right edge (x = 150): the x of its left edge mid-drag, before the pointer is let go.
+    let drag_to = |s: &mut Session, off: f64| {
+        gesture(s, v, &[(Down, 225.0, 125.0), (Drag, 200.0, 125.0), (Drag, 175.0 + off, 125.0)]);
+        top_left(s, b).0
+    };
+    let release = |s: &mut Session| {
+        gesture(s, v, &[(Up, 175.0, 125.0)]);
+        s.execute("edit.undo", &json!({})).unwrap();
+    };
+    assert_eq!(drag_to(&mut s, 3.0), 150.0, "3 px off: into line");
+    assert!(count(&mut s, &line) > 0 && count(&mut s, &measure) == 1);
+    let magenta = s.overlays(v).iter().find_map(|o| if let Overlay::Line { color, .. } = o { Some(*color) } else { None });
+    assert_eq!(magenta, Some(vectorcraft_tools::guides::MAGENTA), "the default colour");
+    release(&mut s);
+    set_pref(&mut s, "smartGuideColor", json!("#00ff00"));
+    drag_to(&mut s, 3.0);
+    assert!(s.overlays(v).iter().all(|o| !matches!(o, Overlay::Line { color, .. } | Overlay::Label { color, .. } if *color != [0, 255, 0])));
+    release(&mut s);
+    set_pref(&mut s, "alignmentGuides", json!(false));
+    assert_eq!(drag_to(&mut s, 3.0), 150.0, "still into line");
+    assert_eq!(count(&mut s, &line), 0, "no line");
+    release(&mut s);
+    set_pref(&mut s, "measurementLabels", json!(false));
+    drag_to(&mut s, 3.0);
+    assert_eq!(count(&mut s, &measure), 0);
+    release(&mut s);
+    // Snapping Tolerance: 6 px is beyond the default 4, within 8.
+    assert_eq!(drag_to(&mut s, 6.0), 156.0);
+    release(&mut s);
+    set_pref(&mut s, "snappingTolerance", json!(8));
+    assert_eq!(drag_to(&mut s, 6.0), 150.0);
+    release(&mut s);
+    // Transform Tools: the size readout while a bounding-box handle is dragged.
+    let scale = |s: &mut Session| {
+        gesture(s, v, &[(Down, 225.0, 150.0), (Drag, 225.0, 170.0)]);
+        let n = count(s, &measure);
+        gesture(s, v, &[(Up, 225.0, 170.0)]);
+        s.execute("edit.undo", &json!({})).unwrap();
+        n
+    };
+    assert_eq!(scale(&mut s), 1);
+    set_pref(&mut s, "transformToolsGuides", json!(false));
+    assert_eq!(scale(&mut s), 0);
+    // Anchor/Path Labels: a drawn corner pulled onto an anchor says "anchor" (and still lands there).
+    s.select_tool("rectangle", v).unwrap();
+    let draw = |s: &mut Session| {
+        gesture(s, v, &[(Down, 300.0, 300.0), (Drag, 153.0, 151.0)]);
+        let n = count(s, &label);
+        gesture(s, v, &[(Up, 153.0, 151.0)]);
+        let at = top_left(s, s.doc().unwrap().selection.objects[0]);
+        s.execute("edit.undo", &json!({})).unwrap();
+        (n, at)
+    };
+    assert_eq!(draw(&mut s), (1, (150.0, 150.0)));
+    set_pref(&mut s, "anchorPathLabels", json!(false));
+    assert_eq!(draw(&mut s), (0, (150.0, 150.0)));
 }
 
 /// Enable Rubber Band for Pen Tool / Curvature Tool (#394): off, no segment follows the pointer.
@@ -484,4 +590,83 @@ fn missing_glyph_protection_keeps_glyphs_a_new_font_lacks() {
     set_pref(&mut s, "missingGlyphProtection", json!(false));
     s.execute("text.setStyle", &json!({"font": to})).unwrap();
     assert_eq!(fonts(&s), [to, to, to]);
+}
+
+// ---------- #394, fourth batch ----------
+
+/// Type › Type Object Selection by Path Only (#394): on, a click among point type's glyphs no
+/// longer selects it with the Selection tool, a click on its baseline does; off (the default),
+/// anywhere in its bounds selects it.
+#[test]
+fn type_selection_by_path_only_picks_type_on_its_baseline() {
+    use vectorcraft_tools::{PointerEvent, PointerKind};
+    let mut s = new_doc();
+    let id = NodeId(s.execute("text.create", &json!({"x": 100, "y": 100, "text": "Hello world", "size": 20})).unwrap()["id"].as_u64().unwrap());
+    s.execute("select.none", &json!({})).unwrap();
+    let b = s.doc().unwrap().doc.node(id).and_then(|n| n.geometric_bounds()).unwrap();
+    assert!(b.y0 < 95.0 && b.x1 > 130.0, "the glyphs rise above the baseline at y = 100: {b:?}");
+    s.select_tool("selection", ViewInfo::default()).unwrap();
+    let click = |s: &mut Session, x: f64, y: f64| {
+        for k in [PointerKind::Down, PointerKind::Up] {
+            s.pointer(&PointerEvent::new(k, x, y), ViewInfo::default()).unwrap();
+        }
+        s.doc().unwrap().selection.objects.clone()
+    };
+    // Clear of the bounding box's handles: 15 px in from the left, halfway up the glyphs.
+    let (x, glyphs) = (b.x0 + 15.0, (b.y0 + 100.0) / 2.0);
+    assert_eq!(click(&mut s, x, glyphs), vec![id], "off: a click among the glyphs selects the type");
+    assert!(click(&mut s, x, 300.0).is_empty(), "empty canvas deselects");
+    set_pref(&mut s, "typeSelectionByPathOnly", json!(true));
+    assert!(click(&mut s, x, glyphs).is_empty(), "on: a click among the glyphs selects nothing");
+    assert_eq!(click(&mut s, x, 101.0), vec![id], "on: a click on the baseline selects it");
+    assert!(click(&mut s, x, 300.0).is_empty());
+    set_pref(&mut s, "typeSelectionByPathOnly", json!(false));
+    assert_eq!(click(&mut s, x, glyphs), vec![id], "off again: the glyphs select it");
+}
+
+/// Type Object Selection by Path Only (#394) with real layout: every line's baseline picks point
+/// type, between the lines nothing does; the Type tool still edits type clicked among its
+/// characters, and the Eyedropper still samples it there.
+#[test]
+fn type_selection_by_path_only_takes_every_line_and_spares_the_type_tool_and_eyedropper() {
+    use vectorcraft_tools::{PointerEvent, PointerKind};
+    let v = ViewInfo::default();
+    let mut s = new_doc();
+    let created = s
+        .execute(
+            "text.create",
+            &json!({"x": 100, "y": 100, "text": "Hello
+world", "size": 20}),
+        )
+        .unwrap();
+    let src = NodeId(created["id"].as_u64().unwrap());
+    s.execute("text.setStyle", &json!({"fill": "#00ff00"})).unwrap();
+    let NodeKind::Text(t) = &s.doc().unwrap().doc.node(src).unwrap().kind else { panic!("not type") };
+    let [(a, _), (b, _)] = t.cached_baselines[..] else { panic!("two baselines: {:?}", t.cached_baselines) };
+    let (first, second) = (t.xf * a, t.xf * b);
+    assert!(first.y == 100.0 && second.y > 115.0, "{first:?} {second:?}");
+    let click = |s: &mut Session, tool: &str, x: f64, y: f64| {
+        s.select_tool(tool, v).unwrap();
+        for k in [PointerKind::Down, PointerKind::Up] {
+            s.pointer(&PointerEvent::new(k, x, y), v).unwrap();
+        }
+        s.doc().unwrap().selection.objects.clone()
+    };
+    set_pref(&mut s, "typeSelectionByPathOnly", json!(true));
+    let x = first.x + 15.0;
+    assert!(click(&mut s, "selection", x, 300.0).is_empty());
+    assert_eq!(click(&mut s, "selection", x, second.y + 1.0), vec![src], "the second line's baseline");
+    assert!(click(&mut s, "selection", x, (first.y + second.y) / 2.0).is_empty(), "between the lines");
+    // The Type tool: a click among the glyphs puts the caret in that type, it adds none.
+    assert_eq!(click(&mut s, "type", x, first.y - 7.0), vec![src]);
+    assert!(s.tool_wants_text(), "editing");
+    let texts =
+        |s: &Session| s.doc().unwrap().doc.layers[0].children().map_or(0, |c| c.iter().filter(|n| matches!(n.kind, NodeKind::Text(_))).count());
+    assert_eq!(texts(&s), 1, "no new type");
+    // The Eyedropper: a click among the glyphs samples the type into the selected type.
+    s.select_tool("selection", v).unwrap();
+    let dst = NodeId(s.execute("text.create", &json!({"x": 100, "y": 300, "text": "Target"})).unwrap()["id"].as_u64().unwrap());
+    click(&mut s, "eyedropper", x, first.y - 7.0);
+    let NodeKind::Text(t) = &s.doc().unwrap().doc.node(dst).unwrap().kind else { panic!("not type") };
+    assert_eq!((t.first_style().size, t.first_style().fill.color().map(|c| c.to_hex())), (20.0, Some("#00ff00".into())));
 }

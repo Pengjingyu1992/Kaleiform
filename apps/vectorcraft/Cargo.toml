@@ -19,6 +19,7 @@ windows7 = ["eframe/glow"]
 [dependencies]
 vectorcraft-engine = { workspace = true }
 vectorcraft-ui-egui = { workspace = true }
+vectorcraft-text = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wayland", "x11"] }
 egui = { workspace = true }
 serde_json = { workspace = true }
@@ -36,12 +37,19 @@ winit = { version = "0.30", default-features = false }
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { workspace = true }
 
+# DirectWrite's system font collection (src/system_fonts.rs): fonts that font services such as
+# Adobe Fonts load in place (#579). MIT OR Apache-2.0, already in the build through accesskit.
+[target.'cfg(all(windows, not(target_vendor = "win7")))'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
-muda = { version = "0.21", default-features = false }
+# The macOS menu bar (src/mac_menu.rs): Tauri's menu crate, AppKit menus behind a safe API (no GTK
+# with default features off). Pinned exactly: review the diff before bumping.
+muda = { version = "=0.21.1", default-features = false }
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSTextInputContext"] }
-# Files opened from Finder and the Dock (src/open_documents.rs); both already come with winit, muda and rfd.
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSNotification", "NSOperation", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSEvent", "NSPasteboard", "NSResponder", "NSTextInputContext"] }
+# Files opened from Finder and the Dock (src/open_documents.rs) and pasted bitmaps (src/clipboard.rs); both already come with winit, muda and rfd.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSData", "NSNotification", "NSOperation", "NSString", "NSURL"] }
 block2 = "0.6"
 
 [build-dependencies]

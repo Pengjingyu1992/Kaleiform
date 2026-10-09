@@ -82,8 +82,11 @@ pub const UNITS: &[(&str, &str)] = &[
     ("feet", "Feet"),
 ];
 const LINE_STYLE: &[(&str, &str)] = &[("lines", "Lines"), ("dots", "Dots")];
-/// Performance › Graphics Processor (`gpuPreference`), read by the desktop app at startup.
-pub const GPU_PREFERENCES: &[(&str, &str)] = &[("powerSaving", "Power Saving (integrated)"), ("highPerformance", "High Performance (discrete)")];
+/// Performance › Graphics Processor (`gpuPreference`), read by the desktop app at startup. The
+/// values are WebGPU's power preferences plus `automatic`; 0.5.0's default, `powerSaving`, reads as
+/// `automatic` (#502).
+pub const GPU_PREFERENCES: &[(&str, &str)] =
+    &[("automatic", "Automatic"), ("lowPower", "Power Saving (integrated)"), ("highPerformance", "High Performance (discrete)")];
 const BLACK: &[(&str, &str)] = &[("accurate", "Display All Blacks Accurately"), ("rich", "Display All Blacks as Rich Black")];
 const BLACK_OUT: &[(&str, &str)] = &[("accurate", "Output All Blacks Accurately"), ("rich", "Output All Blacks as Rich Black")];
 
@@ -130,6 +133,7 @@ pub const PREF_SPECS: &[PrefSpec] = &[
     p!("scaleCorners", "General", "Options", "Scale Corners", bool),
     p!("scaleStrokes", "General", "Options", "Scale Strokes & Effects", bool),
     p!("zoomWithMouseWheel", "General", "Options", "Zoom with Mouse Wheel", bool),
+    p!("scrubNumericFields", "General", "Options", "Scrub Numeric Fields by Dragging", bool),
     // Selection & Anchor Display
     p!("selectionTolerance", "Selection & Anchor Display", "Selection", "Tolerance", num(1.0, 8.0, "px")),
     p!("objectSelectionByPathOnly", "Selection & Anchor Display", "Selection", "Object Selection by Path Only", bool),
@@ -183,6 +187,7 @@ pub const PREF_SPECS: &[PrefSpec] = &[
     p!("missingGlyphProtection", "Type", "Options", "Enable Missing Glyph Protection", bool),
     p!("highlightAlternateGlyphs", "Type", "Options", "Highlight Alternate Glyphs", bool),
     p!("placeholderText", "Type", "Options", "Fill New Type Objects With Placeholder Text", bool),
+    p!("fontsFolder", "Type", "Options", "Additional Fonts Folder", text),
     // Units
     p!("unitsGeneral", "Units", "", "General", choice(UNITS)),
     p!("unitsStroke", "Units", "", "Stroke", choice(UNITS)),
@@ -256,8 +261,21 @@ pub const PREF_SPECS: &[PrefSpec] = &[
         "Brightness",
         choice(&[("dark", "Dark"), ("mediumDark", "Medium Dark"), ("mediumLight", "Medium Light"), ("light", "Light")])
     ),
-    p!("canvasColor", "User Interface", "", "Canvas Color", choice(&[("matchUi", "Match User Interface Brightness"), ("white", "White")])),
+    p!(
+        "canvasColor",
+        "User Interface",
+        "",
+        "Canvas Color",
+        choice(&[
+            ("matchUi", "Match User Interface Brightness"),
+            ("white", "White"),
+            ("lightGray", "Light Gray"),
+            ("mediumGray", "Medium Gray"),
+            ("darkGray", "Dark Gray")
+        ])
+    ),
     p!("autoCollapseIconPanels", "User Interface", "", "Auto-Collapse Iconic Panels", bool),
+    p!("toolGroupLabels", "User Interface", "", "Show Tool Group Labels", bool),
     p!("openDocumentsAsTabs", "User Interface", "", "Open Documents As Tabs", bool),
     p!("largeTabs", "User Interface", "", "Large Tabs", bool),
     p!("uiScaling", "User Interface", "UI Scaling", "Scale", num(0.75, 2.0, "×")),
@@ -456,7 +474,18 @@ impl Session {
         let grid_changed = p.gridline_every != self.prefs.gridline_every || p.grid_subdivisions != self.prefs.grid_subdivisions;
         let history_changed = p.history_states != self.prefs.history_states;
         let tile_edge_changed = p.pattern_tile_edge_color != self.prefs.pattern_tile_edge_color;
+        let fonts_folder_changed = p.fonts_folder != self.prefs.fonts_folder;
         self.prefs = p;
+        if fonts_folder_changed {
+            let folder = self.prefs.fonts_folder.trim();
+            vectorcraft_text::set_user_font_dirs(if folder.is_empty() { vec![] } else { vec![folder.into()] });
+            // Once the fonts were scanned, scan again now: the folder's fonts appear (or go) in the
+            // font menus, and type in them lays out again. The first scan reads it anyway.
+            if vectorcraft_text::FontDb::global().installed_fonts_changed() {
+                // Its result only counts the faces cataloged.
+                let _ = super::fonts::rescan(self, &serde_json::Value::Null);
+            }
+        }
         vectorcraft_render::set_default_threads(u16::try_from(self.prefs.render_threads).ok());
         for st in &mut self.docs {
             if history_changed {

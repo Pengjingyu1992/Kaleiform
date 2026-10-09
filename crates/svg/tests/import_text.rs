@@ -150,7 +150,7 @@ fn text_path_becomes_type_on_a_path() {
     );
     let t = texts(&d);
     assert_eq!(t.len(), 3);
-    let TextKind::OnPath { path, start } = &t[0].kind else { panic!("{:?}", t[0].kind) };
+    let TextKind::OnPath { path, start, .. } = &t[0].kind else { panic!("{:?}", t[0].kind) };
     assert!(close(*start, 0.25, 1e-9));
     let b = t[0].xf.transform_rect_bbox(path.bounds().unwrap());
     assert!(close(b.x0, 10.0, 1e-6) && close(b.x1, 210.0, 1e-6) && close(b.y0, 100.0, 1e-6), "{b:?}");
@@ -310,7 +310,7 @@ fn pattern_fill_on_text_and_shapes() {
 fn vertical_writing_mode_runs_down_a_path() {
     let d = open(r#"<text x="100" y="20" writing-mode="tb" font-size="10">Down</text>"#);
     let t = only_text(&d);
-    let TextKind::OnPath { path, start } = &t.kind else { panic!("{:?}", t.kind) };
+    let TextKind::OnPath { path, start, .. } = &t.kind else { panic!("{:?}", t.kind) };
     assert_eq!(*start, 0.0);
     let b = path.bounds().unwrap();
     assert!(close(b.x0, b.x1, 1e-9) && close(b.y0, 20.0, 1e-9) && b.height() > 20.0, "{b:?}");

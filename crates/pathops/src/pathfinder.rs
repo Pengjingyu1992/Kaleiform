@@ -7,7 +7,7 @@ use kurbo::{BezPath, ParamCurve, ParamCurveNearest, Point, Shape as _};
 use linesweeper::topology::ContourIdx;
 use vectorcraft_geom::{FillRule, PathData};
 
-use crate::boolean::{Arrangement, Multi, Seg, all_contours_to_path, contours_to_path, fill_bezpath, segs_to_subpath, unite_all};
+use crate::boolean::{Arrangement, Multi, Seg, all_contours_to_path, contours_to_path, fill_bezpath, normalize_bez, segs_to_subpath, unite_all};
 
 /// A filled shape in a Pathfinder stack. `key` identifies its paint (e.g. a hashed fill colour);
 /// results carry the key of the object whose paint they keep.
@@ -262,6 +262,63 @@ pub fn region_at(shapes: &[Shape], point: Point) -> Option<Region> {
 pub fn merge_regions(regions: &[&Region]) -> PathData {
     let v: Vec<(&PathData, FillRule)> = regions.iter().map(|r| (&r.path, FillRule::NonZero)).collect();
     unite_all(&v)
+}
+
+/// Merges faces of the planar arrangement of a set of shapes (as [`regions`] gives them) into one
+/// path, from the arrangement itself, made once for every merge of the set: the faces' contours
+/// share their edges exactly, so the edges between merged faces vanish. Uniting the faces' tidied
+/// outlines ([`merge_regions`]) could leave those edges in, as a hairline gap or a spur, where
+/// neighbouring faces' outlines had been refit apart. Shapes with open paths (faces lines cut)
+/// fall back to [`merge_regions`].
+pub struct FaceMerger {
+    /// The arrangement (`None`: open paths, or the sweep failed) and the number of shapes.
+    arr: Option<Arrangement>,
+    shapes: usize,
+}
+
+impl FaceMerger {
+    pub fn new(shapes: &[Shape]) -> Self {
+        let has_open = shapes.iter().flat_map(|s| &s.path.subpaths).any(|sp| !sp.closed && sp.anchors.len() >= 2);
+        Self { arr: if has_open { None } else { arrangement(shapes) }, shapes: shapes.len() }
+    }
+
+    /// The union of `faces`.
+    pub fn merge(&self, faces: &[&Region]) -> PathData {
+        self.exact(faces).filter(|p| !p.is_empty()).unwrap_or_else(|| merge_regions(faces))
+    }
+
+    fn exact(&self, faces: &[&Region]) -> Option<PathData> {
+        let arr = self.arr.as_ref()?;
+        // Each face by its coverage and a point inside it.
+        let mut picks: Vec<(Vec<bool>, Point)> = Vec::with_capacity(faces.len());
+        for r in faces {
+            let mut mask = vec![false; self.shapes];
+            for &s in &r.sources {
+                *mask.get_mut(s)? = true;
+            }
+            picks.push((mask, crate::planar::interior_point(&r.path)?));
+        }
+        let mut raw = BezPath::new();
+        let mut done: Vec<&[bool]> = vec![];
+        for (mask, _) in &picks {
+            if done.contains(&mask.as_slice()) {
+                continue;
+            }
+            done.push(mask);
+            let c = arr.contours(|k| k == mask.as_slice());
+            for group in c.grouped() {
+                let mut face = BezPath::new();
+                for i in group {
+                    face.extend(c[i].path.iter());
+                }
+                if picks.iter().any(|(m, p)| m == mask && face.winding(*p) != 0) {
+                    raw.extend(face.iter());
+                }
+            }
+        }
+        let merged = normalize_bez(&raw, FillRule::NonZero).ok()?;
+        Some(all_contours_to_path(&merged, &arr.tidy))
+    }
 }
 
 /// Pathfinder Outline: split every shape's boundary at junctions of the arrangement.

@@ -424,11 +424,8 @@ fn destination(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
         let pick = app.services.pick_folder.is_some();
         ui.horizontal(|ui| {
             form::text(ui, d, "folder", if pick { 300.0 } else { 334.0 });
-            if pick
-                && widgets::icon_button(ui, "folder-open", tl!("Choose a folder"), false, 26.0).clicked()
-                && let Some(f) = app.services.pick_folder.as_mut().and_then(|pick| pick())
-            {
-                d.fields.insert("folder".into(), json!(f));
+            if pick && widgets::icon_button(ui, "folder-open", tl!("Choose a folder"), false, 26.0).clicked() {
+                crate::picks::folder_field(app, d, "folder");
             }
         });
         form::check(ui, d, "openLocation", tl!("Open Location after Export"));

@@ -7,12 +7,13 @@ use std::sync::Arc;
 use kurbo::{PathEl, Shape};
 use vectorcraft_color::swatch::REGISTRATION;
 use vectorcraft_color::{Color, Gradient, GradientGeom, GradientKind, GradientPaint, GradientStop, Paint};
-use vectorcraft_doc::clipnest::{Clip, Drawn};
+use vectorcraft_doc::clipnest::{Clip, Drawn, MAX_NEST, deep_clips};
+use vectorcraft_doc::pattern::PatternDef;
 use vectorcraft_doc::{Appearance, AppearanceItem, Dash, Document, FillLayer, LineCap, LineJoin, Node, NodeId, NodeKind, StrokeLayer};
 use vectorcraft_geom::{Affine, BezPath, FillRule, PathData, Point, Rect, Vec2};
 
 use super::interp::{Interp, MAX_GSAVE, matrix_obj};
-use super::obj::{DictRef, Key, Obj, Op, PsError, Res, ps_err};
+use super::obj::{DictRef, Key, Obj, Op, PsError, Res, Shared, ps_err};
 
 /// Most objects one file makes.
 const MAX_NODES: usize = 1 << 20;
@@ -21,19 +22,26 @@ const MAX_NODES: usize = 1 << 20;
 const LIMIT: f64 = 1e6;
 /// Width of a zero-width line (the thinnest a device draws), points.
 const HAIRLINE: f64 = 0.25;
+/// Most inks a `DeviceN` space has (PostScript's own limit).
+const MAX_INKS: usize = 32;
+/// Most dashes `strokepath` makes of a path (more and it outlines the path undashed).
+const MAX_DASHES: f64 = 1e5;
 /// Most entries an indexed colour space's table has.
 const MAX_HIVAL: usize = 4095;
 /// Most elements the current path may have.
 const MAX_PATH: usize = 1 << 20;
-/// Most path elements drawn in all.
+/// Most path elements drawn in all (each object's clips and groups counting as elements too).
 const MAX_DRAWN: usize = 1 << 24;
 /// Samples taken of a shading function that isn't a plain interpolation.
 const SHADING_SAMPLES: usize = 32;
 
-const FAR_AWAY: &str = "objects far outside the page were left out";
-const TOO_MUCH: &str = "the file draws more than Kaleiform reads: the rest was left out";
-const TILING_PATTERNS: &str = "pattern fills are filled with mid-grey";
-const SAMPLED_FUNCTIONS: &str = "shadings whose colours come from sampled functions are filled with their middle colour";
+pub(super) const FAR_AWAY: &str = "objects far outside the page were left out";
+pub(super) const TOO_MUCH: &str = "the file draws more than Kaleiform reads: the rest was left out";
+const NESTED_PATTERNS: &str = "patterns nested too deeply are filled with mid-grey";
+/// Deepest patterns and glyph procedures drawn inside each other's art.
+pub(crate) const MAX_APART: u32 = 8;
+const UNKNOWN_FUNCTIONS: &str = "shadings whose functions are of an unknown type are filled with their middle colour";
+const UNKNOWN_SHADINGS: &str = "shadings of an unknown type were left out";
 
 /// A colour space.
 #[derive(Clone, Debug)]
@@ -51,14 +59,15 @@ pub(crate) enum Space {
         base: Rc<Space>,
         table: Rc<Vec<f64>>,
     },
-    Pattern,
+    /// Patterns; an uncoloured one paints in a colour of the underlying space.
+    Pattern(Option<Rc<Space>>),
 }
 
 impl Space {
     /// Components a colour has in it.
     pub fn n(&self) -> usize {
         match self {
-            Self::Gray | Self::Indexed { .. } | Self::Pattern => 1,
+            Self::Gray | Self::Indexed { .. } | Self::Pattern(_) => 1,
             Self::Rgb => 3,
             Self::Cmyk => 4,
             Self::Inks { names, .. } => names.len().max(1),
@@ -110,6 +119,11 @@ pub(crate) struct GState {
     pub saved_clips: Vec<Rc<[Arc<Clip>]>>,
     pub overprint: bool,
     pub font: Option<DictRef>,
+    /// `nulldevice`: painting draws nothing.
+    pub null: bool,
+    /// The colour is a shading pattern whose shading is a mesh: a fill paints it (the shading
+    /// and pattern space → the document).
+    pub mesh: Option<(DictRef, Affine)>,
 }
 
 impl Default for GState {
@@ -133,6 +147,8 @@ impl Default for GState {
             saved_clips: vec![],
             overprint: false,
             font: None,
+            null: false,
+            mesh: None,
         }
     }
 }
@@ -147,8 +163,13 @@ pub(crate) struct Out {
     pub page: Affine,
     /// The page (the bounding box) in document space.
     pub frame: Rect,
+    /// Clip and group ids are given in the order they open, so a chain of both sorts by id.
     next_clip: u32,
-    /// Path elements drawn so far (see [`MAX_DRAWN`]).
+    /// The groups open (outermost first), and how many more opened past [`MAX_NEST`] (their art
+    /// goes in the innermost group kept).
+    groups: Vec<Arc<Clip>>,
+    too_deep: usize,
+    /// Path elements (and the clips and groups of each object) drawn so far (see [`MAX_DRAWN`]).
     elements: usize,
     /// The path the last object was filled with: a stroke of the same path right after joins it.
     merge: Option<BezPath>,
@@ -160,6 +181,12 @@ pub(crate) struct Out {
     /// Rectangles painted with a shading (`shfill`): a clipping group of one is the clip path
     /// filled with it.
     pub shadings: Vec<NodeId>,
+    /// Tiling patterns made into pattern swatches: the pattern's `PaintProc` (a pattern made
+    /// again with `makepattern` shares it) and cell, the colour an uncoloured one painted in, and
+    /// the swatch's name.
+    tilings: Vec<(Shared<Obj>, Rect, Option<Paint>, String)>,
+    /// How deep art drawn apart (a pattern's cell, a Type 3 glyph) is nested.
+    pub apart: u32,
 }
 
 fn sane(r: Rect) -> bool {
@@ -175,12 +202,16 @@ impl Out {
             page,
             frame,
             next_clip: 0,
+            groups: vec![],
+            too_deep: 0,
             elements: 0,
             merge: None,
             cmyk: 0,
             rgb: 0,
             spots: vec![],
             shadings: vec![],
+            tilings: vec![],
+            apart: 0,
         }
     }
 
@@ -190,10 +221,48 @@ impl Out {
         }
     }
 
-    /// Add `node` under `clips`; `None` when it was left out.
+    /// Open a group: what is drawn until it ends ([`Self::end_group`]) goes in it.
+    pub fn begin_group(&mut self) {
+        if self.groups.len() >= MAX_NEST {
+            self.too_deep += 1;
+            self.warn(&format!("groups nested more than {MAX_NEST} deep were read as part of the group around them"));
+            return;
+        }
+        self.next_clip += 1;
+        self.groups.push(Arc::new(Clip { id: self.next_clip, region: None }));
+    }
+
+    /// End the innermost group open (an end without a beginning ends nothing).
+    pub fn end_group(&mut self) {
+        if self.too_deep > 0 {
+            self.too_deep -= 1;
+        } else {
+            self.groups.pop();
+        }
+    }
+
+    /// The chain an object drawn under `clips` is drawn in: the clips and the groups open, in the
+    /// order they opened.
+    pub fn chain(&self, clips: &[Arc<Clip>]) -> Vec<Arc<Clip>> {
+        if self.groups.is_empty() {
+            return clips.to_vec();
+        }
+        let mut chain = Vec::with_capacity(clips.len() + self.groups.len());
+        let (mut a, mut b) = (clips.iter().peekable(), self.groups.iter().peekable());
+        while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
+            let next = if x.id < y.id { a.next() } else { b.next() };
+            chain.extend(next.cloned());
+        }
+        chain.extend(a.chain(b).cloned());
+        chain
+    }
+
+    /// Add `node` under `clips` (in the groups open); `None` when it was left out.
     pub fn push(&mut self, mut node: Node, clips: &[Arc<Clip>]) -> Option<NodeId> {
         self.merge = None;
-        self.elements = self.elements.saturating_add(node.path_data().map_or(1, |p| p.subpaths.iter().map(|s| s.anchors.len()).sum()));
+        let chain = self.chain(clips);
+        let size = node.path_data().map_or(1, |p| p.subpaths.iter().map(|s| s.anchors.len()).sum()) + chain.len();
+        self.elements = self.elements.saturating_add(size);
         if self.drawn.len() >= MAX_NODES || self.elements > MAX_DRAWN {
             self.warn(TOO_MUCH);
             return None;
@@ -204,7 +273,7 @@ impl Out {
         }
         node.id = self.doc.alloc_id();
         let id = node.id;
-        self.drawn.push((clips.to_vec(), node));
+        self.drawn.push((chain, node));
         Some(id)
     }
 
@@ -234,14 +303,15 @@ impl Out {
     /// clips (`gsave fill grestore stroke`).
     fn stroke(&mut self, bp: BezPath, st: StrokeLayer, clips: &[Arc<Clip>]) {
         self.count(&st.paint);
-        if self.merge.as_ref() == Some(&bp)
-            && let Some((chain, last)) = self.drawn.last_mut()
-            && chain.len() == clips.len()
-            && chain.iter().zip(clips).all(|(a, b)| Arc::ptr_eq(a, b))
-        {
-            last.appearance.items.push(AppearanceItem::Stroke(st));
-            self.merge = None;
-            return;
+        if self.merge.as_ref() == Some(&bp) {
+            let here = self.chain(clips);
+            if let Some((chain, last)) = self.drawn.last_mut()
+                && chain.iter().map(|c| c.id).eq(here.iter().map(|c| c.id))
+            {
+                last.appearance.items.push(AppearanceItem::Stroke(st));
+                self.merge = None;
+                return;
+            }
         }
         let n = Node::path(NodeId(0), PathData::from_bezpath(&bp), Appearance { items: vec![AppearanceItem::Stroke(st)], ..Appearance::default() });
         self.push(n, clips);
@@ -256,7 +326,7 @@ impl Out {
             return None;
         }
         self.next_clip += 1;
-        Some(Arc::new(Clip { id: self.next_clip, path, rule }))
+        Some(Arc::new(Clip { id: self.next_clip, region: Some((path, rule)) }))
     }
 }
 
@@ -440,18 +510,36 @@ impl Interp<'_> {
 
     // ---------- painting ----------
 
-    fn fill_path(&mut self, bp: BezPath, rule: FillRule) {
-        if bp.elements().is_empty() || self.g.paint.is_none() {
-            return;
+    fn fill_path(&mut self, bp: BezPath, rule: FillRule) -> Res {
+        if bp.elements().is_empty() || self.g.null {
+            return Ok(());
+        }
+        // A mesh pattern paints its shading inside the path.
+        if let Some((sh, m)) = self.g.mesh.clone() {
+            let clips = self.g.clips.clone();
+            self.clip_with(bp, rule);
+            let r = self.mesh_fill(&sh, m);
+            self.g.clips = clips;
+            return r;
+        }
+        if self.g.paint.is_none() {
+            return Ok(());
         }
         let (paint, overprint) = (self.g.paint.clone(), self.g.overprint);
         self.out.fill(bp, rule, paint, overprint, &self.g.clips);
+        Ok(())
     }
 
     fn stroke_path(&mut self, bp: BezPath) {
-        if bp.elements().is_empty() || self.g.paint.is_none() {
+        if bp.elements().is_empty() || self.g.paint.is_none() || self.g.null {
             return;
         }
+        let st = self.stroke_layer();
+        self.out.stroke(bp, st, &self.g.clips);
+    }
+
+    /// The stroke the graphics state draws, in document space.
+    fn stroke_layer(&self) -> StrokeLayer {
         let k = self.scale();
         let w = self.g.width * k;
         let mut st = StrokeLayer::new(self.g.paint.clone(), if w > 0.0 && w.is_finite() { w } else { HAIRLINE });
@@ -462,30 +550,194 @@ impl Interp<'_> {
         let pattern: Vec<f64> = self.g.dash.iter().map(|d| d * k).collect();
         let dash = Dash { pattern, offset: self.g.dash_offset * k, align_corners: false };
         st.dash = dash.is_dashed().then_some(dash);
-        self.out.stroke(bp, st, &self.g.clips);
+        st
     }
 
-    fn take_path(&mut self) -> BezPath {
+    /// The current path in user space, each element as its operator and points (quadratic
+    /// segments as cubic ones).
+    fn user_elements(&self) -> Res<Vec<(Op, Vec<Point>)>> {
+        let xf = self.xf();
+        if xf.determinant().abs() < 1e-12 {
+            return ps_err("undefinedresult", "");
+        }
+        let inv = xf.inverse();
+        let mut last = Point::ZERO;
+        let mut out = Vec::with_capacity(self.g.path.elements().len());
+        for el in self.g.path.elements() {
+            let (op, pts) = match *el {
+                PathEl::MoveTo(p) => (Op::MoveTo, vec![p]),
+                PathEl::LineTo(p) => (Op::LineTo, vec![p]),
+                PathEl::QuadTo(a, p) => (Op::CurveTo, vec![last + (a - last) * (2.0 / 3.0), p + (a - p) * (2.0 / 3.0), p]),
+                PathEl::CurveTo(a, b, p) => (Op::CurveTo, vec![a, b, p]),
+                PathEl::ClosePath => (Op::ClosePath, vec![]),
+            };
+            last = pts.last().copied().unwrap_or(last);
+            out.push((op, pts.into_iter().map(|p| inv * p).collect()));
+        }
+        Ok(out)
+    }
+
+    /// `pathforall`: the current path in user space, each element through its procedure.
+    fn path_for_all(&mut self) -> Res {
+        let close = self.pop_proc()?;
+        let curve = self.pop_proc()?;
+        let line = self.pop_proc()?;
+        let mv = self.pop_proc()?;
+        for (op, pts) in self.user_elements()? {
+            for p in pts {
+                self.push_num(p.x)?;
+                self.push_num(p.y)?;
+            }
+            let proc = match op {
+                Op::MoveTo => &mv,
+                Op::LineTo => &line,
+                Op::CurveTo => &curve,
+                _ => &close,
+            };
+            if !self.body(proc)? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Append user path `up` to the current path: a procedure of path operators, or the encoded
+    /// form (numbers and a string of operator codes).
+    fn user_path(&mut self, up: Obj) -> Res {
+        let items = up.items().cloned().ok_or(PsError::Ps("typecheck", "a user path".into()))?;
+        let encoded = match (items.get(0), items.get(1), items.len()) {
+            (Some(nums @ (Obj::Array { .. } | Obj::Str(_))), Some(Obj::Str(ops)), 2) => Some((nums, ops.to_vec())),
+            _ => None,
+        };
+        let Some((nums, ops)) = encoded else { return self.call(Obj::Array { items, exec: true }) };
+        // The operators by code, with how many operands each takes.
+        const OPS: [(Op, usize); 12] = [
+            (Op::SetBBox, 4),
+            (Op::MoveTo, 2),
+            (Op::RMoveTo, 2),
+            (Op::LineTo, 2),
+            (Op::RLineTo, 2),
+            (Op::CurveTo, 6),
+            (Op::RCurveTo, 6),
+            (Op::Arc, 5),
+            (Op::Arcn, 5),
+            (Op::Arct, 5),
+            (Op::ClosePath, 0),
+            (Op::UCache, 0),
+        ];
+        let nums: Vec<f64> = match nums {
+            Obj::Array { items, .. } => items.borrow().iter().filter_map(Obj::as_num).collect(),
+            _ => return ps_err("typecheck", "an encoded user path"),
+        };
+        let mut next = nums.into_iter();
+        let mut repeat = 1usize;
+        for code in ops {
+            if code >= 32 {
+                repeat = usize::from(code - 32);
+                continue;
+            }
+            let &(op, n) = OPS.get(usize::from(code)).ok_or(PsError::Ps("rangecheck", "a user path".into()))?;
+            for _ in 0..std::mem::replace(&mut repeat, 1) {
+                for _ in 0..n {
+                    let v = next.next().ok_or(PsError::Ps("rangecheck", "a user path".into()))?;
+                    self.push_num(v)?;
+                }
+                self.op(op)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `ufill`, `ueofill`, `ustroke` (with an optional matrix): paint a user path, keeping the
+    /// current path.
+    fn paint_user_path(&mut self, op: Op) -> Res {
+        let m = match (op, self.stack.last()) {
+            (Op::UStroke, Some(Obj::Array { items, exec: false })) if items.len() == 6 && self.stack.len() >= 2 => Some(self.pop_matrix()?),
+            _ => None,
+        };
+        let up = self.pop()?;
+        self.gsave()?;
+        let depth = self.saved.len();
+        self.take_path();
+        let r = self.user_path(up).and_then(|()| {
+            if let Some(m) = m {
+                self.g.ctm *= m;
+            }
+            let bp = self.take_path();
+            match op {
+                Op::UStroke => {
+                    self.stroke_path(bp);
+                    Ok(())
+                }
+                _ => self.fill_path(bp, if op == Op::UEoFill { FillRule::EvenOdd } else { FillRule::NonZero }),
+            }
+        });
+        self.saved.truncate(depth);
+        self.grestore();
+        r
+    }
+
+    /// `upath`: the current path as a user path (a procedure, in user space).
+    fn upath(&mut self) -> Res {
+        self.pop_bool()?;
+        let elements = self.user_elements()?;
+        let b = self.xf().inverse().transform_rect_bbox(self.g.path.bounding_box());
+        let mut items: Vec<Obj> = [b.x0, b.y0, b.x1, b.y1].into_iter().map(Obj::Real).collect();
+        items.push(Obj::Op(Op::SetBBox));
+        for (op, pts) in elements {
+            items.extend(pts.iter().flat_map(|p| [Obj::Real(p.x), Obj::Real(p.y)]));
+            items.push(Obj::Op(op));
+        }
+        self.alloc(items.len() * std::mem::size_of::<Obj>())?;
+        self.push(Obj::proc(items))
+    }
+
+    /// `execform`: the form's `PaintProc` run with its matrix, clipped to its box.
+    fn exec_form(&mut self) -> Res {
+        let d = self.pop_dict()?;
+        let get = |k: &str| d.borrow().get(&Key::name(k)).cloned();
+        let m = get("Matrix").and_then(|o| o.items().and_then(|i| super::interp::matrix_of(&i.borrow()))).unwrap_or(Affine::IDENTITY);
+        let bbox: Vec<f64> = get("BBox").and_then(|o| o.items().map(|i| i.borrow().iter().filter_map(Obj::as_num).collect())).unwrap_or_default();
+        let paint = get("PaintProc").ok_or(PsError::Ps("undefined", "PaintProc".into()))?;
+        self.gsave()?;
+        let depth = self.saved.len();
+        self.g.ctm *= m;
+        if let [x0, y0, x1, y1] = bbox[..] {
+            let bp = self.rect_path(x0, y0, x1 - x0, y1 - y0);
+            self.take_path();
+            self.clip_with(bp, FillRule::NonZero);
+        }
+        self.push(Obj::Dict(d))?;
+        let r = self.call(paint);
+        self.saved.truncate(depth);
+        self.grestore();
+        r
+    }
+
+    pub(super) fn take_path(&mut self) -> BezPath {
         self.g.cur = None;
         self.g.start = None;
         std::mem::take(&mut self.g.path)
     }
 
     fn clip_with(&mut self, path: BezPath, rule: FillRule) {
-        if let Some(c) = self.out.clip(path, rule) {
+        let Some(c) = self.out.clip(path, rule) else { return };
+        if self.g.clips.len() < MAX_NEST {
             self.g.clips.push(c);
+        } else {
+            self.out.warn(&deep_clips());
         }
     }
 
     /// The area the clip leaves, in document space (the page without a clip).
     fn clip_bounds(&self) -> Rect {
-        self.g.clips.last().map_or(self.out.frame, |c| c.path.bounding_box())
+        self.g.clips.iter().rev().find_map(|c| c.region.as_ref()).map_or(self.out.frame, |(p, _)| p.bounding_box())
     }
 
     // ---------- colour ----------
 
     /// A colour space operand.
-    fn space_of(&mut self, o: &Obj, depth: u32) -> Res<Space> {
+    pub(super) fn space_of(&mut self, o: &Obj, depth: u32) -> Res<Space> {
         if depth > 4 {
             return ps_err("limitcheck", "setcolorspace");
         }
@@ -503,7 +755,10 @@ impl Interp<'_> {
             "DeviceGray" | "CIEBasedA" | "CalGray" => Space::Gray,
             "DeviceRGB" | "CIEBasedABC" | "CalRGB" | "Lab" | "CIEBasedDEF" => Space::Rgb,
             "DeviceCMYK" | "CIEBasedDEFG" => Space::Cmyk,
-            "Pattern" => Space::Pattern,
+            "Pattern" => Space::Pattern(match items.get(1) {
+                Some(base) => Some(Rc::new(self.space_of(base, depth + 1)?)),
+                None => None,
+            }),
             "ICCBased" => match arg(1)? {
                 Obj::Dict(d) => match d.borrow().get(&Key::name("N")).and_then(Obj::as_num) {
                     Some(1.0) => Space::Gray,
@@ -517,6 +772,9 @@ impl Interp<'_> {
                     Obj::Array { items, .. } => items.borrow().iter().filter_map(Obj::text).collect(),
                     o => o.text().into_iter().collect(),
                 };
+                if names.len() > MAX_INKS {
+                    return ps_err("limitcheck", "DeviceN");
+                }
                 let alt = self.space_of(&arg(2)?, depth + 1)?;
                 Space::Inks { names, alt: Rc::new(alt), tint: arg(3)? }
             }
@@ -559,6 +817,7 @@ impl Interp<'_> {
     /// Set the colour to `comps` in the current space.
     fn set_comps(&mut self, comps: Vec<f64>) -> Res {
         let space = self.g.space.clone();
+        self.g.mesh = None;
         self.g.paint = self.paint_of(&space, &comps)?;
         self.g.comps = comps;
         Ok(())
@@ -601,7 +860,7 @@ impl Interp<'_> {
                 let c = table.get(i * n..i * n + n).ok_or(PsError::Ps("rangecheck", "setcolor".into()))?.to_vec();
                 Paint::solid(process(base, &c).unwrap_or(Color::BLACK))
             }
-            Space::Pattern => Paint::None,
+            Space::Pattern(_) => Paint::None,
             s => Paint::solid(process(s, comps).unwrap_or(Color::BLACK)),
         })
     }
@@ -625,29 +884,119 @@ impl Interp<'_> {
         self.g.paint.color().map_or([0.0; 3], |c| c.to_rgb_uncalibrated())
     }
 
-    /// A pattern colour: a shading pattern's gradient (others mid-grey).
-    fn pattern_paint(&mut self, d: &DictRef) -> Res<Paint> {
+    /// `setcolor` in a pattern space: the pattern operand, and before it an uncoloured
+    /// pattern's colour in the underlying space.
+    fn set_pattern(&mut self, base: Option<Rc<Space>>) -> Res {
+        let Obj::Dict(d) = self.pop()? else { return ps_err("typecheck", "") };
+        let uncoloured = d.borrow().get(&Key::name("PaintType")).and_then(Obj::as_num) == Some(2.0);
+        let under = match base.filter(|_| uncoloured) {
+            Some(base) => {
+                let mut c = vec![0.0; base.n()];
+                for slot in c.iter_mut().rev() {
+                    *slot = self.pop_num()?;
+                }
+                Some(self.paint_of(&base, &c)?)
+            }
+            None => None,
+        };
+        self.g.mesh = None;
+        self.g.paint = self.pattern_paint(&d, under)?;
+        Ok(())
+    }
+
+    /// A pattern colour: a shading pattern's gradient, a tiling pattern's swatch (`under`: the
+    /// colour an uncoloured one paints in).
+    fn pattern_paint(&mut self, d: &DictRef, under: Option<Paint>) -> Res<Paint> {
         let kind = d.borrow().get(&Key::name("PatternType")).and_then(Obj::as_num);
         let sh = d.borrow().get(&Key::name("Shading")).cloned();
+        let m = d.borrow().get(&Key::name("VCMatrix")).and_then(|o| o.items().and_then(|i| super::interp::matrix_of(&i.borrow())));
+        // Pattern space → the document.
+        let m = self.out.page * m.unwrap_or(self.g.ctm);
         match (kind, sh) {
-            (Some(2.0), Some(Obj::Dict(sh))) => {
-                let m = d.borrow().get(&Key::name("VCMatrix")).and_then(|o| o.items().and_then(|i| super::interp::matrix_of(&i.borrow())));
-                let m = self.out.page * m.unwrap_or(self.g.ctm);
-                Ok(self.gradient(&sh, m)?.map_or(Paint::None, |g| Paint::Gradient(Box::new(g))))
+            (Some(2.0), Some(Obj::Dict(sh))) if is_mesh(&sh) => {
+                self.g.mesh = Some((sh, m));
+                Ok(Paint::None)
             }
-            _ => {
-                self.out.warn(TILING_PATTERNS);
-                Ok(Paint::solid(Color::gray(0.5)))
-            }
+            (Some(2.0), Some(Obj::Dict(sh))) => Ok(self.gradient(&sh, m)?.map_or(Paint::None, |g| Paint::Gradient(Box::new(g)))),
+            (Some(2.0), _) => ps_err("typecheck", "Shading"),
+            _ => self.tiling(d, under, m),
         }
+    }
+
+    /// A tiling pattern as a pattern swatch (made the first time): its `PaintProc` drawn in
+    /// pattern space, one cell of `XStep` × `YStep` from the corner of its `BBox`; `m` maps pattern
+    /// space onto the document.
+    fn tiling(&mut self, d: &DictRef, under: Option<Paint>, m: Affine) -> Res<Paint> {
+        let get = |k: &str| d.borrow().get(&Key::name(k)).cloned();
+        let bbox: Vec<f64> = get("BBox").and_then(|o| o.items().map(|i| i.borrow().iter().filter_map(Obj::as_num).collect())).unwrap_or_default();
+        let [x0, y0, x1, y1] = bbox[..] else { return ps_err("rangecheck", "BBox") };
+        let step = |k: &str| get(k).and_then(|o| o.as_num()).map(f64::abs).filter(|v| v.is_finite() && *v > 1e-9 && *v < LIMIT);
+        let (Some(xs), Some(ys)) = (step("XStep"), step("YStep")) else { return ps_err("rangecheck", "XStep") };
+        let tile = Rect::from_origin_size((x0.min(x1), y0.min(y1)), (xs, ys));
+        let xf = m * Affine::translate(tile.origin().to_vec2());
+        let proc = get("PaintProc").ok_or(PsError::Ps("undefined", "PaintProc".into()))?;
+        let key = proc.items().cloned().ok_or(PsError::Ps("typecheck", "PaintProc".into()))?;
+        if let Some((.., name)) = self.out.tilings.iter().find(|(p, t, u, _)| p.same(&key) && *t == tile && *u == under) {
+            return Ok(Paint::Pattern { pattern: name.clone(), xf });
+        }
+        if self.out.apart >= MAX_APART {
+            self.out.warn(NESTED_PATTERNS);
+            return Ok(Paint::solid(Color::gray(0.5)));
+        }
+        let paint = under.clone();
+        let art = self.draw_apart(Rect::new(x0, y0, x1, y1).abs(), |it| {
+            if let Some(p) = paint {
+                it.g.paint = p;
+            }
+            it.push(Obj::Dict(d.clone()))?;
+            it.call(proc)
+        })?;
+        if art.is_empty() {
+            return Ok(Paint::None);
+        }
+        let name =
+            (self.out.doc.patterns.len() + 1..).map(|i| format!("Pattern {i}")).find(|n| self.out.doc.pattern(n).is_none()).unwrap_or_default();
+        let mut def = PatternDef::new(&name, art);
+        def.tile = tile;
+        self.out.doc.patterns.push(def);
+        self.out.tilings.push((key, tile, under, name.clone()));
+        Ok(Paint::Pattern { pattern: name, xf })
+    }
+
+    /// The art `draw` draws on its own, in its own space (user space is the document's, the page
+    /// `frame`), from a fresh graphics state with the current font: a pattern's cell, a glyph.
+    pub fn draw_apart(&mut self, frame: Rect, draw: impl FnOnce(&mut Self) -> Res) -> Res<Vec<Arc<Node>>> {
+        let fresh = GState { font: self.g.font.clone(), ..GState::default() };
+        let g = std::mem::replace(&mut self.g, fresh);
+        let saved = std::mem::take(&mut self.saved);
+        let drawn = std::mem::take(&mut self.out.drawn);
+        let page = std::mem::replace(&mut self.out.page, Affine::IDENTITY);
+        let frame = std::mem::replace(&mut self.out.frame, frame);
+        let merge = self.out.merge.take();
+        // The art isn't in the groups open around it.
+        let groups = std::mem::take(&mut self.out.groups);
+        let too_deep = std::mem::take(&mut self.out.too_deep);
+        self.out.apart += 1;
+        let r = draw(self);
+        self.out.apart -= 1;
+        let art = std::mem::replace(&mut self.out.drawn, drawn);
+        (self.out.page, self.out.frame, self.out.merge) = (page, frame, merge);
+        (self.out.groups, self.out.too_deep) = (groups, too_deep);
+        (self.g, self.saved) = (g, saved);
+        r?;
+        let mut nodes = vectorcraft_doc::clipnest::nest(&mut self.out.doc, art);
+        if !self.out.shadings.is_empty() {
+            collapse(&mut nodes, &self.out.shadings);
+        }
+        Ok(nodes)
     }
 
     /// An axial or radial shading as a gradient, `m` mapping its space onto the document.
     fn gradient(&mut self, sh: &DictRef, m: Affine) -> Res<Option<GradientPaint>> {
         let get = |k: &str| sh.borrow().get(&Key::name(k)).cloned();
         let kind = get("ShadingType").and_then(|o| o.as_num()).unwrap_or(0.0);
-        if kind != 2.0 && kind != 3.0 {
-            self.out.warn("shadings other than axial and radial ones (meshes, functions) were left out");
+        if !is_gradient(sh) {
+            self.out.warn(UNKNOWN_SHADINGS);
             return Ok(None);
         }
         let space = self.space_of(&get("ColorSpace").ok_or(PsError::Ps("undefined", "ColorSpace".into()))?, 0)?;
@@ -674,7 +1023,7 @@ impl Interp<'_> {
         let (r0, r1) = (c(2).max(0.0), c(5).max(1e-6));
         let mut stops = Vec::with_capacity(ts.len());
         for t in ts {
-            let comps = self.eval(&f, d0 + (d1 - d0) * t, 0)?;
+            let comps = self.eval(&f, &[d0 + (d1 - d0) * t], 0)?;
             let paint = self.paint_of(&space, &comps)?;
             let offset = if radial { (r0 + (r1 - r0) * t) / r1 } else { t };
             let stop = match paint {
@@ -697,8 +1046,9 @@ impl Interp<'_> {
         Ok(Some(g))
     }
 
-    /// A function (types 2 and 3; an array of them, one per component) at `t`.
-    fn eval(&mut self, f: &Obj, t: f64, depth: u32) -> Res<Vec<f64>> {
+    /// A function (types 0, 2 and 3; an array of them, one per component) at `x` (types 2 and 3
+    /// take one input).
+    pub fn eval(&mut self, f: &Obj, x: &[f64], depth: u32) -> Res<Vec<f64>> {
         if depth > 8 {
             return ps_err("limitcheck", "Function");
         }
@@ -708,7 +1058,7 @@ impl Interp<'_> {
                 let fs = items.to_vec();
                 let mut out = vec![];
                 for g in &fs {
-                    out.extend(self.eval(g, t, depth + 1)?.first().copied());
+                    out.extend(self.eval(g, x, depth + 1)?.first().copied());
                 }
                 return Ok(out);
             }
@@ -719,11 +1069,13 @@ impl Interp<'_> {
             o.and_then(|o| o.items().map(|i| i.borrow().iter().filter_map(Obj::as_num).collect())).unwrap_or_default()
         };
         let domain = nums(get("Domain"));
+        let t = x.first().copied().unwrap_or(0.0);
         let t = match domain.as_slice() {
             [a, b, ..] => t.clamp(a.min(*b), a.max(*b)),
             _ => t,
         };
         match get("FunctionType").and_then(|o| o.as_num()) {
+            Some(0.0) => self.sampled(&d, x),
             Some(2.0) => {
                 let c0 = nums(get("C0"));
                 let c1 = nums(get("C1"));
@@ -743,10 +1095,10 @@ impl Interp<'_> {
                 let (e0, e1) = (encode.get(2 * k).copied().unwrap_or(0.0), encode.get(2 * k + 1).copied().unwrap_or(1.0));
                 let u = if b != a { e0 + (t - a) / (b - a) * (e1 - e0) } else { e0 };
                 let g = fs.get(k).cloned().ok_or(PsError::Ps("rangecheck", "Functions".into()))?;
-                self.eval(&g, u, depth + 1)
+                self.eval(&g, &[u], depth + 1)
             }
             _ => {
-                self.out.warn(SAMPLED_FUNCTIONS);
+                self.out.warn(UNKNOWN_FUNCTIONS);
                 let r = nums(get("Range"));
                 Ok(r.chunks(2).map(|p| p.iter().sum::<f64>() / 2.0).collect())
             }
@@ -768,7 +1120,82 @@ impl Interp<'_> {
             }
             InitGraphics => {
                 let font = self.g.font.take();
-                self.g = GState { font, ..GState::default() };
+                self.g = GState { font, null: self.g.null, ..GState::default() };
+            }
+            NullDevice => {
+                self.g.null = true;
+                self.g.ctm = Affine::IDENTITY;
+                self.g.clips.clear();
+            }
+            ExecForm => self.exec_form()?,
+            StrokePath => {
+                let bp = self.take_path();
+                let mut st = self.stroke_layer();
+                // A dash pattern far finer than the path would make countless pieces.
+                let period: f64 = st.dash.as_ref().map_or(0.0, |d| d.pattern.iter().sum());
+                if st.dash.is_some() && !(period > 0.0 && bp.perimeter(1e-3) / period < MAX_DASHES) {
+                    st.dash = None;
+                }
+                let tol = (0.01 / self.scale().max(1e-9)).clamp(1e-4, 1.0);
+                let outline = vectorcraft_effects::stroke::line_outline(&bp, &st, st.width, tol);
+                if outline.elements().len() >= MAX_PATH {
+                    return Err(PsError::Limit("a path has too many points"));
+                }
+                self.g.cur = outline.elements().iter().rev().find_map(|e| e.end_point());
+                self.g.start = self.g.cur;
+                self.g.path = outline;
+            }
+            PathForAll => self.path_for_all()?,
+            UFill | UEoFill | UStroke => self.paint_user_path(op)?,
+            UAppend => {
+                let up = self.pop()?;
+                self.user_path(up)?;
+            }
+            UPath => self.upath()?,
+            SetBBox => {
+                self.nums::<4>()?;
+            }
+            CurrentHsbColor => {
+                let [r, g, b] = self.current_rgb();
+                let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+                let d = max - min;
+                let h = if d <= 0.0 {
+                    0.0
+                } else if max == r {
+                    ((g - b) / d).rem_euclid(6.0) / 6.0
+                } else if max == g {
+                    ((b - r) / d + 2.0) / 6.0
+                } else {
+                    ((r - g) / d + 4.0) / 6.0
+                };
+                let s = if max > 0.0 { d / max } else { 0.0 };
+                for v in [h, s, max] {
+                    self.push_num(f64::from(v))?;
+                }
+            }
+            CurrentColorRendering => {
+                let d = super::obj::Dict::from([(Key::name("ColorRenderingType"), Obj::Int(1))]);
+                self.push(Obj::dict(d))?;
+            }
+            FindColorRendering => {
+                self.pop()?;
+                self.push(Obj::name("DefaultColorRendering"))?;
+                self.push(Obj::Bool(false))?;
+            }
+            CurrentColorScreen => {
+                for _ in 0..4 {
+                    self.push(Obj::Real(60.0))?;
+                    self.push(Obj::Real(45.0))?;
+                    self.push(Obj::proc(vec![]))?;
+                }
+            }
+            CurrentSmoothness => self.push(Obj::Real(0.02))?,
+            SetHalftonePhase => {
+                self.nums::<2>()?;
+            }
+            CurrentHalftonePhase => {
+                self.push(Obj::Int(0))?;
+                self.push(Obj::Int(0))?;
             }
             GStateNew => self.push(Obj::GState(Rc::new(self.g.clone())))?,
             CurrentGState => {
@@ -856,9 +1283,8 @@ impl Interp<'_> {
                 self.push(o)?;
             }
             SetColor => {
-                if matches!(*self.g.space, Space::Pattern) {
-                    let Obj::Dict(d) = self.pop()? else { return ps_err("typecheck", "") };
-                    self.g.paint = self.pattern_paint(&d)?;
+                if let Space::Pattern(base) = &*self.g.space {
+                    self.set_pattern(base.clone())?;
                 } else {
                     let n = self.g.space.n();
                     let mut c = vec![0.0; n];
@@ -873,11 +1299,14 @@ impl Interp<'_> {
                     self.push_num(v)?;
                 }
             }
+            // `[/Pattern <current space>] setcolorspace setcolor`, unless in a pattern space already.
             SetPattern => {
-                let Obj::Dict(d) = self.pop()? else { return ps_err("typecheck", "") };
-                self.g.space = Rc::new(Space::Pattern);
-                self.g.space_obj = Obj::name("Pattern");
-                self.g.paint = self.pattern_paint(&d)?;
+                if !matches!(*self.g.space, Space::Pattern(_)) {
+                    self.g.space = Rc::new(Space::Pattern(Some(self.g.space.clone())));
+                    self.g.space_obj = Obj::array(vec![Obj::name("Pattern"), self.g.space_obj.clone()]);
+                }
+                let Space::Pattern(base) = &*self.g.space else { return ps_err("typecheck", "") };
+                self.set_pattern(base.clone())?;
             }
             MakePattern => {
                 let m = self.pop_matrix()?;
@@ -1132,7 +1561,7 @@ impl Interp<'_> {
             }
             Fill | EoFill => {
                 let bp = self.take_path();
-                self.fill_path(bp, if op == EoFill { FillRule::EvenOdd } else { FillRule::NonZero });
+                self.fill_path(bp, if op == EoFill { FillRule::EvenOdd } else { FillRule::NonZero })?;
             }
             Stroke => {
                 let bp = self.take_path();
@@ -1140,7 +1569,7 @@ impl Interp<'_> {
             }
             RectFill => {
                 let bp = self.rects()?;
-                self.fill_path(bp, FillRule::NonZero);
+                self.fill_path(bp, FillRule::NonZero)?;
             }
             RectStroke => {
                 let m = match self.stack.last() {
@@ -1156,6 +1585,13 @@ impl Interp<'_> {
             }
             ShFill => {
                 let d = self.pop_dict()?;
+                if self.g.null {
+                    return Ok(());
+                }
+                if is_mesh(&d) {
+                    let m = self.xf();
+                    return self.mesh_fill(&d, m);
+                }
                 let m = self.xf();
                 if let Some(g) = self.gradient(&d, m)? {
                     let area = self.clip_bounds();
@@ -1172,6 +1608,16 @@ impl Interp<'_> {
         }
         Ok(())
     }
+}
+
+/// Is shading `sh` axial or radial (a gradient)?
+fn is_gradient(sh: &DictRef) -> bool {
+    matches!(sh.borrow().get(&Key::name("ShadingType")).and_then(Obj::as_num), Some(2.0 | 3.0))
+}
+
+/// Is shading `sh` one [`Interp::mesh_fill`] paints?
+fn is_mesh(sh: &DictRef) -> bool {
+    matches!(sh.borrow().get(&Key::name("ShadingType")).and_then(Obj::as_num), Some(1.0 | 4.0 | 5.0 | 6.0 | 7.0))
 }
 
 /// Where a stitched function of linear interpolations changes slope (its bounds), when it is

@@ -18,12 +18,12 @@ fn doc() -> Document {
     d.insert(Some(l), usize::MAX, a).unwrap();
     let st = CharStyle { size: 12.0, font_family: "Source Sans 3".into(), fill: Paint::solid(Color::BLACK), ..CharStyle::default() };
     let mut t = TextObject::point(Point::new(20.0, 120.0), "", st.clone());
-    t.runs = vec![TextRun { text: "one two\nthree".into(), style: st.clone() }];
+    t.runs = vec![TextRun { text: "one two\nthree".into(), style: st.clone(), inline: None }];
     let i = d.alloc_id();
     d.insert(Some(l), usize::MAX, Node::new(i, NodeKind::Text(Box::new(t.clone())))).unwrap();
     t.kind = TextKind::Area { frame: shapes::rectangle(Rect::new(0.0, 0.0, 200.0, 60.0)) };
     t.xf = Affine::translate((20.0, 140.0));
-    t.runs = vec![TextRun { text: "para one\npara two".into(), style: st }];
+    t.runs = vec![TextRun { text: "para one\npara two".into(), style: st, inline: None }];
     let i = d.alloc_id();
     d.insert(Some(l), usize::MAX, Node::new(i, NodeKind::Text(Box::new(t)))).unwrap();
     d

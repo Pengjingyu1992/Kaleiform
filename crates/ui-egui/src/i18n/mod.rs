@@ -19,6 +19,10 @@
 //!   translation survives rewording of the English text and can differ per command.
 //! - [`trn`]: plural-aware (`{n}` is filled in). [`fmt`]: fill `{name}` placeholders after [`tr`];
 //!   translators may reorder placeholders freely.
+//! - [`message`] / [`msg`]: a status or error message, translated only where it is shown. The
+//!   message itself stays English (the control channel, MCP and tests read it); `@msg` catalog
+//!   rows hold whole messages or templates such as `Couldn't open {name}: {e}`, and the values in
+//!   the placeholders are translated in turn (the reason after `: {e}` is often a message too).
 
 mod catalog;
 
@@ -59,8 +63,26 @@ fn plural_czech(n: u64) -> usize {
     }
 }
 
+/// French: 0 and 1 are `one` (« 0 calque »), everything else `other`.
+fn plural_french(n: u64) -> usize {
+    usize::from(n > 1)
+}
+
+/// Russian and Ukrainian integer counts: 1 (but not 11) is `one`, 2–4 (but not 12–14)
+/// `few`, everything else `many`.
+fn plural_east_slavic(n: u64) -> usize {
+    match n % 100 {
+        11..=14 => 2,
+        _ => match n % 10 {
+            1 => 0,
+            2..=4 => 1,
+            _ => 2,
+        },
+    }
+}
+
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 7] = [
+pub static LANGUAGES: [LangInfo; 11] = [
     LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, complete_menus: false, catalog: OnceLock::new() },
     // Japanese: the whole interface (every menu string and `tl!` literal), keeping the product,
     // workspace and perspective preset names in English (`MENU_KEEP_AS_IS`).
@@ -74,6 +96,39 @@ pub static LANGUAGES: [LangInfo; 7] = [
         name: "Español",
         source: include_str!("es.tsv"),
         plural: plural_one_other,
+        complete_menus: true,
+        catalog: OnceLock::new(),
+    },
+    // French: the whole interface and the status and error messages, keeping the same names in
+    // English as Spanish; every `fr-*` locale (`fr-FR`, `fr-BE`, `fr-CA`, `fr-CH` …) resolves here.
+    LangInfo { code: "fr", name: "Français", source: include_str!("fr.tsv"), plural: plural_french, complete_menus: true, catalog: OnceLock::new() },
+    // Italian: the whole interface and the status and error messages, keeping the same names in
+    // English as Spanish; every `it-*` locale (`it-IT`, `it-CH`, `it-SM` …) resolves here.
+    LangInfo {
+        code: "it",
+        name: "Italiano",
+        source: include_str!("it.tsv"),
+        plural: plural_one_other,
+        complete_menus: true,
+        catalog: OnceLock::new(),
+    },
+    // Russian: the whole interface and the status and error messages, keeping the same names in
+    // English as Spanish; every `ru-*` locale (`ru-RU`, `ru-BY`, `ru-KZ` …) resolves here.
+    LangInfo {
+        code: "ru",
+        name: "Русский",
+        source: include_str!("ru.tsv"),
+        plural: plural_east_slavic,
+        complete_menus: true,
+        catalog: OnceLock::new(),
+    },
+    // Ukrainian: the whole interface and the status and error messages, with one/few/many
+    // plural forms; every `uk-*` locale (including `uk-UA`) resolves here.
+    LangInfo {
+        code: "uk",
+        name: "Українська",
+        source: include_str!("uk.tsv"),
+        plural: plural_east_slavic,
         complete_menus: true,
         catalog: OnceLock::new(),
     },
@@ -212,14 +267,26 @@ pub fn detect_system_lang_in_background() {
     }
 }
 
+/// The system language, worked out once.
+static SYSTEM: OnceLock<Lang> = OnceLock::new();
+
 /// The system language (cached). English when it can't be determined.
 pub fn system_lang() -> Lang {
     // Tests drive the UI by its English labels whatever the developer's locale is.
     if cfg!(test) {
         return Lang::EN;
     }
-    static SYSTEM: OnceLock<Lang> = OnceLock::new();
     *SYSTEM.get_or_init(detect_system_lang)
+}
+
+/// Tell the UI the system's preferred languages, most preferred first, where it can't find them
+/// itself: the web shell passes the browser's (`navigator.languages`). The first supported one is
+/// the system language (English if none is); call it before the first frame. Has no effect once
+/// the system language is known.
+pub fn set_system_locales<S: AsRef<str>>(tags: &[S]) {
+    let lang = tags.iter().find_map(|t| lang_from_tag(t.as_ref())).unwrap_or(Lang::EN);
+    // Already set means already detected (or reported): the first answer stands.
+    let _ = SYSTEM.set(lang);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -277,6 +344,7 @@ fn registry_locale(text: &str) -> Option<String> {
     text.lines().find(|l| l.contains("LocaleName")).and_then(|l| l.split_whitespace().last()).map(str::to_string)
 }
 
+/// The browser's languages arrive through [`set_system_locales`]; without them, English.
 #[cfg(target_arch = "wasm32")]
 fn detect_system_lang() -> Lang {
     Lang::EN
@@ -349,6 +417,40 @@ pub fn trn(lang: Lang, n: u64, one: &str, other: &str) -> String {
 /// `menu_item_name`, `dim_name`).
 pub fn label_or_name(lang: Lang, s: &str, built_in: bool) -> &str {
     if built_in { tr(lang, s) } else { s }
+}
+
+/// How deep [`message`] translates placeholder values that are messages themselves.
+const MESSAGE_DEPTH: usize = 3;
+
+/// Translate a status or error message for display (see the module docs). Unknown messages, and
+/// parts of them (file names, numbers, a reason with no entry), stay as they are.
+pub fn message(lang: Lang, s: &str) -> String {
+    message_at(lang, s, MESSAGE_DEPTH)
+}
+
+fn message_at(lang: Lang, s: &str, depth: usize) -> String {
+    let Some((template, caps)) = lang.catalog().message(s) else { return s.to_string() };
+    let values: Vec<(&str, String)> =
+        caps.into_iter().map(|(k, v)| (k, if depth > 1 { message_at(lang, v, depth - 1) } else { v.to_string() })).collect();
+    let args: Vec<(&str, &str)> = values.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    fmt(template, &args)
+}
+
+/// [`message`] in the current language, remembering the last answer: the status bar asks for the
+/// same message every frame.
+pub fn msg(s: &str) -> String {
+    static LAST: std::sync::Mutex<Option<(&'static str, String, String)>> = std::sync::Mutex::new(None);
+    let lang = current();
+    let mut last = LAST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((code, src, out)) = last.as_ref()
+        && *code == lang.code()
+        && src == s
+    {
+        return out.clone();
+    }
+    let out = message(lang, s);
+    *last = Some((lang.code(), s.to_string(), out.clone()));
+    out
 }
 
 /// [`trn`] in the current language.

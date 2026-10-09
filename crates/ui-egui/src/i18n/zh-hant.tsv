@@ -88,6 +88,7 @@
 	Add to Swatches	新增至色票
 	Add Used Colors	新增使用中的顏色
 	Additional Plug-ins Folder	額外的增效模組資料夾
+	Additional Fonts Folder	額外的字體資料夾
 	Adjust Adjoining Width Points	調整相鄰寬度點
 	Adjust Color Balance…	調整色彩平衡…
 	Adjust Colors	調整顏色
@@ -136,6 +137,7 @@
 	Anchor Points	錨點
 	Anchor Points, Handle, and Bounding Box Display	錨點、控制把手與邊框顯示
 	Anchor/Path Labels	錨點/路徑標籤
+	Anchors:	錨點：
 	Angle	角度
 	Angle:	角度：
 	Angles	角度
@@ -153,7 +155,8 @@
 	Appearance Panel	外觀面板
 	Appearance panel	外觀面板
 	Applies when the linked file is relinked or updated.	重新連結或更新連結檔案時套用。
-	Applies the next time Kaleiform starts.	下次啟動虹構時生效。
+	Applies the next time Kaleiform starts.	下次啟動 Kaleiform 時生效。
+	Apply	套用
 	Apply Brush	套用筆刷
 	Apply Character Style	套用字元樣式
 	Apply Effect	套用效果
@@ -193,6 +196,7 @@
 	Artwork Colors	圖稿顏色
 	As Multiple Assets	作為多個資產
 	As Single Asset	作為單一資產
+	Ascender	上緣
 	Ask When Modified	修改時詢問
 	Aspect Ratio	長寬比
 	Asset Export	資產匯出
@@ -210,6 +214,7 @@
 	Auto Size New Area Type	自動調整新區域文字大小
 	Auto Spell Check	自動拼字檢查
 	Auto-Collapse Iconic Panels	自動收合圖示面板
+	Show Tool Group Labels	顯示工具組標籤
 	Auto-Rotate (turn the paper to each artboard)	自動旋轉 (將紙張轉向各工作區域)
 	Automatic flatness	自動平滑度
 	Automatically	自動
@@ -224,6 +229,7 @@
 	Background:	背景：
 	Backspace	Backspace
 	Bar Graph Tool	橫條圖工具
+	Baseline	基線
 	Baseline Shift	基線位移
 	Basic Latin	基本拉丁文
 	Batch	批次
@@ -256,6 +262,8 @@
 	Bottom	下
 	Bottom in Front	下方置前
 	Bottom-to-Bottom Leading	基線至基線行距
+	Burasagari	標點懸掛
+	Force	強制
 	Bottom:	下：
 	Bounds	邊界
 	Bounds (Fill Proportionally)	邊界 (按比例填滿)
@@ -296,6 +304,7 @@
 	Cap	端點
 	Cap:	端點：
 	Cascade	重疊顯示
+	Center	置中
 	Center Artwork	圖稿置中
 	Center on Artboard	在工作區域置中
 	Center-Justified Tab	置中對齊定位點
@@ -328,6 +337,8 @@
 	Clean Up…	清除…
 	Clear	清除
 	Clear All Tabs	清除所有定位點
+	Above Text	文字上方
+	Position Panel Above Text	將面板置於文字上方
 	Clear Appearance	清除外觀
 	Clear Guides	清除參考線
 	Clear Overrides	清除覆寫
@@ -435,12 +446,15 @@
 	Compression:	壓縮：
 	Condition identifier:	條件識別碼：
 	Conflict {n} of {count}	衝突 {n}／{count}
+	Connect Selected End Points	連接所選端點
 	Consolidate All Windows	合併所有視窗
 	Constrain Angle	強制角度
 	Constrain Width and Height Proportions	強制寬度與高度比例
 	Construction Guides	建構參考線
 	Contextual Alternates	前後關聯替代字
 	Contextual Task Bar	快捷工作列
+	Pin Bar Position	釘選工作列位置
+	Reset Bar Position	重設工作列位置
 	Contrast	對比
 	Control	控制
 	Convert	轉換
@@ -452,6 +466,8 @@
 	Convert Color	轉換顏色
 	Convert Document Color Mode	轉換文件色彩模式
 	Convert Process to Global	將印刷色轉換為整體色
+	Convert Selected Anchor Points to Corner	將所選錨點轉換為尖角
+	Convert Selected Anchor Points to Smooth	將所選錨點轉換為平滑
 	Convert text to outlines	將文字轉換為外框
 	Convert To Area Type	轉換為區域文字
 	Convert to Artboards	轉換為工作區域
@@ -462,6 +478,7 @@
 	Convert to RGB	轉換為 RGB
 	Convert to Shape	轉換為形狀
 	Convert to sRGB	轉換為 sRGB
+	Convert:	轉換：
 	Copied the CSS of {rules} object(s)	已複製 {rules} 個物件的 CSS
 	Copies:	份數：
 	Copy	複製
@@ -482,6 +499,9 @@
 	Corner Radius:	圓角半徑：
 	Corner:	轉角：
 	Corners	轉角
+	Cut Path	切斷路徑
+	Descender	下緣
+	Flip	翻轉
 	Round	圓角
 	Radius:	半徑：
 	Inverted Round	反向圓角
@@ -506,7 +526,7 @@
 	Create Object Mosaic…	建立物件馬賽克…
 	Create Outlines	建立外框
 	Create Path	建立路徑
-	Create PDF layers from top-level layers	從最上層圖層建立 PDF 圖層
+	Create PDF layers from layers and sublayers	從圖層和子圖層建立 PDF 圖層
 	Create PDF-Compatible File	建立與 PDF 相容的檔案
 	Create Report	建立報告
 	Create Slice	建立切片
@@ -517,6 +537,7 @@
 	Created:	建立時間：
 	Crop	裁切
 	Crop Image	裁切影像
+	Mask	遮色片
 	Crop Marks	裁切標記
 	Crop To	裁切至
 	Crystallize Tool	結晶化工具
@@ -701,6 +722,8 @@
 	Duplicate	製作複本
 	Duplicate and Offset 10 pt	製作複本並位移 10 pt
 	Duplicate Artboard	製作工作區域複本
+	Copy Artboard	複製工作區域
+	Cut Artboard	剪下工作區域
 	Duplicate Artboards	製作工作區域複本
 	Duplicate Brush	製作筆刷複本
 	Duplicate Character Style	製作字元樣式複本
@@ -768,6 +791,8 @@
 	Em Box Bottom/Left	全形字框下 / 左
 	Em Box Center	全形字框中央
 	Em Box Top/Right	全形字框上 / 右
+	ICF Top/Right	ICF 上 / 右
+	ICF Bottom/Left	ICF 下 / 左
 	Em Dash	長破折號
 	Em Space	全形空格
 	Embed	嵌入
@@ -919,6 +944,7 @@
 	Fill New Type Objects With Placeholder Text	以預留位置文字填滿新文字物件
 	Fill Rule	填色規則
 	Fill with Placeholder Text	以預留位置文字填滿
+	Insert Inline Symbol	插入行內符號
 	Fill:	填色：
 	Fill: click for swatches, Shift-click for the color mixer	填色：按一下開啟色票，按住 Shift 按一下開啟混色器
 	Find	尋找
@@ -938,6 +964,7 @@
 	Fit Headline	符合標題
 	Decrease Font Size	縮小字體大小
 	Increase Font Size	放大字體大小
+	Spacing	間距
 	Step Type	依增量調整文字
 	Fit in View	符合檢視
 	Fit in Window	符合視窗
@@ -1054,6 +1081,7 @@
 	Grays	灰色
 	Grays and Neutrals	灰色與中性色
 	Grayscale	灰階
+	Flat Logo	扁平標誌
 	Grayscale images	灰階影像
 	Greek & Cyrillic	希臘文與西里爾文
 	Green	綠
@@ -1087,7 +1115,9 @@
 	Hide Artboards	隱藏工作區域
 	Hide Bounding Box	隱藏邊框
 	Hide Code	隱藏程式碼
-	Hide Contextual Task Bar	隱藏快捷工作列
+	Hide Bar	隱藏工作列
+	More Options	更多選項
+	Show Properties Panel	顯示內容面板
 	Hide Corner Widget	隱藏轉角 Widget
 	Hide Corner Widget for angles greater than	角度大於以下數值時隱藏轉角 Widget
 	Hide Edges	隱藏邊緣
@@ -1143,11 +1173,18 @@
 	Ignore	略過
 	Ignore Artboards (all the art as one page)	忽略工作區域 (所有圖稿視為單一頁面)
 	Ignore White	忽略白色
+	Palette:	調色盤：
+	Limited	有限
+	Full Tone	全色調
+	Document Library	文件資料庫
+	Library:	資料庫：
 	Image	影像
 	Image Info	影像資訊
 	Image Map:	影像地圖：
 	Image Size	影像尺寸
 	Image Trace	影像描圖
+	Image Tracing	影像描圖物件
+	Tracing Presets	描圖預設集
 	Image Trace Presets	影像描圖預設集
 	Image:	影像：
 	Images:	影像：
@@ -1359,7 +1396,6 @@
 	Make a theme on Create and save it.	按一下「建立」即可製作主題並儲存。
 	Make all bleed settings the same	將所有出血設定設為相同
 	Make and Expand	製作並展開
-	Make and Expand…	製作並展開…
 	Make Clipping Mask	製作剪裁遮色片
 	Make Compound Shape	製作複合形狀
 	Make Envelope	製作封套
@@ -1372,7 +1408,6 @@
 	Make with Top Object	以最上層物件製作
 	Make with Warp…	以彎曲製作…
 	Make/Release Clipping Mask	製作／釋放剪裁遮色片
-	Make…	製作…
 	Manage Workspaces	管理工作區
 	Manage Workspaces…	管理工作區…
 	Manually	手動
@@ -1383,6 +1418,9 @@
 	Marks and Bleed	標記與出血
 	Marks and Bleeds	標記與出血
 	Match User Interface Brightness	符合使用者介面亮度
+	Light Gray	淺灰色
+	Medium Gray	中灰色
+	Dark Gray	深灰色
 	Materials…	材質…
 	Matte	邊緣色
 	Matte:	遮色：
@@ -1435,6 +1473,9 @@
 	Modified:	修改時間：
 	Modify	修改
 	Mojikumi Set	標點間距
+	Kinsoku Set	Kinsoku 集
+	Hard	強
+	Soft	弱
 	Monitor RGB	顯示器 RGB
 	Mono	單色
 	Monochrome images	單色影像
@@ -1483,6 +1524,8 @@
 	New Art Brush from Selection	從選取範圍新增藝術筆刷
 	New Art Has Basic Appearance	新圖稿具有基本外觀
 	New Artboard	新增工作區域
+	Artboard	工作區域
+	Exit	結束
 	New Bristle Brush	新增鬃毛筆刷
 	New Brush…	新增筆刷…
 	New Calligraphic Brush	新增書法筆刷
@@ -1552,6 +1595,9 @@
 	No text selected	未選取文字
 	No Thumbnails	無縮圖
 	Noise	雜訊
+	Create:	建立：
+	Fills	填色
+	Strokes	筆畫
 	Nonbreaking Hyphen	不斷行連字號
 	Nonbreaking Space	不斷行空格
 	None	無
@@ -1934,7 +1980,17 @@
 	Rating:	評等：
 	Real World:	真實世界：
 	Real-time Drawing and Editing	即時繪圖與編輯
-	Rearrange All Artboards (on the roadmap)	重新排列所有工作區域 (規劃中)
+	Rearrange All Artboards	重新排列所有工作區域
+	Rearrange All	全部重新排列
+	Layout Order:	版面配置順序：
+	Change to Left-to-Right Layout	變更為由左至右版面配置
+	Grid by Row	依列格狀排列
+	Grid by Column	依欄格狀排列
+	Arrange by Row	排成一列
+	Arrange by Column	排成一欄
+	Move Artwork with Artboard	隨工作區域移動圖稿
+	Scale Artwork with Artboard	隨工作區域縮放圖稿
+	Artboards: {n}	工作區域：{n}
 	Rearrange All Artboards…	重新排列所有工作區域…
 	Recall Selection	叫出選取範圍
 	RECENT	最近使用
@@ -2096,6 +2152,8 @@
 	Reverse Spine	反轉軸線
 	Revert	回復
 	Revert to the saved version of “{name}”?	要回復為「{name}」已儲存的版本嗎？
+	Replace “{name}”, the file this document was opened from?	要取代「{name}」（開啟此文件的來源檔案）嗎？
+	Opening it left out what Kaleiform can't read yet ({what}), so replacing it loses that for good. Save under another name to keep it.	開啟時略過了 虹构 尚無法讀取的內容（{what}），取代該檔案會永久遺失這些內容。若要保留，請以其他名稱儲存。
 	Revolve…	迴轉…
 	RGB Color	RGB 色彩
 	Right	右
@@ -2387,6 +2445,8 @@
 	Show Guides	顯示參考線
 	Show handles when multiple anchors are selected	選取多個錨點時顯示控制把手
 	Show Hidden Characters	顯示隱藏字元
+	Bold	粗體
+	Italic	斜體
 	Show Images in Outline Mode	在外框模式中顯示影像
 	Show in Folder	在資料夾中顯示
 	Show Indic Options	顯示印度文字選項
@@ -2434,7 +2494,7 @@
 	Simplify…	簡化…
 	Simulate Colored Paper	模擬有色紙張
 	Simulate Paper	模擬紙張
-	Single / Double Column	單欄 / 雙欄
+	Double Column	雙欄
 	Single Left Quotation Mark	左單引號
 	Single Quotes:	單引號：
 	Single Right Quotation Mark	右單引號
@@ -2475,6 +2535,13 @@
 	Smooth Color	平滑顏色
 	Smooth Tool	平滑工具
 	Snap Curves To Lines	將曲線靠齊線條
+	View:	檢視：
+	Tracing Result	描圖結果
+	Tracing Result with Outlines	描圖結果（含外框）
+	Outlines	外框
+	Outlines with Source Image	外框（含來源影像）
+	Source Image	來源影像
+	Image Trace View	影像描圖檢視
 	Snap Options	靠齊選項
 	Snap to Glyph	靠齊字符
 	Snap to Grid	靠齊格點
@@ -2533,7 +2600,10 @@
 	Stroke (X), double-click for the Color Picker	筆畫 (X)，按兩下開啟檢色器
 	Stroke Color	筆畫顏色
 	Stroke Options	筆畫選項
+	Character:	字元：
+	Character options	字元選項
 	Stroke options	筆畫選項
+	Transform options	變形選項
 	Stroke Weight	筆畫寬度
 	Stroke:	筆畫：
 	Stroke: click for swatches, Shift-click for the color mixer	筆畫：按一下開啟色票，按住 Shift 按一下開啟混色器
@@ -2575,6 +2645,25 @@
 	Swatch Tiles	色票拼貼
 	Swatches	色票
 	Switch workspace	切換工作區
+	Add Content	新增內容
+	Click to apply to the selected type	按一下以套用到所選文字
+	Create New Library	建立新資料庫
+	Create New Library…	建立新資料庫…
+	Rename Library…	重新命名資料庫…
+	Delete the library “{name}”?	要刪除資料庫「{name}」嗎？
+	Drag art or swatches here, or use + to add the selection's colors and text styles.	將圖稿或色票拖到此處，或使用 + 加入所選物件的顏色和文字樣式。
+	Its graphics, colors and text styles are deleted from this machine.	其圖形、顏色和文字樣式將從此電腦中刪除。
+	Keep graphics, colors and text styles here to use them in any document. Libraries are stored on this machine — no account required.	在此保存圖形、顏色和文字樣式，即可在任何文件中使用。資料庫儲存在此電腦上，無需帳號。
+	This library is empty	此資料庫是空的
+	Add to Library	加入資料庫
+	Delete Library	刪除資料庫
+	Delete Library Item	刪除資料庫項目
+	Library	資料庫
+	Rename Library	重新命名資料庫
+	Show Library	顯示資料庫
+	Use Library Item	使用資料庫項目
+	Graphic	圖形
+	Show all open documents	顯示所有開啟的文件
 	Symbol Instance	符號範例
 	Symbol Libraries	符號資料庫
 	Symbol Libraries (on the roadmap)	符號資料庫 (已列入路線圖)
@@ -2671,6 +2760,7 @@
 	Total Width:	總寬度：
 	Touch Type Tool	觸控文字工具
 	Trace	描圖
+	Trace the image with the Default preset	使用「預設」預設集描圖影像
 	Tracing	描圖中
 	Tracking	字距
 	Trademark Symbol	商標符號
@@ -2722,6 +2812,7 @@
 	Type becomes outlines, and strokes a CAD line can't draw become filled shapes.	文字會變成外框，CAD 線條無法繪製的筆畫會變成填色形狀。
 	Type Object Selection by Path Only	僅以路徑選取文字物件
 	Type on a Path	路徑文字
+	Type on a Path Options	路徑文字選項
 	Type on a Path Options…	路徑文字選項…
 	Type on a Path Tool	路徑文字工具
 	Type Orientation	文字方向
@@ -2898,6 +2989,7 @@
 	Zoom to Selection	縮放至選取範圍
 	Zoom Tool	縮放工具
 	Zoom with Mouse Wheel	使用滑鼠滾輪縮放
+	Scrub Numeric Fields by Dragging	拖曳以調整數值欄位
 	{count} file(s) in {folder}{note}. Show the package folder?	{folder} 中有 {count} 個檔案{note}。要顯示封裝資料夾嗎？
 	{count} linked file(s) not found	找不到 {count} 個連結檔案
 	{count} linked image(s) changed since this document was saved. Show the new versions?	自儲存此文件後，有 {count} 個連結影像已變更。要顯示新版本嗎？
@@ -2959,6 +3051,9 @@
 	 to zoom in  |  	可放大  |  
 	 to zoom out  |  	可縮小  |  
 	 to zoom into an area	可放大至指定區域
+	Hold	按住
+	 right or left to zoom in or out  |  	向右可放大、向左可縮小  |  
+	 to keep zooming	可持續縮放
 	 an object to copy its attributes  |  	物件可複製其屬性  |  
 	 to apply the selection's to it  |  	可將選取範圍的屬性套用至該物件  |  
 	 to sample a color	可取樣顏色
@@ -3027,3 +3122,58 @@
 	Version	版本
 	% of all commits	佔全部提交的比例
 	Lines +/−	行數 +/−
+	Joins	轉角
+	Miter	尖角
+	Bevel	斜角
+	Offset	位移
+	Axis	軸
+axis	Horizontal	水平
+axis	Vertical	垂直
+axis	Both	兩者
+	Drag to move	拖曳以移動
+	Drag to float as a toolbar	拖曳使其浮動為工具列
+	Put back in the toolbar	放回工具列
+	Float Panel	浮動面板
+	Dock Panel	停駐面板
+	Drag to float the panel group	拖曳以浮動面板群組
+	Put back in the dock	放回停駐區
+	Drag to float the toolbar	拖曳以浮動工具列
+	Drag to the window's left edge to dock	拖曳到視窗左側邊緣以停駐
+	Float Tool Group	浮動工具組
+
+# The macOS menu bar (native_menu): the app and Window menus' system items, Settings pages.
+	Services	服務
+	Hide Kaleiform	隱藏 虹构
+	Zoom	縮放
+	Bring All to Front	將全部移至最前
+	Settings	設定
+	Break Link	中斷連結
+	On: one locked object showing the document, updated when it changes.	開啟：以單一鎖定物件顯示文件，文件變更時隨之更新。
+	Off: an editable copy of its art, embedded in this document.	關閉：將其圖稿的可編輯副本內嵌在此文件中。
+	Images: link to the file instead of only embedding it.	影像：連結至檔案，而不只是嵌入。
+	Kaleiform documents: one locked object, updated when the file changes.	虹构 文件：單一鎖定物件，檔案變更時隨之更新。
+	A file dialog is open: choose there first	檔案對話方塊已開啟：請先在其中選擇
+	Shaper	Shaper
+	Expand Shaper Group	展開 Shaper 群組
+	Release Shaper Group	釋放 Shaper 群組
+	Select Shaper Face	選取 Shaper 區域
+	Constrain	強制
+	Free Transform	任意變形
+	Perspective Distort	透視扭曲
+
+# Photoshop-style raster effects (Effect menu, their dialogs).
+	Radial Blur…	放射狀模糊…
+	Smart Blur…	智慧型模糊…
+	Sharpen	銳利化
+	Unsharp Mask…	反銳利化遮罩…
+	Radial Blur	放射狀模糊
+	Smart Blur	智慧型模糊
+	Unsharp Mask	反銳利化遮罩
+	Gaussian Blur	高斯模糊
+	Method	方法
+	Quality	品質
+	Radius	半徑
+	Spin	旋轉
+	Draft	草稿
+	Good	良好
+	Best	最佳

@@ -70,8 +70,8 @@ pub fn specs() -> Vec<CommandSpec> {
 
 impl LibraryFile for StyleLibrary {
     const EXTS: &'static [&'static str] = &[STYLES_EXT];
-    fn read(text: &str, stem: &str) -> std::result::Result<Self, String> {
-        style_libs::read(text, stem)
+    fn read(bytes: &[u8], stem: &str) -> std::result::Result<Self, String> {
+        style_libs::read(&String::from_utf8_lossy(bytes), stem)
     }
     fn name(&self) -> &str {
         &self.name
@@ -222,8 +222,11 @@ fn load(s: &mut Session, p: &Value) -> Result<Value> {
         match std::str::from_utf8(bytes).ok().filter(|t| style_libs::sniff(t)) {
             Some(t) => style_libs::read(t, stem(file)).map_err(|e| bad(C, e)),
             None => {
-                let doc = super::fileio::load(file, bytes).map_err(|e| bad(C, e.to_string()))?.doc;
-                StyleLibrary::from_document(&doc, &[], stem(file).to_string()).map_err(|e| bad(C, e))
+                let loaded = super::fileio::load(file, bytes).map_err(|e| bad(C, e.to_string()))?;
+                if loaded.preview_only {
+                    return Err(bad(C, "only this Affinity file's embedded preview could be read; use File › Open to see it with its warning"));
+                }
+                StyleLibrary::from_document(&loaded.doc, &[], stem(file).to_string()).map_err(|e| bad(C, e))
             }
         }
     })?;

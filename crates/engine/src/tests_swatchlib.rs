@@ -198,6 +198,74 @@ fn another_documents_swatches_load_as_a_library() {
 }
 
 #[test]
+fn swatch_exchange_files_load_add_and_list_as_user_libraries() {
+    let bytes = vectorcraft_testkit::ase::sample();
+    let mut s = session();
+    let r = run(&mut s, "swatch.library.load", json!({"dataBase64": vectorcraft_format::base64_encode(&bytes), "name": "Brand.ase"}));
+    assert_eq!((r["library"].as_str(), r["name"].as_str(), r["count"].as_u64()), (Some("loaded/Brand.ase"), Some("Brand"), Some(4)));
+    let g = run(&mut s, "swatch.library.get", json!({"library": r["library"]}));
+    let swatches = g["swatches"].as_array().unwrap();
+    let kinds: Vec<(&str, bool, bool)> =
+        swatches.iter().map(|w| (w["name"].as_str().unwrap(), w["global"].as_bool().unwrap(), w["spot"].as_bool().unwrap())).collect();
+    assert_eq!(kinds, [("Sky", true, false), ("Ink", true, true), ("Mist", false, false), ("Clay", false, false)]);
+    assert_eq!(swatches[3]["color"], json!({"model": "lab", "l": 50.0, "a": 20.0, "b": -30.0}));
+    // Added to the document, the spot color stays a spot color and the group stays a color group.
+    run(&mut s, "swatch.library.add", json!({"library": r["library"]}));
+    let d = doc(&s);
+    assert!(d.swatch("Ink").is_some_and(|w| w.spot && w.global));
+    assert_eq!(d.swatch_groups.iter().find(|g| g.name == "Neutrals").map(|g| g.swatches.len()), Some(2));
+    // A damaged file is an error from the swatch exchange reader, not from the document loader.
+    let cut = vectorcraft_format::base64_encode(&bytes[..bytes.len() - 1]);
+    let e = s.execute("swatch.library.load", &json!({"dataBase64": cut, "name": "Cut.ase"})).unwrap_err().to_string();
+    assert!(e.contains("cut short"), "{e}");
+    // `.ase` files in the user library folder are User Defined libraries.
+    let dir = temp_dir("ase");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("Brand.ase"), &bytes).unwrap();
+    s.swatch_libraries.set_user_dir(Some(dir.to_string_lossy().to_string()));
+    let list = run(&mut s, "swatch.library.list", json!({}));
+    let user: Vec<(&str, u64)> = list["libraries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| l["category"] == "user")
+        .map(|l| (l["id"].as_str().unwrap(), l["count"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(user, [("user/Brand.ase", 4)]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_library_group_stays_one_group_when_a_swatch_has_its_name() {
+    use vectorcraft_testkit::ase::{Block, ase};
+    let mut s = session();
+    assert!(doc(&s).swatch("Blue").is_some(), "a new document has a swatch named Blue");
+    let bytes = ase(&[
+        Block::GroupStart("Blue"),
+        Block::Color("Deep", b"RGB ", &[0.0, 0.0, 0.4], 2),
+        Block::Color("Pale", b"RGB ", &[0.6, 0.7, 1.0], 2),
+        Block::GroupEnd,
+        Block::GroupStart("Blue 2"),
+        Block::Color("Frost", b"RGB ", &[0.9, 0.95, 1.0], 2),
+        Block::GroupEnd,
+    ]);
+    let r = run(&mut s, "swatch.library.load", json!({"dataBase64": vectorcraft_format::base64_encode(&bytes), "name": "Blues.ase"}));
+    run(&mut s, "swatch.library.add", json!({"library": r["library"]}));
+    let groups: Vec<(&str, Vec<&str>)> =
+        doc(&s).swatch_groups.iter().map(|g| (g.name.as_str(), g.swatches.iter().map(|w| w.name.as_str()).collect())).collect();
+    assert!(groups.contains(&("Blue 2", vec!["Deep", "Pale"])), "{groups:?}");
+    assert!(groups.contains(&("Blue 2 2", vec!["Frost"])), "the library's own Blue 2 stays apart: {groups:?}");
+}
+
+#[test]
+fn text_libraries_sent_as_bytes_load_when_they_are_not_valid_utf8() {
+    let mut s = session();
+    let latin1 = vectorcraft_format::base64_encode(b"GIMP Palette\n237 28 36 Rouge fonc\xe9\n");
+    let r = run(&mut s, "swatch.library.load", json!({"dataBase64": latin1, "name": "Rouge.gpl"}));
+    assert_eq!(r["count"], 1);
+}
+
+#[test]
 fn gradient_libraries_are_listed_and_gradient_swatches_rename_and_take_new_gradients() {
     let mut s = session();
     let list = run(&mut s, "swatch.library.list", json!({}));

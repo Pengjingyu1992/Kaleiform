@@ -100,16 +100,27 @@ pub fn default_command_shortcut(id: &str) -> Option<&'static str> {
 }
 
 /// Window menu items that show a panel (`window.panel {panel}`) with a default shortcut: (panel
-/// id, shortcut). Every icon panel can be given one in the editor (entry key `panel:<id>`).
+/// id, shortcut). Every panel can be given one in the editor (entry key `panel:<id>`).
 pub const PANEL_SHORTCUTS: &[(&str, &str)] = &[
+    ("brushes", "F5"),
     ("color", "F6"),
+    ("layers", "F7"),
     ("colorGuide", "Shift+F3"),
-    ("appearance", "Shift+F6"),
     ("graphicStyles", "Shift+F5"),
-    ("stroke", "Cmd+F10"),
+    ("appearance", "Shift+F6"),
+    ("align", "Shift+F7"),
+    ("transform", "Shift+F8"),
+    ("info", "Cmd+F8"),
     ("gradient", "Cmd+F9"),
+    ("pathfinder", "Cmd+Shift+F9"),
+    ("stroke", "Cmd+F10"),
     ("transparency", "Cmd+Shift+F10"),
     ("attributes", "Cmd+F11"),
+    ("symbols", "Cmd+Shift+F11"),
+    ("character", "Cmd+T"),
+    ("paragraph", "Cmd+Alt+T"),
+    ("tabs", "Cmd+Shift+T"),
+    ("openType", "Cmd+Alt+Shift+T"),
 ];
 
 /// Default shortcut of an entry key (`tool:<id>`, `panel:<id>` or a command id).
@@ -252,7 +263,7 @@ pub fn entries() -> &'static [Entry] {
             }
             v.push(Entry { key: c.id.into(), label: c.label.into(), group: c.menu.join(" › "), is_tool: false });
         }
-        v.extend(crate::state::ICON_PANELS.iter().map(|(id, label, _)| Entry {
+        v.extend(crate::state::all_panels().map(|(id, label)| Entry {
             key: format!("panel:{id}"),
             label: label.to_string(),
             group: "Window".into(),
@@ -447,7 +458,7 @@ pub fn run_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<Resu
         "shortcuts.export" => {
             let v = export_json(&app.ui.shortcut_set, &app.ui.shortcut_overrides);
             let bytes = serde_json::to_vec_pretty(&v).unwrap_or_default();
-            let path = s("path").or_else(|| app.services.pick_save.as_mut().and_then(|f| f(&crate::FilePick::named("Kaleiform Shortcuts.json"))));
+            let path = s("path").or_else(|| crate::picks::save(app, &crate::FilePick::named("Kaleiform Shortcuts.json")));
             match path {
                 Some(path) => match app.services.write.as_mut() {
                     Some(w) => w(&path, &bytes).map(|_| json!({"path": path})),
@@ -466,7 +477,7 @@ pub fn run_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<Resu
             let data = if let Some(v) = p.get("data") {
                 Ok(v.clone())
             } else {
-                let path = s("path").or_else(|| app.services.pick_open.as_mut().and_then(|f| f(&crate::FilePick::default())));
+                let path = s("path").or_else(|| crate::picks::open(app, &crate::FilePick::default()));
                 match (path, app.services.read.as_ref()) {
                     (Some(path), Some(r)) => r(&path).and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string())),
                     (None, _) => Err("cancelled".into()),
@@ -504,11 +515,12 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     let mut ok = false;
     let mut cancel = false;
     let recording = d.str("__recording");
-    // Record a chord (before widgets see the keys).
+    // Record a chord (before widgets see the keys). Modifiers held down are part of the next key's
+    // chord, not a chord of their own.
     if !recording.is_empty() {
         let ev = ctx.input(|i| {
             i.events.iter().find_map(|e| match e {
-                egui::Event::Key { key, pressed: true, modifiers, .. } => Some((*key, *modifiers)),
+                egui::Event::Key { key, pressed: true, modifiers, .. } if !crate::shortcuts::is_modifier(*key) => Some((*key, *modifiers)),
                 _ => None,
             })
         });
@@ -521,178 +533,167 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
             }
         }
     }
-    egui::Area::new(egui::Id::new("modal-dim")).order(egui::Order::Middle).fixed_pos(egui::pos2(0.0, 0.0)).show(ctx, |ui| {
-        ui.allocate_rect(ctx.content_rect(), egui::Sense::click());
-    });
-    egui::Window::new(tl!("Keyboard Shortcuts"))
-        .id(egui::Id::new("dialog-shortcuts"))
-        .order(egui::Order::Foreground)
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, -20.0])
-        .frame(egui::Frame::window(&ctx.global_style()).fill(t.panel).inner_margin(egui::Margin::same(20)))
-        .show(ctx, |ui| {
-            ui.set_width(640.0);
-            ui.label(egui::RichText::new(tl!("Keyboard Shortcuts")).font(theme::semibold(16.0)).color(t.text));
-            ui.add_space(10.0);
-            // Set row.
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tl!("Set:")).color(t.text_dim));
-                let cur = d.str("set");
-                let mut opts: Vec<&str> = PRESETS.to_vec();
-                if !PRESETS.contains(&cur.as_str()) {
-                    opts.push(CUSTOM);
-                }
-                // The sets listed are ours (translated); a set read from an imported file shows
-                // its name as it is.
-                if let Some(&name) = crate::dialogs::mixed_dropdown(ui, "kbset", &cur, &opts, 200.0, |_| true).and_then(|i| opts.get(i))
-                    && let Some(p) = preset(name)
-                {
-                    ov = p;
-                    d.fields.insert("set".into(), json!(name));
-                    d.fields.insert("__message".into(), json!(""));
-                }
-                ui.add_space(12.0);
-                if ui.button(tl!("Import…")).clicked() {
-                    d.fields.insert("__import".into(), json!(true));
-                }
-                if ui.button(tl!("Export…")).clicked() {
-                    d.fields.insert("__export".into(), json!(true));
-                }
-                if ui.button(tl!("Reset to Defaults")).clicked() {
-                    ov.clear();
-                    d.fields.insert("set".into(), json!(PRESETS[0]));
-                    d.fields.insert("__message".into(), json!(tl!("All shortcuts reset to defaults.")));
-                }
-            });
-            ui.add_space(8.0);
-            // Tabs + search.
-            ui.horizontal(|ui| {
-                let tab = d.str("tab");
-                for (id, label) in [("tools", "Tools"), ("menu", "Menu Commands")] {
-                    if ui.selectable_label(tab == id, egui::RichText::new(tl!(label)).font(theme::semibold(12.5))).clicked() {
-                        d.fields.insert("tab".into(), json!(id));
-                    }
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut q = d.str("query");
-                    if ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search")).desired_width(200.0)).changed() {
-                        d.fields.insert("query".into(), json!(q));
-                    }
-                });
-            });
-            ui.add_space(6.0);
-            let tools = d.str("tab") != "menu";
-            let q = d.str("query").to_lowercase();
-            let selected = d.str("__selected");
-            let rec = d.str("__recording");
-            let scroll_to = d.fields.remove("__scrollTo").and_then(|v| v.as_str().map(str::to_string));
-            egui::Frame::NONE.fill(t.input).stroke(egui::Stroke::new(1.0, t.input_border)).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.allocate_ui_with_layout(egui::vec2(360.0, 16.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.set_min_width(360.0);
-                        ui.label(egui::RichText::new(if tools { tl!("Tool") } else { tl!("Command") }).color(t.text_dim).size(11.0));
-                    });
-                    ui.label(egui::RichText::new(tl!("Shortcut")).color(t.text_dim).size(11.0));
-                });
-                egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, false]).show(ui, |ui| {
-                    for e in entries().iter().filter(|e| e.is_tool == tools) {
-                        let sc = effective_in(&ov, &e.key);
-                        let matches = e.label.to_lowercase().contains(&q)
-                            || tl!(&e.label).to_lowercase().contains(&q)
-                            || e.group.to_lowercase().contains(&q)
-                            || tl!(&e.group).to_lowercase().contains(&q)
-                            || sc.as_deref().is_some_and(|s| s.to_lowercase().contains(&q));
-                        if !q.is_empty() && !matches {
-                            continue;
-                        }
-                        let row = ui.horizontal(|ui| {
-                            let name = if e.is_tool || e.group.is_empty() {
-                                tl!(&e.label).to_string()
-                            } else {
-                                format!("{} › {}", tl!(&e.group), tl!(&e.label))
-                            };
-                            let r = ui
-                                .allocate_ui_with_layout(egui::vec2(360.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                    ui.set_min_width(360.0);
-                                    ui.add(egui::Button::selectable(selected == e.key, egui::RichText::new(name).color(t.text)).truncate())
-                                })
-                                .inner;
-                            if r.clicked() {
-                                d.fields.insert("__selected".into(), json!(e.key));
-                            }
-                            let label = if rec == e.key {
-                                tl!("Press keys…").to_string()
-                            } else {
-                                sc.as_deref().map(menus::pretty_shortcut).unwrap_or_else(|| "—".into())
-                            };
-                            let changed = ov.contains_key(&e.key);
-                            let txt = egui::RichText::new(label).color(if changed { t.accent } else { t.text });
-                            let b = ui
-                                .add_sized([150.0, 20.0], egui::Button::new(txt).selected(rec == e.key))
-                                .on_hover_text(tl!("Click, then press the new shortcut (Esc cancels)"));
-                            if b.clicked() {
-                                d.fields.insert("__recording".into(), json!(e.key));
-                                d.fields.insert("__selected".into(), json!(e.key));
-                            }
-                        });
-                        if scroll_to.as_deref() == Some(e.key.as_str()) {
-                            row.response.scroll_to_me(Some(egui::Align::Center));
-                        }
-                    }
-                });
-            });
-            ui.add_space(6.0);
-            // Selected-row actions + message.
-            ui.horizontal(|ui| {
-                let sel = d.str("__selected");
-                ui.add_enabled_ui(!sel.is_empty(), |ui| {
-                    if ui.button(tl!("Clear")).on_hover_text(tl!("Remove the shortcut")).clicked() {
-                        let _ = assign(&mut ov, &sel, None, true);
-                        d.fields.insert("set".into(), json!(CUSTOM));
-                    }
-                    if ui.button(tl!("Use Default")).clicked() {
-                        reset_one(&mut ov, &sel);
-                    }
-                });
-                let conflict = d.str("__conflict");
-                if !conflict.is_empty() && ui.button(tl!("Go to Conflict")).clicked() {
-                    let tab = if conflict.starts_with("tool:") { "tools" } else { "menu" };
-                    d.fields.insert("tab".into(), json!(tab));
-                    d.fields.insert("query".into(), json!(""));
-                    d.fields.insert("__selected".into(), json!(conflict));
-                    d.fields.insert("__scrollTo".into(), json!(conflict));
-                    d.fields.insert("__conflict".into(), json!(""));
-                }
-            });
-            let msg = d.str("__message");
-            if !msg.is_empty() {
-                ui.label(egui::RichText::new(msg).color(t.accent_strong).size(11.5));
+    crate::dialogs::modal::show(ctx, tl!("Keyboard Shortcuts"), egui::Id::new("dialog-shortcuts"), -20.0, 20, |ui| {
+        ui.set_width(640.0);
+        crate::dialogs::modal::heading(ui, tl!("Keyboard Shortcuts"));
+        ui.add_space(10.0);
+        // Set row.
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tl!("Set:")).color(t.text_dim));
+            let cur = d.str("set");
+            let mut opts: Vec<&str> = PRESETS.to_vec();
+            if !PRESETS.contains(&cur.as_str()) {
+                opts.push(CUSTOM);
             }
-            let n = all_conflicts(&ov).len();
-            if n > 0 {
-                ui.label(
-                    egui::RichText::new(crate::i18n::tn(
-                        n as u64,
-                        "{n} shortcut is assigned more than once",
-                        "{n} shortcuts are assigned more than once",
-                    ))
-                    .color(t.text_dim)
-                    .size(11.0),
-                );
+            // The sets listed are ours (translated); a set read from an imported file shows
+            // its name as it is.
+            if let Some(&name) = crate::dialogs::mixed_dropdown(ui, "kbset", &cur, &opts, 200.0, |_| true).and_then(|i| opts.get(i))
+                && let Some(p) = preset(name)
+            {
+                ov = p;
+                d.fields.insert("set".into(), json!(name));
+                d.fields.insert("__message".into(), json!(""));
             }
             ui.add_space(12.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::primary_button(ui, tl!("OK")).clicked() {
-                    ok = true;
+            if ui.button(tl!("Import…")).clicked() {
+                d.fields.insert("__import".into(), json!(true));
+            }
+            if ui.button(tl!("Export…")).clicked() {
+                d.fields.insert("__export".into(), json!(true));
+            }
+            if ui.button(tl!("Reset to Defaults")).clicked() {
+                ov.clear();
+                d.fields.insert("set".into(), json!(PRESETS[0]));
+                d.fields.insert("__message".into(), json!(tl!("All shortcuts reset to defaults.")));
+            }
+        });
+        ui.add_space(8.0);
+        // Tabs + search.
+        ui.horizontal(|ui| {
+            let tab = d.str("tab");
+            for (id, label) in [("tools", "Tools"), ("menu", "Menu Commands")] {
+                if ui.selectable_label(tab == id, egui::RichText::new(tl!(label)).font(theme::semibold(12.5))).clicked() {
+                    d.fields.insert("tab".into(), json!(id));
                 }
-                ui.add_space(8.0);
-                if widgets::secondary_button(ui, tl!("Cancel")).clicked() {
-                    cancel = true;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut q = d.str("query");
+                if ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search")).desired_width(200.0)).changed() {
+                    d.fields.insert("query".into(), json!(q));
                 }
             });
         });
+        ui.add_space(6.0);
+        let tools = d.str("tab") != "menu";
+        let q = d.str("query").to_lowercase();
+        let selected = d.str("__selected");
+        let rec = d.str("__recording");
+        let scroll_to = d.fields.remove("__scrollTo").and_then(|v| v.as_str().map(str::to_string));
+        egui::Frame::NONE.fill(t.input).stroke(egui::Stroke::new(1.0, t.input_border)).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.allocate_ui_with_layout(egui::vec2(360.0, 16.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.set_min_width(360.0);
+                    ui.label(egui::RichText::new(if tools { tl!("Tool") } else { tl!("Command") }).color(t.text_dim).size(11.0));
+                });
+                ui.label(egui::RichText::new(tl!("Shortcut")).color(t.text_dim).size(11.0));
+            });
+            egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, false]).show(ui, |ui| {
+                for e in entries().iter().filter(|e| e.is_tool == tools) {
+                    let sc = effective_in(&ov, &e.key);
+                    let matches = e.label.to_lowercase().contains(&q)
+                        || tl!(&e.label).to_lowercase().contains(&q)
+                        || e.group.to_lowercase().contains(&q)
+                        || tl!(&e.group).to_lowercase().contains(&q)
+                        || sc.as_deref().is_some_and(|s| s.to_lowercase().contains(&q));
+                    if !q.is_empty() && !matches {
+                        continue;
+                    }
+                    let row = ui.horizontal(|ui| {
+                        let name = if e.is_tool || e.group.is_empty() {
+                            tl!(&e.label).to_string()
+                        } else {
+                            format!("{} › {}", tl!(&e.group), tl!(&e.label))
+                        };
+                        let r = ui
+                            .allocate_ui_with_layout(egui::vec2(360.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_min_width(360.0);
+                                ui.add(egui::Button::selectable(selected == e.key, egui::RichText::new(name).color(t.text)).truncate())
+                            })
+                            .inner;
+                        if r.clicked() {
+                            d.fields.insert("__selected".into(), json!(e.key));
+                        }
+                        let label = if rec == e.key {
+                            tl!("Press keys…").to_string()
+                        } else {
+                            sc.as_deref().map(menus::pretty_shortcut).unwrap_or_else(|| "—".into())
+                        };
+                        let changed = ov.contains_key(&e.key);
+                        let txt = egui::RichText::new(label).color(if changed { t.accent } else { t.text });
+                        let b = ui
+                            .add_sized([150.0, 20.0], egui::Button::new(txt).selected(rec == e.key))
+                            .on_hover_text(tl!("Click, then press the new shortcut (Esc cancels)"));
+                        if b.clicked() {
+                            d.fields.insert("__recording".into(), json!(e.key));
+                            d.fields.insert("__selected".into(), json!(e.key));
+                        }
+                    });
+                    if scroll_to.as_deref() == Some(e.key.as_str()) {
+                        row.response.scroll_to_me(Some(egui::Align::Center));
+                    }
+                }
+            });
+        });
+        ui.add_space(6.0);
+        // Selected-row actions + message.
+        ui.horizontal(|ui| {
+            let sel = d.str("__selected");
+            ui.add_enabled_ui(!sel.is_empty(), |ui| {
+                if ui.button(tl!("Clear")).on_hover_text(tl!("Remove the shortcut")).clicked() {
+                    let _ = assign(&mut ov, &sel, None, true);
+                    d.fields.insert("set".into(), json!(CUSTOM));
+                }
+                if ui.button(tl!("Use Default")).clicked() {
+                    reset_one(&mut ov, &sel);
+                }
+            });
+            let conflict = d.str("__conflict");
+            if !conflict.is_empty() && ui.button(tl!("Go to Conflict")).clicked() {
+                let tab = if conflict.starts_with("tool:") { "tools" } else { "menu" };
+                d.fields.insert("tab".into(), json!(tab));
+                d.fields.insert("query".into(), json!(""));
+                d.fields.insert("__selected".into(), json!(conflict));
+                d.fields.insert("__scrollTo".into(), json!(conflict));
+                d.fields.insert("__conflict".into(), json!(""));
+            }
+        });
+        let msg = d.str("__message");
+        if !msg.is_empty() {
+            ui.label(egui::RichText::new(msg).color(t.accent_strong).size(11.5));
+        }
+        let n = all_conflicts(&ov).len();
+        if n > 0 {
+            ui.label(
+                egui::RichText::new(crate::i18n::tn(
+                    n as u64,
+                    "{n} shortcut is assigned more than once",
+                    "{n} shortcuts are assigned more than once",
+                ))
+                .color(t.text_dim)
+                .size(11.0),
+            );
+        }
+        ui.add_space(12.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if widgets::primary_button(ui, tl!("OK")).clicked() {
+                ok = true;
+            }
+            ui.add_space(8.0);
+            if widgets::secondary_button(ui, tl!("Cancel")).clicked() {
+                cancel = true;
+            }
+        });
+    });
     d.fields.insert("overrides".into(), serde_json::to_value(&ov).unwrap_or(json!({})));
     let import = d.fields.remove("__import").is_some();
     let export = d.fields.remove("__export").is_some();
@@ -789,6 +790,39 @@ mod tests {
         assert_eq!(chord_from_event(Key::K, Modifiers::COMMAND | Modifiers::SHIFT).as_deref(), Some("Cmd+Shift+K"));
         assert_eq!(chord_from_event(Key::P, Modifiers::NONE).as_deref(), Some("P"));
         assert_eq!(chord_from_event(Key::Escape, Modifiers::NONE), None);
+        // A modifier's own key press is no chord (#487).
+        assert_eq!(chord_from_event(Key::ShiftLeft, Modifiers::SHIFT), None);
+        assert!(normalize("ShiftLeft").is_none() && normalize("Cmd+ControlRight").is_none());
+    }
+
+    #[test]
+    fn a_modifier_pressed_while_recording_waits_for_the_key() {
+        let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
+        open(&mut app);
+        app.ui.dialog.as_mut().unwrap().fields.insert("__recording".into(), json!("tool:groupSelection"));
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut press = |key, modifiers| {
+            let events = vec![egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }];
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| show(&mut app, ui.ctx()));
+            out.textures_delta.clear();
+            app.ui.dialog.clone().unwrap()
+        };
+        // egui reports Shift's own key press first (#487): the recording goes on.
+        assert_eq!(press(Key::ShiftLeft, Modifiers::SHIFT).str("__recording"), "tool:groupSelection");
+        let d = press(Key::A, Modifiers::SHIFT);
+        assert_eq!(d.str("__recording"), "");
+        assert_eq!(dialog_overrides(&d).get("tool:groupSelection").map(String::as_str), Some("Shift+A"));
+    }
+
+    #[test]
+    fn saved_modifier_only_overrides_give_the_default_back() {
+        let mut ui = UiState::default();
+        ui.shortcut_overrides.insert("tool:groupSelection".into(), "Shift+ShiftLeft".into());
+        ui.shortcut_overrides.insert("edit.preferences".into(), String::new());
+        let ui = ui.sanitized();
+        assert!(!ui.shortcut_overrides.contains_key("tool:groupSelection"));
+        assert_eq!(ui.shortcut_overrides.get("edit.preferences").map(String::as_str), Some(""));
     }
 
     #[test]

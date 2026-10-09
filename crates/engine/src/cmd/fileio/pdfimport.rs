@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use vectorcraft_doc::{ColorMode, Document};
 use vectorcraft_pdf::{Choice, CropTo, ImportOptions, PdfError, TextAs};
 
+use super::super::colormgmt::Grays;
 use super::super::*;
 use super::{err, source};
 
@@ -22,6 +23,8 @@ pub struct LoadOptions {
     /// The colour mode the document opens in, its colours converted as Document Color Mode does
     /// (default: the file's; a PDF painted mostly in CMYK opens in CMYK).
     pub color_mode: Option<ColorMode>,
+    /// How that conversion separates RGB greys (`grays`).
+    pub grays: Grays,
     /// What a PDF's text becomes.
     pub text_as: TextAs,
     /// A PDF's optional content groups become layers (else one layer per page, without the art
@@ -38,6 +41,7 @@ impl Default for LoadOptions {
             crop: CropTo::default(),
             password: None,
             color_mode: None,
+            grays: Grays::default(),
             text_as: TextAs::default(),
             layers: true,
             dxf: Default::default(),
@@ -47,7 +51,7 @@ impl Default for LoadOptions {
 
 impl LoadOptions {
     /// From command params: `pages` (`"2-3, 5"`, a page number or `"all"`), `page` (one page, when
-    /// `pages` isn't given), `cropTo` (or `crop`), `password`, `colorMode` (`rgb` | `cmyk`),
+    /// `pages` isn't given), `cropTo` (or `crop`), `password`, `colorMode` (`rgb` | `cmyk`) with `grays`,
     /// `textAs` (`text` | `outlines`), `layers` (true | false) and `dxf` (the DXF import options).
     pub fn from_params(cmd: &str, p: &Value) -> Result<Self> {
         let pages = match p.get("pages").filter(|v| !v.is_null()).or_else(|| p.get("page").filter(|v| !v.is_null())) {
@@ -65,13 +69,14 @@ impl LoadOptions {
             Some("cmyk") => Some(ColorMode::Cmyk),
             Some(m) => return Err(bad(cmd, format!("colorMode must be rgb or cmyk, not `{m}`"))),
         };
+        let grays = Grays::param(cmd, p)?;
         let text_as = choice(cmd, "textAs", str_param(p, "textAs"))?;
         let layers = match p.get("layers").filter(|v| !v.is_null()) {
             None => true,
             Some(v) => v.as_bool().ok_or_else(|| bad(cmd, "layers must be true or false"))?,
         };
         let dxf = super::dxfimport::options(cmd, p.get("dxf"))?;
-        Ok(Self { pages, crop, password, color_mode, text_as, layers, dxf })
+        Ok(Self { pages, crop, password, color_mode, grays, text_as, layers, dxf })
     }
 
     /// Does the document read only part of the file, or read it differently (a page range, another

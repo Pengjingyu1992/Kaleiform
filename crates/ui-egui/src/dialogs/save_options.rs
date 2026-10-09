@@ -169,11 +169,11 @@ fn option_row(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, o: &Forma
         }
     } else {
         let integer = o.ty == "integer";
-        let mut x = value.as_f64().unwrap_or(0.0);
-        let drag =
-            egui::DragValue::new(&mut x).range(0.0..=f64::MAX).speed(if integer { 1.0 } else { 0.1 }).max_decimals(if integer { 0 } else { 2 });
-        if ui.add(drag).on_hover_text(o.description).changed() {
-            d.fields.insert(o.name.into(), if integer { json!(x.round() as i64) } else { json!(x) });
+        let x = value.as_f64().unwrap_or(0.0);
+        let field = ui.scope(|ui| widgets::range_field(ui, ("save-option", o.name), x, 0.0..=f64::MAX, "", if integer { 0 } else { 2 }, 80.0));
+        field.response.on_hover_text(o.description);
+        if let Some(x) = field.inner {
+            d.fields.insert(o.name.into(), if integer { json!(x as i64) } else { json!(x) });
         }
     }
     ui.end_row();
@@ -330,7 +330,8 @@ mod tests {
     #[test]
     fn save_a_copy_and_template_suggest_their_names() {
         let (mut app, written, picks) = desktop("copy.vectorcraft");
-        app.session.prefs.templates_folder = "/templates".into();
+        let folder = vectorcraft_testkit::temp_dir("save-template-dialog");
+        app.session.prefs.templates_folder = folder.to_string_lossy().into_owned();
         app.run("file.saveCopy", json!({})).unwrap();
         assert_eq!(picks.borrow()[0].name, "Untitled-1 copy.vectorcraft");
         assert!(app.ui.dialog.is_none(), "the native format has no options");
@@ -338,7 +339,8 @@ mod tests {
         assert!(app.session.active().unwrap().path.is_none() && app.session.active().unwrap().is_dirty());
         app.run("file.saveAsTemplate", json!({})).unwrap();
         let pick = &picks.borrow()[1];
-        assert_eq!((pick.name.as_str(), pick.folder.as_deref()), ("Untitled-1 template.vctemplate", Some("/templates")));
+        assert_eq!(pick.name, "Untitled-1 template.vctemplate");
+        assert_eq!(pick.folder.as_deref().map(std::path::Path::new), Some(folder.as_path()));
         assert_eq!(pick.filters, [("Kaleiform Template", &["vctemplate"][..])]);
         assert_eq!(written.borrow()[1].0, "copy.vectorcraft", "the picked name is kept");
     }

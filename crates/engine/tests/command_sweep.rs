@@ -98,13 +98,19 @@ fn known_bug(id: &str, p: &Value) -> bool {
     KNOWN_BUGS.iter().any(|(c, k)| *c == id && p.get(*k).is_some())
 }
 
-/// Regression: huge column counts used to panic with `capacity overflow`.
+/// Regression: huge column counts used to panic with `capacity overflow`; in every layout and
+/// order (#681), with huge and negative spacing too.
 #[test]
 fn artboard_rearrange_huge_columns() {
     for fx in Fixture::ALL {
-        for cols in [json!(u64::MAX), json!(1e308)] {
-            let p = json!({ "columns": cols });
-            assert_eq!(probe(fx, "artboard.rearrange", &p), None);
+        for layout in ["gridByRow", "gridByColumn", "row", "column"] {
+            for order in ["leftToRight", "rightToLeft"] {
+                for (cols, spacing) in [(json!(u64::MAX), json!(1e308)), (json!(1e308), json!(-1e308)), (json!(0), json!(0)), (json!(-5), json!(20))]
+                {
+                    let p = json!({ "layout": layout, "order": order, "columns": cols, "spacing": spacing });
+                    assert_eq!(probe(fx, "artboard.rearrange", &p), None);
+                }
+            }
         }
     }
 }
@@ -180,6 +186,10 @@ fn structured_junk() {
         ("select.add", json!({"ids": [[1], {"a": 1}]})),
         ("select.anchors", json!({"id": 2, "anchors": [[99, 99], [-1, 0], ["a", "b"]], "mode": "set"})),
         ("select.anchorsMany", json!({"items": [{"id": 2, "anchors": [[0, 1000]]}, null, 5]})),
+        ("select.anchorsMany", json!({"items": [{"id": 2, "anchors": [[0, 1000], [0, 0]]}, {"id": u64::MAX}], "mode": "toggle"})),
+        ("select.anchorsMany", json!({"items": [{"id": 2, "anchors": [[0, 0]]}], "mode": "subtract"})),
+        ("select.anchorsMany", json!({"items": [], "mode": 7})),
+        ("select.toggle", json!({"ids": [2, u64::MAX, "x"]})),
         ("object.transform", json!({"matrix": [0, 0, 0, 0, 0, 0]})),
         ("object.transform", json!({"matrix": [1e308, 1e308, 1e308, 1e308, 1e308, 1e308]})),
         ("object.transform", json!({"matrix": [1, 2, 3]})),
@@ -247,6 +257,9 @@ fn structured_junk() {
         ("effect.apply", json!({"effect": "distort.zigZag", "params": {"size": 1e308, "ridges": 100}})),
         ("effect.apply", json!({"effect": "distort.transform", "params": {"copies": 1e308}})),
         ("effect.apply", json!({"effect": "stylize.dropShadow", "params": {"blur": 1e308, "opacity": -1}})),
+        ("effect.apply", json!({"effect": "blur.radial", "params": {"amount": 1e308, "method": 5, "quality": "best"}})),
+        ("effect.apply", json!({"effect": "blur.smart", "params": {"radius": 1e308, "threshold": -1e308, "quality": null}})),
+        ("effect.apply", json!({"effect": "sharpen.unsharpMask", "params": {"amount": -1, "radius": "1e999", "threshold": 1e308}})),
         ("effect.apply", json!({"effect": "no.such.effect"})),
         ("effect.remove", json!({"index": 99})),
         ("effect.setParams", json!({"index": 0, "params": null})),
@@ -259,6 +272,8 @@ fn structured_junk() {
         ("object.setBounds", json!({"width": -10, "height": 1e308, "reference": 99})),
         ("object.distributeSpacing", json!({"axis": "horizontal", "spacing": -1e308})),
         ("artboard.setProps", json!({"index": 0, "width": -1, "height": 0})),
+        ("artboard.setProps", json!({"index": 0, "width": 1e300, "height": 1e-300, "scaleArt": true, "strokes": true, "corners": true})),
+        ("artboard.setProps", json!({"index": 0, "x": -1e308, "width": 0, "height": 1, "scaleArt": true, "patterns": true})),
         ("artboard.new", json!({"width": 0, "height": -1})),
         ("artboard.delete", json!({"index": 0})),
         ("artboard.move", json!({"index": 0, "dx": 1e308, "dy": 0, "moveArt": true})),
@@ -270,6 +285,15 @@ fn structured_junk() {
         ("text.create", json!({"x": 0, "y": 0, "text": "\u{0}\u{FFFF}\u{1F600}", "size": -1})),
         ("text.create", json!({"x": 0, "y": 0, "text": "a", "size": 1e308, "area": {"width": -1, "height": 0}})),
         ("text.setStyle", json!({"size": 0, "leading": -1, "tracking": 1e308})),
+        ("text.setStyle", json!({"justify": "center", "start": u64::MAX, "end": 0})),
+        ("text.setStyle", json!({"justify": "right", "start": -1, "end": "x"})),
+        ("text.setFormat", json!({"spaceBefore": 1e308, "leftIndent": -1e308, "start": 3, "end": u64::MAX})),
+        ("text.setFormat", json!({"hyphenate": true, "underline": true, "start": 1.5, "end": null})),
+        ("text.setFormat", json!({"ids": [u64::MAX, 2], "firstLineIndent": 5, "start": 0, "end": 0})),
+        ("text.tabs.set", json!({"stops": [{"position": 10}], "start": u64::MAX, "end": u64::MAX})),
+        ("text.tabs.get", json!({"start": -5})),
+        ("paraStyle.apply", json!({"name": "[Normal Paragraph Style]", "id": 2, "start": u64::MAX, "end": 1})),
+        ("paraStyle.new", json!({"id": 2, "start": u64::MAX})),
         ("document.setUnits", json!({"units": "Parsecs"})),
         ("document.open", json!({"name": "x.svg", "dataBase64": "!!!"})),
         ("document.open", json!({"name": "x.svg", "dataBase64": "PHN2Zz4="})),
@@ -301,6 +325,54 @@ fn structured_junk() {
         for (id, p) in &cases {
             if let Some(f) = probe(fx, id, p) {
                 failures.push(f);
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// Area Type Options with junk fit values, on selected area type (the fixtures have none), with
+/// text that overflows: never a panic, the document stays sound, and editing still works.
+#[test]
+fn area_options_fit_junk() {
+    let cases = [
+        json!({"fit": "shrinkText", "fitMinPercent": 1e308}),
+        json!({"fit": "shrinkText", "fitMinPercent": -1e308}),
+        json!({"fit": "shrinkText", "fitMinPercent": "x"}),
+        json!({"fit": {"shrinkText": {"minPercent": -5}}}),
+        json!({"fit": {"shrinkText": {"minPercent": "a"}}}),
+        json!({"fit": {"shrinkText": null}}),
+        json!({"fit": {"autoHeight": 1}}),
+        json!({"fit": {"bogus": {}}}),
+        json!({"fit": [1, 2]}),
+        json!({"fit": ""}),
+        json!({"fit": "AUTO-HEIGHT", "height": 1e308, "width": -1e308}),
+        json!({"fit": "autoHeight", "columns": u64::MAX, "gutter": 1e308, "inset": 1e308}),
+        json!({"fit": "autoHeight", "rows": 5, "inset": -1}),
+        json!({"fit": "shrinkText", "columns": 100, "gutter": 0, "inset": 10000}),
+        json!({"fitMinPercent": 50}),
+        json!({"fit": "none", "fitMinPercent": 1e-308}),
+    ];
+    let story = "Words that overflow a small frame. ".repeat(40);
+    let mut failures = vec![];
+    for (size, (w, h)) in [(12.0, (120.0, 40.0)), (0.1, (1.0, 1.0)), (1296.0, (100_000.0, 1.0))] {
+        for p in &cases {
+            let mut s = Fixture::Multi.session();
+            let made = s.execute("text.create", &json!({"x": 10, "y": 10, "size": size, "text": story, "area": {"width": w, "height": h}}));
+            let Ok(made) = made else { continue };
+            let id = made["id"].as_u64().unwrap_or(0);
+            let r = catch_quiet(|| s.execute("text.areaOptions", p));
+            match r {
+                Err(m) => failures.push(format!("PANIC text.areaOptions {p} [{size} pt, {w}×{h}]: {m}")),
+                Ok(_) => {
+                    let typed = catch_quiet(|| s.execute("text.editRange", &json!({"id": id, "start": 0, "insert": "More words. "})));
+                    if typed.is_err() {
+                        failures.push(format!("PANIC typing after text.areaOptions {p}"));
+                    }
+                    if let Err(e) = check_session(&s) {
+                        failures.push(format!("text.areaOptions {p} [{size} pt]: {e}"));
+                    }
+                }
             }
         }
     }
@@ -439,4 +511,82 @@ fn envelope_commands_with_junk_params_on_envelopes() {
     failures.sort();
     failures.dedup();
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// Inline graphics in text (a symbol set in a run of type): text commands with `{}`, junk and
+/// structured junk (bad symbol names, offsets inside or past the graphic's character, malformed
+/// inline runs) never panic, leave an interaction open or break the tree, and the document still
+/// round-trips and exports.
+#[test]
+fn text_commands_with_junk_params_on_inline_graphics() {
+    use vectorcraft_testkit::fixtures::{ellipse, exec, id_of, select};
+    let path = safe_path();
+    let setup = || {
+        let mut s = Fixture::Multi.session();
+        let e = ellipse(&mut s, 400.0, 300.0, 20.0, 20.0);
+        select(&mut s, &[e]);
+        exec(&mut s, "symbol.new", json!({"name": "Dot"}));
+        let t = id_of(&exec(&mut s, "text.create", json!({"x": 20, "y": 200, "text": "ab cd", "size": 20})));
+        exec(&mut s, "text.insertInline", json!({"id": t.0, "at": 2, "symbol": "Dot", "scale": 2}));
+        select(&mut s, &[t]);
+        (s, t)
+    };
+    let (_, t) = setup();
+    let t = t.0;
+    let style = json!({"font_family": "Source Sans 3", "size": 12, "fill": {"type": "none"}});
+    let structured = [
+        ("text.insertInline", json!({"id": t, "at": u64::MAX, "symbol": "Dot", "scale": 100})),
+        ("text.insertInline", json!({"id": t, "at": 3, "symbol": "Dot", "scale": 1e-300, "shift": -1e5})),
+        ("text.insertInline", json!({"id": t, "at": 3, "symbol": "\u{0}", "scale": 1})),
+        ("text.insertInline", json!({"id": t, "at": 3, "symbol": "", "scale": f64::MAX})),
+        ("text.insertInline", json!({"id": u64::MAX, "symbol": "Dot"})),
+        ("text.insertInline", json!({"id": t, "at": "3", "symbol": ["Dot"], "scale": "big", "shift": null})),
+        ("text.editRange", json!({"id": t, "start": 3, "end": 4, "insert": "x"})),
+        ("text.editRange", json!({"id": t, "start": 4, "end": 3})),
+        (
+            "text.editRange",
+            json!({"id": t, "start": 0, "end": 0, "runs": [{"text": "\u{FFFC}\u{FFFC}x", "style": style, "inline": {"symbol": "Dot", "scale": 1e308, "baseline_shift": -1e308}}]}),
+        ),
+        ("text.editRange", json!({"id": t, "start": 0, "end": 0, "runs": [{"text": "\u{FFFC}", "style": style, "inline": {"symbol": "Missing"}}]})),
+        ("text.editRange", json!({"id": t, "start": 0, "end": 0, "runs": [{"text": "", "style": style, "inline": {"symbol": "Dot", "scale": -5}}]})),
+        ("text.editRange", json!({"id": t, "runs": [{"text": "\u{FFFC}", "style": style, "inline": {"symbol": 5}}]})),
+        ("text.setRangeStyle", json!({"id": t, "start": 3, "end": 4, "size": 1e308, "tracking": -1e308})),
+        ("text.getRange", json!({"id": t, "start": 3, "end": 4})),
+        ("type.insert", json!({"text": "\u{FFFC}"})),
+        ("type.changeCase", json!({"case": "upper"})),
+        ("type.smartPunctuation", json!({"quotes": true, "dashes": true, "ellipsis": true, "scope": "selection"})),
+        ("type.convertToAreaType", json!({})),
+        ("type.createOutlines", json!({})),
+        ("symbol.delete", json!({"name": "Dot"})),
+        ("symbol.delete", json!({"name": "Dot", "expandInstances": false})),
+        ("symbol.update", json!({"name": "Dot"})),
+    ];
+    let mut failures = vec![];
+    let mut run = |id: &str, p: &Value| {
+        let (mut s, _) = setup();
+        match catch_quiet(|| s.execute(id, p)) {
+            Err(msg) => failures.push(format!("PANIC {id} {p}: {msg}")),
+            Ok(r) => {
+                if s.in_interaction() {
+                    failures.push(format!("{id} {p}: left an interaction open"));
+                } else if let Err(e) = check_session(&s) {
+                    failures.push(format!("{id} {p}: {e}"));
+                } else if r.is_ok()
+                    && let Err(e) = catch_quiet(|| check_all(&mut s)).unwrap_or_else(|m| Err(format!("panic in checks: {m}")))
+                {
+                    failures.push(format!("{id} {p}: {e}"));
+                }
+            }
+        }
+    };
+    for (id, p) in &structured {
+        run(id, p);
+    }
+    for id in ["text.insertInline", "text.editRange", "text.getRange", "text.setRangeStyle", "type.insert"] {
+        let spec = command_specs().iter().find(|c| c.id == id).unwrap();
+        for p in std::iter::once(json!({})).chain(junk_params(spec.params, &path)) {
+            run(id, &p);
+        }
+    }
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

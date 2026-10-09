@@ -25,6 +25,7 @@ vectorcraft-cad = { workspace = true }
 vectorcraft-eps = { workspace = true }
 vectorcraft-metafile = { workspace = true }
 vectorcraft-plugins = { workspace = true }
+vectorcraft-affinity = { workspace = true }
 image = { workspace = true }
 flate2 = { workspace = true }
 kurbo = { workspace = true }
@@ -34,6 +35,10 @@ thiserror = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
+vectorcraft-affinity = { workspace = true, features = ["synth"] }
+crc32fast = { workspace = true }
 vectorcraft-testkit = { workspace = true }
 proptest = { workspace = true }
 wat = { workspace = true }
+# Zstandard streams for the Illustrator editing data fuzz tests.
+ruzstd = { workspace = true }

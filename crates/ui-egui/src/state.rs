@@ -94,6 +94,12 @@ impl DockTab {
     }
 }
 
+/// Every panel `window.panel` shows, as (id, English label): the dock tabs, then the icon panels.
+pub fn all_panels() -> impl Iterator<Item = (&'static str, &'static str)> {
+    let tabs = DockTab::ALL.into_iter().map(|t| (t.info().0, t.info().1));
+    tabs.chain(ICON_PANELS.iter().map(|&(id, label, _)| (id, label)))
+}
+
 /// Panels that live as collapsed icons in the dock (Essentials Classic).
 pub const ICON_PANELS: &[(&str, &str, &str)] = &[
     ("color", "Color", "palette"),
@@ -252,9 +258,23 @@ pub struct UiState {
     pub toolbar_advanced: bool,
     #[serde(default = "yes")]
     pub task_bar: bool,
+    /// Where the Contextual Task Bar was dragged or pinned. Not saved, as in Illustrator: the bar
+    /// starts under the selection at every launch.
+    #[serde(skip)]
+    pub task_bar_place: TaskBarPlace,
     /// Last tool shown in each toolbar slot (keyed by the slot's first tool id).
     #[serde(default)]
     pub slot_tool: std::collections::BTreeMap<String, String>,
+    /// Tool flyouts torn off the toolbar into floating panels.
+    #[serde(default)]
+    pub floating_flyouts: Vec<FloatingFlyout>,
+    /// Panels dragged out of the dock: each group floats as its own stack of tabs.
+    #[serde(default)]
+    pub floating_panels: Vec<FloatingPanels>,
+    /// The Tools panel floats with its top-left corner here (dragged out by its title bar); `None`:
+    /// docked at the window's left edge.
+    #[serde(default)]
+    pub toolbar_pos: Option<[f32; 2]>,
     pub status_bar: bool,
     pub dock: bool,
     pub view: ViewFlags,
@@ -263,13 +283,13 @@ pub struct UiState {
     pub flyout: Option<usize>,
     /// Last tool shown for each toolbar group (flyout selection sticks).
     pub group_tool: Vec<String>,
-    /// The selection tool used last (Selection, Direct Selection or Group Selection): a Cmd press
-    /// with any other tool drags with it.
-    pub last_selection_tool: String,
     pub status: String,
     pub palette_open: bool,
     pub palette_query: String,
-    /// Screen mode: 0 normal, 1 full screen with menu, 2 full screen, 3 presentation.
+    /// Screen mode: 0 normal, 1 full screen with menu, 2 full screen, 3 presentation. Not saved:
+    /// the app always starts in Normal Screen Mode, with its menus and panels (#472: a saved
+    /// Presentation Mode came back on restart with no way out).
+    #[serde(skip)]
     pub screen_mode: u8,
     /// Draw Normal / Behind / Inside.
     pub draw_mode: u8,
@@ -345,9 +365,9 @@ pub struct UiState {
     /// Layers panel › Panel Options… (row size, thumbnails, Show Layers Only).
     #[serde(default)]
     pub layers_panel: crate::panels::layers::PanelOptions,
-    /// The Layers panel's open rows, per open document (`DocState::uid` → node ids).
-    #[serde(skip)]
-    pub layers_expanded: std::collections::HashMap<u64, std::collections::HashSet<u64>>,
+    /// The Image Trace panel's Advanced section is open (as it was last left).
+    #[serde(default = "yes")]
+    pub image_trace_advanced: bool,
     /// The desktop window's size, position and maximized state, saved when the app quits and
     /// restored at the next launch (the desktop host reads and writes it; none on the web).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -368,6 +388,64 @@ pub struct WindowGeometry {
     pub maximized: bool,
 }
 
+/// A tool group's flyout torn off the toolbar: it floats as its own panel until its × puts it back.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FloatingFlyout {
+    /// The group's tools in flyout order; the first one names the toolbar slot.
+    pub tools: Vec<String>,
+    /// Top-left corner in screen points.
+    pub pos: [f32; 2],
+}
+
+/// Where the Contextual Task Bar sits once its handle has moved it (`window.taskBar.pin`,
+/// `window.taskBar.reset`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TaskBarPlace {
+    /// More Options › Pin Bar Position: the bar stays where it is instead of following the selection.
+    pub pinned: bool,
+    /// Where a pinned bar's top-left corner sits from the canvas's top-left (none when it was
+    /// pinned before it ever showed, until it is drawn). Unpinning leaves it for the next frame
+    /// to turn into `offset`.
+    pub pin_at: Option<egui::Vec2>,
+    /// Where the bar was last drawn, from the canvas's top-left: where pinning holds it.
+    pub shown_at: Option<egui::Vec2>,
+    /// How far an unpinned bar was dragged from its place under the selection, which it keeps while
+    /// it follows the selection, and the document (`DocState::uid`) it was moved in: in another
+    /// document the bar starts under the selection again.
+    pub offset: Option<(u64, egui::Vec2)>,
+}
+
+/// A group of panels dragged out of the dock: it floats as a stack of tabs, one panel shown.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FloatingPanels {
+    /// Panel ids (`window.panel`), in tab order.
+    pub panels: Vec<String>,
+    /// The tab shown.
+    #[serde(default)]
+    pub active: usize,
+    /// Top-left corner in screen points.
+    pub pos: [f32; 2],
+    /// A width the group was given (the Tabs panel sized over its text), else its panels' own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+}
+
+impl FloatingPanels {
+    /// Keep known panels, each in one group, drop the groups left empty and the toolbar position
+    /// that isn't a number (a hand-edited preferences file or workspace).
+    pub fn sanitize(groups: &mut Vec<FloatingPanels>, toolbar_pos: &mut Option<[f32; 2]>) {
+        let mut seen = std::collections::BTreeSet::new();
+        groups.retain_mut(|g| {
+            g.panels.retain(|id| all_panels().any(|(p, _)| p == id) && seen.insert(id.clone()));
+            g.active = g.active.min(g.panels.len().saturating_sub(1));
+            !g.panels.is_empty()
+        });
+        if toolbar_pos.is_some_and(|p| !p.iter().all(|v| v.is_finite())) {
+            *toolbar_pos = None;
+        }
+    }
+}
+
 impl UiState {
     /// Clear transient state after loading saved preferences.
     pub fn sanitized(mut self) -> Self {
@@ -380,6 +458,16 @@ impl UiState {
         if self.group_tool.len() != vectorcraft_tools::TOOL_GROUPS.len() {
             self.group_tool = UiState::default().group_tool;
         }
+        // One strip per group, of known tools (a hand-edited preferences file).
+        let mut seen = std::collections::BTreeSet::new();
+        self.floating_flyouts.retain_mut(|f| {
+            f.tools.retain(|id| vectorcraft_tools::tool_info(id).is_some());
+            f.tools.first().is_some_and(|k| seen.insert(k.clone()))
+        });
+        FloatingPanels::sanitize(&mut self.floating_panels, &mut self.toolbar_pos);
+        // Overrides that can't fire (modifier-only chords recorded by older versions, #487) give
+        // the default back.
+        self.shortcut_overrides.retain(|_, c| c.is_empty() || crate::shortcut_editor::normalize(c).is_some());
         self
     }
 }
@@ -397,14 +485,17 @@ impl Default for UiState {
             toolbar_double: false,
             toolbar_advanced: false,
             task_bar: true,
+            task_bar_place: TaskBarPlace::default(),
             slot_tool: Default::default(),
+            floating_flyouts: vec![],
+            floating_panels: vec![],
+            toolbar_pos: None,
             status_bar: true,
             dock: true,
             view: ViewFlags::default(),
             dialog: None,
             flyout: None,
             group_tool: vectorcraft_tools::TOOL_GROUPS.iter().map(|g| g[0].id.to_string()).collect(),
-            last_selection_tool: "selection".into(),
             status: String::new(),
             palette_open: false,
             palette_query: String::new(),
@@ -433,7 +524,7 @@ impl Default for UiState {
             dxf_import: Value::Null,
             home: None,
             layers_panel: Default::default(),
-            layers_expanded: Default::default(),
+            image_trace_advanced: true,
             window: None,
         }
     }

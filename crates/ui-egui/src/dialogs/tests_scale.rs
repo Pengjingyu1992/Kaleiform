@@ -5,6 +5,7 @@ use serde_json::json;
 use vectorcraft_engine::Session;
 
 use super::*;
+use crate::theme;
 
 /// The save prompt's rect after a few frames in a window of `physical` pixels at UI scale `zoom`.
 fn prompt(app: &mut VectorcraftApp, ctx: &egui::Context, physical: egui::Vec2, zoom: f32) -> (egui::Rect, egui::Rect) {

@@ -26,7 +26,7 @@ fn style(family: &str, font_style: &str) -> CharStyle {
 
 fn text(at: Point, runs: &[(&str, CharStyle)]) -> Node {
     let mut t = TextObject::point(at, "", runs[0].1.clone());
-    t.runs = runs.iter().map(|(s, st)| TextRun { text: (*s).into(), style: st.clone() }).collect();
+    t.runs = runs.iter().map(|(s, st)| TextRun { text: (*s).into(), style: st.clone(), inline: None }).collect();
     Node::new(vectorcraft_doc::NodeId(0), NodeKind::Text(Box::new(t)))
 }
 

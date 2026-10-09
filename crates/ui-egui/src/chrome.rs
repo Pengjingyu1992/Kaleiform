@@ -27,12 +27,13 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             titlebar::drag_area(ui, ui.max_rect());
         }
         ui.horizontal_centered(|ui| {
-            let on_home = app.ui.home.is_some() || app.session.active().is_none();
+            let on_home = menus::home_showing(app);
             if widgets::icon_button(ui, "house", tl!("Home"), on_home, 24.0).clicked() {
                 app.run("app.home", json!({})).ok();
             }
             ui.add_space(2.0);
-            let menus_end = if app.native_menu {
+            // With the macOS menu bar the menus are at the top of the screen instead.
+            let menus_end = if app.services.native_menu.is_some() {
                 let full = ui.max_rect();
                 ui.painter().text(full.center(), egui::Align2::CENTER_CENTER, tl!("Kaleiform"), egui::FontId::proportional(13.5), t.text);
                 ui.cursor().min.x
@@ -98,6 +99,77 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
 }
 
+/// An anchor button: icon, tooltip, command and the convert command's `to`.
+type AnchorButton<'a> = (&'a str, &'a str, &'a str, Option<&'a str>);
+
+/// The anchor controls the Control bar and the Properties panel show.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AnchorControls {
+    None,
+    /// Paths selected as a whole with a tool that edits anchors (Direct Selection, the Pen…),
+    /// which shows all their anchors selected: "Convert:" only, as removing or cutting at every
+    /// anchor isn't what they're for.
+    Convert,
+    /// Anchors direct-selected: "Convert:" and "Anchors:".
+    All,
+}
+
+/// Which anchor controls show for the selection and the active tool.
+pub fn anchor_controls(app: &VectorcraftApp) -> AnchorControls {
+    let Some(st) = app.session.active() else { return AnchorControls::None };
+    if !st.selection.anchors.is_empty() {
+        return AnchorControls::All;
+    }
+    let paths = st.selection.objects.iter().any(|id| st.doc.node(*id).is_some_and(|n| matches!(n.kind, NodeKind::Path { .. })));
+    if paths && vectorcraft_tools::catalog::edits_anchors(app.session.tool_id()) { AnchorControls::Convert } else { AnchorControls::None }
+}
+
+/// What the Control bar and the Properties panel offer for selected anchors ([`anchor_controls`]):
+/// "Convert:" corner or smooth, then "Anchors:" remove, connect (Join) and cut. Each group is a
+/// row of its own: inline in the Control bar, one under the other in a panel.
+pub fn anchor_buttons(app: &mut VectorcraftApp, ui: &mut Ui, controls: AnchorControls) {
+    let t = Tokens::get(ui.ctx());
+    let mut run = None;
+    let groups: [(&str, &[AnchorButton]); 2] = [
+        (
+            tl!("Convert:"),
+            &[
+                ("dc-anchor", tl!("Convert Selected Anchor Points to Corner"), "path.convertAnchors", Some("corner")),
+                ("dc-anchor-smooth", tl!("Convert Selected Anchor Points to Smooth"), "path.convertAnchors", Some("smooth")),
+            ],
+        ),
+        (
+            tl!("Anchors:"),
+            &[
+                ("pen-tool-delete", tl!("Remove Anchor Points"), "path.removeAnchors", None),
+                ("dc-join", tl!("Connect Selected End Points"), "path.join", None),
+                ("scissors", tl!("Cut Path at Selected Anchor Points"), "path.cutAtAnchors", None),
+            ],
+        ),
+    ];
+    let shown = match controls {
+        AnchorControls::None => 0,
+        AnchorControls::Convert => 1,
+        AnchorControls::All => groups.len(),
+    };
+    for (label, buttons) in groups.into_iter().take(shown) {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(label).size(12.0).color(t.text));
+            for &(icon, tip, id, to) in buttons {
+                if widgets::icon_button(ui, icon, tip, false, 24.0).clicked() {
+                    run = Some((id, to.map_or_else(|| json!({}), |to| json!({ "to": to }))));
+                }
+            }
+        });
+    }
+    if let Some((id, p)) = run {
+        crate::menus::invoke(app, id, p);
+    }
+}
+
+/// The room the Control bar's inline X/Y/W/H fields need; with less, only the Transform link shows.
+const INLINE_TRANSFORM_WIDTH: f32 = 440.0;
+
 /// The Control bar (Window → Control), context-sensitive like Illustrator's.
 pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -118,9 +190,9 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                 let sel = st.selection.objects.clone();
                 let units = app.session.general_unit();
                 let first = sel.first().and_then(|id| st.doc.node(*id)).cloned();
-                let anchor_mode = !st.selection.anchors.is_empty();
+                let anchors = anchor_controls(app);
                 let label = match &first {
-                    Some(_) if sel.len() == 1 && anchor_mode => tl!("Anchor Point"),
+                    Some(_) if sel.len() == 1 && anchors != AnchorControls::None => tl!("Anchor Point"),
                     Some(vectorcraft_doc::Node { kind: NodeKind::Image(im), .. }) if sel.len() == 1 => {
                         if im.link.is_some() {
                             tl!("Linked File")
@@ -128,32 +200,35 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                             tl!("Embedded")
                         }
                     }
+                    Some(n) if sel.len() == 1 && crate::panels::image_trace::is_trace(n) => tl!("Image Tracing"),
                     _ => tl!(crate::panels::appearance::object_label(app)),
                 };
                 ui.label(egui::RichText::new(label).font(theme::semibold(12.0)).color(t.text));
-                if anchor_mode && widgets::icon_button(ui, "dc-pen-delete", "Remove Anchor Points", false, 24.0).clicked() {
-                    crate::menus::invoke(app, "path.removeAnchors", json!({}));
+                if anchors != AnchorControls::None {
+                    anchor_buttons(app, ui, anchors);
                 }
                 ui.add_space(6.0);
-                crate::place::control_bar_details(app, ui);
+                // An image or an Image Trace object shows its own controls in place of Fill and Stroke.
+                let image = crate::place::control_bar_details(app, ui) || crate::panels::image_trace::control_bar(app, ui);
                 crate::toolbar::control_bar_options(app, ui);
                 crate::dialogs::envelope::control_bar(app, ui);
-                let shown_stroke = crate::panels::current_stroke(app);
-                let mixed = crate::panels::stroke_mixed(app, ui.ctx());
-                let weight = stroke_panel::shown_weight(app, shown_stroke.as_ref(), &mixed);
                 let opacity = if first.is_some() { crate::panels::current_transparency(app).map_or(1.0, |t| t.0) } else { 1.0 };
-                crate::panels::paint_chip(app, ui, false, 22.0, true);
-                crate::panels::paint_chip(app, ui, true, 22.0, true);
-                // The link opens the Stroke panel as a popover under it; then the weight spinner
-                // (with presets) and the width profile.
-                let link = ui.link(egui::RichText::new(tl!("Stroke:")).size(12.0).color(t.text).underline()).on_hover_text(tl!("Stroke options"));
-                stroke_panel::popover(app, &link);
-                stroke_panel::weight_field(app, ui, "cb-stroke", weight, 100.0);
-                if let Some(id) = stroke_panel::profile_dropdown(app, ui, shown_stroke.as_ref().and_then(|s| s.profile.as_ref())) {
-                    app.run("stroke.set", json!({"profile": id})).ok();
+                if !image {
+                    let shown_stroke = crate::panels::current_stroke(app);
+                    let mixed = crate::panels::stroke_mixed(app, ui.ctx());
+                    let weight = stroke_panel::shown_weight(app, shown_stroke.as_ref(), &mixed);
+                    crate::panels::paint_chip(app, ui, false, 22.0, true);
+                    crate::panels::paint_chip(app, ui, true, 22.0, true);
+                    // The link opens the Stroke panel as a popover under it; then the weight spinner
+                    // (with presets) and the width profile.
+                    stroke_panel::link(app, ui, tl!("Stroke:"));
+                    stroke_panel::weight_field(app, ui, "cb-stroke", weight, 100.0);
+                    if let Some(id) = stroke_panel::profile_dropdown(app, ui, shown_stroke.as_ref().and_then(|s| s.profile.as_ref())) {
+                        app.run("stroke.set", json!({"profile": id})).ok();
+                    }
+                    ui.add_space(4.0);
+                    ui.separator();
                 }
-                ui.add_space(4.0);
-                ui.separator();
                 if ui.link(egui::RichText::new(tl!("Opacity:")).size(12.0).color(t.text).underline()).clicked() {
                     app.ui.open_panel = Some("transparency".into());
                 }
@@ -173,6 +248,7 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     egui::Popup::menu(&resp).show(|ui| crate::panels::graphic_styles::picker(app, ui));
                 }
                 ui.separator();
+                crate::panels::character::control_bar(app, ui);
                 if sel.is_empty() {
                     if widgets::flat_button(ui, tl!("Document Setup"), 112.0).clicked() {
                         app.run("file.documentSetup", json!({})).ok();
@@ -200,9 +276,13 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     }
                 }
                 ui.separator();
-                // Transform fields.
+                // The Transform link opens the whole Transform panel (reference point, rotate,
+                // shear, options) in a popover; X/Y/W/H follow inline while the bar has room.
+                crate::panels::transform::link(app, ui);
                 // The bounding box, rotated with rotated objects: its centre and its own sides.
-                if let Some(b) = app.selection_box() {
+                if let Some(b) = app.selection_box()
+                    && ui.available_width() >= INLINE_TRANSFORM_WIDTH
+                {
                     let c = b.center();
                     let link = app.session.prefs.constrain_proportions;
                     for (k, lbl, v) in [("x", "X:", c.x), ("y", "Y:", c.y), ("width", "W:", b.rect.width()), ("height", "H:", b.rect.height())] {
@@ -210,7 +290,7 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                         if k == "height" {
                             crate::panels::transform::constrain_link(app, ui);
                         }
-                        ui.label(egui::RichText::new(tl!(lbl)).size(12.0).color(t.text_dim));
+                        widgets::field_label(ui, egui::RichText::new(tl!(lbl)).size(12.0).color(t.text_dim));
                         if let Some(nv) = widgets::num_field(ui, ("cb", k), Some(v), units, 80.0) {
                             app.run("object.setBounds", json!({k: nv, "reference": 4, "proportional": link})).ok();
                         }
@@ -232,24 +312,59 @@ fn tab_title(d: &vectorcraft_engine::DocState, zoom: f64, outline: bool) -> Stri
     format!("{}{} @ {} ({mode})", d.title(), if d.is_dirty() { "*" } else { "" }, zoom_label(zoom).replace('%', " %"))
 }
 
-/// Document tab strip: "Name* @ 66.67% (RGB/Preview)".
+/// Whether a document tab's × comes before its title (macOS) rather than after it (Windows,
+/// Linux and the web).
+const CLOSE_BEFORE_TITLE: bool = cfg!(target_os = "macos");
+
+/// The first of tabs `widths` wide that the strip shows in `room`: the first one, or a later one so
+/// that the `active` tab fits.
+fn first_tab_shown(widths: &[f32], active: Option<usize>, room: f32) -> usize {
+    let Some(a) = active else { return 0 };
+    let mut first = 0;
+    while first < a && widths.get(first..=a).map_or(0.0, |w| w.iter().sum::<f32>()) > room {
+        first += 1;
+    }
+    first
+}
+
+/// Document tab strip: "Name* @ 66.67% (RGB/Preview)". User Interface › Large Tabs makes the tabs
+/// taller, with larger titles. Tabs that don't fit are reached from a » button at the strip's
+/// right end, which lists every open document, and the active tab is always in view (#746).
 pub fn doc_tabs(app: &mut VectorcraftApp, ui: &mut Ui) {
+    /// The width of the » button.
+    const MORE: f32 = 30.0;
     let t = Tokens::get(ui.ctx());
-    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), 35.0), Sense::hover());
+    let (height, title_size) = if app.session.prefs.large_tabs { (44.0, 14.0) } else { (35.0, 12.5) };
+    let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
     ui.painter().rect_filled(strip, 0.0, t.tab_strip);
     ui.painter().line_segment([strip.left_bottom(), strip.right_bottom()], Stroke::new(1.0, t.border));
+    // On the Home screen no tab is the current one.
+    let active = app.session.active_index().filter(|_| app.ui.home.is_none());
+    let tabs: Vec<(String, std::sync::Arc<egui::Galley>)> = app
+        .session
+        .documents()
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let zoom = app.views.get(i).map(|v| v.zoom).unwrap_or(1.0);
+            let title = tab_title(d, zoom, app.ui.view.outline);
+            let color = if Some(i) == active { t.text_strong } else { t.text_dim };
+            (title.clone(), ui.painter().layout_no_wrap(title, theme::semibold(title_size), color))
+        })
+        .collect();
+    let widths: Vec<f32> = tabs.iter().map(|(_, g)| g.size().x + 50.0).collect();
+    let overflow = widths.iter().sum::<f32>() > strip.width();
+    let room = strip.width() - if overflow { MORE } else { 0.0 };
+    let first = if overflow { first_tab_shown(&widths, active, room) } else { 0 };
     let mut x = strip.left();
     let mut activate = None;
     let mut close = None;
-    let active = app.session.active_index();
-    for (i, d) in app.session.documents().iter().enumerate() {
-        let zoom = app.views.get(i).map(|v| v.zoom).unwrap_or(1.0);
-        let title = tab_title(d, zoom, app.ui.view.outline);
-        // On the Home screen no tab is the current one.
-        let is_active = Some(i) == active && app.ui.home.is_none();
-        let galley = ui.painter().layout_no_wrap(title, theme::semibold(12.5), if is_active { t.text_strong } else { t.text_dim });
-        let w = galley.size().x + 50.0;
-        let r = egui::Rect::from_min_size(egui::pos2(x, strip.top()), vec2(w, strip.height() - 1.0));
+    for (i, ((_, galley), w)) in tabs.iter().zip(&widths).enumerate().skip(first) {
+        if x + w > strip.left() + room && Some(i) != active {
+            break;
+        }
+        let is_active = Some(i) == active;
+        let r = egui::Rect::from_min_size(egui::pos2(x, strip.top()), vec2(*w, strip.height() - 1.0));
         let resp = ui.interact(r, ui.id().with(("tab", i)), Sense::click());
         if is_active {
             ui.painter().rect_filled(r, 0.0, t.panel);
@@ -257,17 +372,35 @@ pub fn doc_tabs(app: &mut VectorcraftApp, ui: &mut Ui) {
             ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.4));
         }
         ui.painter().line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.5, t.border));
-        // × at the left like Illustrator.
-        let xr = egui::Rect::from_center_size(egui::pos2(r.left() + 16.0, r.center().y), vec2(12.0, 12.0));
+        // The × where each platform puts a tab's: before the title on macOS, after it elsewhere
+        // (#673).
+        let (x_center, title_left) = if CLOSE_BEFORE_TITLE { (r.left() + 16.0, r.left() + 32.0) } else { (r.right() - 16.0, r.left() + 14.0) };
+        let xr = egui::Rect::from_center_size(egui::pos2(x_center, r.center().y), vec2(12.0, 12.0));
         let xresp = ui.interact(xr.expand(3.0), ui.id().with(("tabx", i)), Sense::click());
         icons::paint(ui, "x", xr, if xresp.hovered() { t.text_strong } else { t.text });
-        ui.painter().galley(egui::pos2(r.left() + 32.0, r.center().y - galley.size().y / 2.0), galley, t.text);
+        ui.painter().galley(egui::pos2(title_left, r.center().y - galley.size().y / 2.0), galley.clone(), t.text);
         if xresp.clicked() {
             close = Some(i);
         } else if resp.clicked() {
             activate = Some(i);
         }
         x += w;
+    }
+    // The » button: every open document, the active one checked.
+    if overflow {
+        let more = egui::Rect::from_min_max(egui::pos2(strip.right() - MORE, strip.top()), egui::pos2(strip.right(), strip.bottom() - 1.0));
+        let resp = ui.interact(more, ui.id().with("tabs-more"), Sense::click());
+        ui.painter().rect_filled(more, 0.0, if resp.hovered() { t.hover.gamma_multiply(0.4) } else { t.tab_strip });
+        icons::paint(ui, "chevrons-right", egui::Rect::from_center_size(more.center(), vec2(14.0, 14.0)), t.text);
+        let resp = resp.on_hover_text(tl!("Show all open documents"));
+        egui::Popup::menu(&resp).show(|ui| {
+            for (i, (title, _)) in tabs.iter().enumerate() {
+                if widgets::menu_item_name(ui, title, true, Some(i) == active) {
+                    activate = Some(i);
+                    ui.close();
+                }
+            }
+        });
     }
     if let Some(i) = close {
         if let Err(e) = crate::unsaved::close(app, i) {
@@ -415,11 +548,13 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     // Background saves and exports in progress, else the last message.
                     if let Some(job) = app.background.jobs.first() {
                         let more = app.background.jobs.len() - 1;
-                        let text = if more > 0 { format!("{}… (+{more})", job.label) } else { format!("{}…", job.label) };
+                        let label = crate::i18n::msg(&job.label);
+                        let text = if more > 0 { format!("{label}… (+{more})") } else { format!("{label}…") };
                         ui.label(egui::RichText::new(text).size(11.0).color(t.text));
                         ui.add(egui::Spinner::new().size(12.0).color(t.accent));
                     } else if !app.ui.status.is_empty() {
-                        ui.label(egui::RichText::new(&app.ui.status).size(11.0).color(t.text));
+                        // The message stays English in `ui.status` (agents and tests read it).
+                        ui.label(egui::RichText::new(crate::i18n::msg(&app.ui.status)).size(11.0).color(t.text));
                     }
                 });
             });
@@ -428,6 +563,9 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
 
 /// Contextual hint for the active tool: segments of (text, bold). Keys in bold segments are
 /// written as shortcuts are ("Alt+Click"); [`hint_segments`] names them for the platform.
+/// The hint of the Zoom tool with Performance › Animated Zoom on.
+const ANIMATED_ZOOM_HINT: &str = "zoom.animated";
+
 fn hint_for(tool: &str) -> Option<&'static [(&'static str, bool)]> {
     Some(match tool {
         "selection" => &[
@@ -498,6 +636,16 @@ fn hint_for(tool: &str) -> Option<&'static [(&'static str, bool)]> {
             (" to zoom out  |  ", false),
             ("Drag", true),
             (" to zoom into an area", false),
+        ],
+        ANIMATED_ZOOM_HINT => &[
+            ("Click", true),
+            (" to zoom in  |  ", false),
+            ("Alt+Click", true),
+            (" to zoom out  |  ", false),
+            ("Drag", true),
+            (" right or left to zoom in or out  |  ", false),
+            ("Hold", true),
+            (" to keep zooming", false),
         ],
         "eyedropper" => &[
             ("Click", true),
@@ -585,8 +733,8 @@ fn hint_for(tool: &str) -> Option<&'static [(&'static str, bool)]> {
 /// can insist a complete language covers them.
 pub fn hint_strings() -> Vec<&'static str> {
     let mut v = Vec::new();
-    for tool in vectorcraft_tools::catalog::all_tools() {
-        for &(text, bold) in hint_for(tool.id).unwrap_or(&[]) {
+    for tool in vectorcraft_tools::catalog::all_tools().map(|t| t.id).chain([ANIMATED_ZOOM_HINT]) {
+        for &(text, bold) in hint_for(tool).unwrap_or(&[]) {
             let text = if bold { text.rsplit_once('+').map_or(text, |(_, k)| k) } else { text };
             if !text.is_empty() && !text.chars().all(|c| c.is_ascii_digit()) && !v.contains(&text) {
                 v.push(text);
@@ -640,7 +788,10 @@ pub fn hint_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                 ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, "?", theme::semibold(11.0), t.text);
                 ui.add_space(6.0);
                 let mut job = egui::text::LayoutJob::default();
-                for (txt, bold) in hint_segments(app.session.tool_id()) {
+                let tool = app.session.tool_id();
+                // The Zoom tool's drag zooms to an area, or with Animated Zoom zooms as it goes.
+                let hint = if tool == "zoom" && crate::canvas::animated_zoom(&app.session.prefs) { ANIMATED_ZOOM_HINT } else { tool };
+                for (txt, bold) in hint_segments(hint) {
                     let font = if bold { theme::semibold(12.5) } else { egui::FontId::proportional(12.5) };
                     job.append(&txt, 0.0, egui::TextFormat { font_id: font, color: if bold { t.text_strong } else { t.text }, ..Default::default() });
                 }
@@ -651,8 +802,27 @@ pub fn hint_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
 
 #[cfg(test)]
 mod tests {
+
+    /// With more tabs than fit, the strip starts late enough to show the active one (#746).
+    #[test]
+    fn the_active_tab_stays_in_view() {
+        let widths = [100.0; 10];
+        assert_eq!(super::first_tab_shown(&widths, Some(2), 350.0), 0, "it fits from the start");
+        assert_eq!(super::first_tab_shown(&widths, Some(9), 350.0), 7, "the last three tabs shown");
+        assert_eq!(super::first_tab_shown(&widths, None, 350.0), 0);
+        assert_eq!(super::first_tab_shown(&widths, Some(4), 50.0), 4, "a tab wider than the room still shows");
+    }
     use serde_json::json;
     use vectorcraft_engine::Session;
+
+    struct MenuBackend;
+
+    impl crate::native_menu::Backend for MenuBackend {
+        fn sync(&mut self, _: &crate::native_menu::MenuBar) {}
+        fn drain(&mut self) -> Vec<crate::native_menu::Event> {
+            vec![]
+        }
+    }
 
     #[test]
     fn app_bar_home_aligns_with_the_macos_traffic_lights() {
@@ -664,7 +834,9 @@ mod tests {
                     crate::theme::apply(&ctx, Default::default());
                     let mut app = crate::VectorcraftApp::new(Session::new(), Default::default());
                     app.integrated_titlebar = integrated;
-                    app.native_menu = integrated;
+                    if integrated {
+                        app.services.native_menu = Some(crate::native_menu::NativeMenu::new(Box::new(MenuBackend)));
+                    }
                     app.custom_titlebar = !integrated;
                     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
                     for _ in 0..2 {
@@ -711,6 +883,44 @@ mod tests {
         if !cfg!(target_os = "macos") {
             assert!(text("zoom").contains("Alt+Click") && text("paintbrush").contains("Ctrl+Shift+/"));
         }
+    }
+
+    /// A document tab's × sits where the platform puts it (#673): after the title on Windows,
+    /// Linux and the web, before it on macOS; clicking it closes that document.
+    #[test]
+    fn a_tabs_close_box_sits_where_the_platform_puts_it() {
+        let mut app = crate::VectorcraftApp::new(Session::new(), Default::default());
+        app.session.execute("file.new", &json!({"width": 100, "height": 100})).unwrap();
+        app.session.execute("file.new", &json!({"width": 100, "height": 100})).unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 200.0));
+        let frame = |app: &mut crate::VectorcraftApp, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| super::doc_tabs(app, ui));
+            out.textures_delta.clear();
+            let mut titles = vec![];
+            for c in &out.shapes {
+                // The titles, not the × icons.
+                if let egui::Shape::Text(t) = &c.shape
+                    && t.visual_bounding_rect().width() > 30.0
+                {
+                    titles.push(t.visual_bounding_rect());
+                }
+            }
+            titles.sort_by(|a, b| a.left().total_cmp(&b.left()));
+            titles
+        };
+        let titles = frame(&mut app, vec![]);
+        assert_eq!(titles.len(), 2, "{titles:?}");
+        // The first tab's ×: 20 pt past its title's end, or 16 pt before its start.
+        let first = titles[0];
+        let x = if super::CLOSE_BEFORE_TITLE { first.left() - 16.0 } else { first.right() + 20.0 };
+        let at = egui::pos2(x, first.center().y);
+        let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![egui::Event::PointerMoved(at), press(true)]);
+        frame(&mut app, vec![press(false)]);
+        assert_eq!(app.session.documents().len(), 1, "the × closed the first document");
+        assert!(super::CLOSE_BEFORE_TITLE == cfg!(target_os = "macos"));
     }
 
     /// One headless frame of the status bar; returns the artboard navigator's buttons, left to
@@ -780,5 +990,34 @@ mod tests {
         assert!(title(&s).ends_with("(<Opacity Mask>/Opacity Mask)"), "{}", title(&s));
         s.execute("transparency.stopEditingOpacityMask", &json!({})).unwrap();
         assert!(title(&s).ends_with("(RGB/Preview)"));
+    }
+
+    /// The Zoom tool's hint follows Performance › Animated Zoom (#394): a drag zooms as it goes,
+    /// or (off) zooms into the area dragged across.
+    #[test]
+    fn the_zoom_hint_follows_animated_zoom() {
+        fn texts(s: &egui::Shape, out: &mut String) {
+            match s {
+                egui::Shape::Text(t) => out.push_str(t.galley.text()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut app = crate::VectorcraftApp::new(Session::new(), Default::default());
+        app.select_tool("zoom");
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let hint = |app: &mut crate::VectorcraftApp| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| super::hint_bar(app, ui));
+            out.textures_delta.clear();
+            let mut shown = String::new();
+            out.shapes.iter().for_each(|c| texts(&c.shape, &mut shown));
+            shown
+        };
+        let on = hint(&mut app);
+        assert!(on.contains(" right or left to zoom in or out") && on.contains("Hold"), "{on}");
+        app.run("prefs.set", json!({"key": "animatedZoom", "value": false})).unwrap();
+        let off = hint(&mut app);
+        assert!(off.contains(" to zoom into an area") && !off.contains("Hold"), "{off}");
     }
 }

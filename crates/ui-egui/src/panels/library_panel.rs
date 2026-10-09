@@ -154,7 +154,7 @@ pub(crate) fn pick_library_file(app: &mut VectorcraftApp, path: Option<String>) 
     }
     path.or_else(|| {
         let pick = crate::FilePick { filters: vectorcraft_engine::cmd::fileio::open_filters().collect(), ..Default::default() };
-        app.services.pick_open.as_mut().and_then(|f| f(&pick))
+        crate::picks::open(app, &pick)
     })
     .map(Some)
     .ok_or_else(|| "cancelled".into())
@@ -615,5 +615,17 @@ mod tests {
             assert_eq!(builtin_library(&l.id), !matches!(l.submenu, Some("User Defined" | "Other Libraries")), "{}", l.id);
         }
         assert!(!builtin_library(&open.id) && builtin_library(vectorcraft_engine::cmd::swatchlib::DOCUMENT_SWATCHES));
+    }
+
+    #[test]
+    fn swatch_exchange_files_without_a_path_open_in_the_library_panel() {
+        // A file opened on the web has no path; open_bytes passes its bytes as dataBase64.
+        let mut app = app();
+        crate::io::open_bytes(&mut app, "Brand.ase", &vectorcraft_testkit::ase::sample(), None).unwrap();
+        let open = app.ui.library_panel.clone().unwrap();
+        assert_eq!(open.id, "loaded/Brand.ase");
+        let (_, lib) = SwatchLibraries::get(&app, &open.id).unwrap();
+        assert_eq!((lib.len(), lib.groups.len()), (4, 1));
+        assert_eq!(app.session.documents().len(), 1, "not opened as a document");
     }
 }

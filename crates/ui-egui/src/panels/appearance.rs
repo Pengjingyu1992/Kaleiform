@@ -668,16 +668,13 @@ fn opacity_row(app: &mut VectorcraftApp, ui: &mut Ui, item: Option<usize>, opaci
     let lx = r.left() + EYE_W + 24.0 + if item.is_some() { 12.0 } else { 0.0 };
     let clicked = link(ui, pos2(lx, r.center().y), ("ap-op-link", item), tl!("Opacity:")) || resp.clicked();
     text(ui, pos2(lx + 56.0, r.center().y), &opacity_text(opacity, blend), false);
-    egui::Popup::menu(&resp)
-        .open_memory(clicked.then_some(egui::SetOpenCommand::Toggle))
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| match widgets::opacity_blend(ui, ("ap-op", item), Some(opacity), Some(blend), true) {
-            Some(TransparencyEdit::Blend(b)) => {
-                app.run("transparency.set", json!({"item": item, "blend": b.label()})).ok();
-            }
-            Some(TransparencyEdit::Opacity(o, phase)) => live_run(app, "Opacity", "transparency.set", json!({"item": item, "opacity": o}), phase),
-            None => {}
-        });
+    widgets::popover(&resp, clicked, |ui| match widgets::opacity_blend(ui, ("ap-op", item), Some(opacity), Some(blend), true) {
+        Some(TransparencyEdit::Blend(b)) => {
+            app.run("transparency.set", json!({"item": item, "blend": b.label()})).ok();
+        }
+        Some(TransparencyEdit::Opacity(o, phase)) => live_run(app, "Opacity", "transparency.set", json!({"item": item, "opacity": o}), phase),
+        None => {}
+    });
     r
 }
 

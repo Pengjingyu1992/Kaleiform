@@ -1,8 +1,10 @@
 # 上游来源与版本边界
 
 - 上游项目：[storytold/vectorcraft](https://github.com/storytold/vectorcraft)。
-- 已同步基线：[`8b2be144cc964f9ac26eb175484b887cef0e86db`](https://github.com/storytold/vectorcraft/commit/8b2be144cc964f9ac26eb175484b887cef0e86db)，工作区版本 `0.4.0`。
-- 本地修复快照参考提交：`df72baab3f263fa90dbf44ee9de469c00d2cea8d`，另包含品牌、图标及中文应用名称的未提交本地改动。
+- 当前开发基线：[`21355945ea2a4d1136da4deed36d07b6aca21c52`](https://github.com/storytold/vectorcraft/commit/21355945ea2a4d1136da4deed36d07b6aca21c52)，2026-10-10 同步，虹构开发版本 `0.7.0-kaleiform.4`。
+  这是官方 `main` 的固定提交，包含 `v0.7.0` 标签之后的改动，不等于仅同步官方发布包，也不代表已经公开发布虹构新版。
+- 首版上游基线：[`8b2be144cc964f9ac26eb175484b887cef0e86db`](https://github.com/storytold/vectorcraft/commit/8b2be144cc964f9ac26eb175484b887cef0e86db)，工作区版本 `0.4.0`。
+- 同步前虹构快照：`42f04be96c59494639e9761c472acb1a1680845f`，预览版 `0.4.0-kaleiform.3`。
 - 2026-10-08 发布准备时检查到的上游 main：[`d9fc3b6505bb185c7ecce05ab4b60b86da12822f`](https://github.com/storytold/vectorcraft/commit/d9fc3b6505bb185c7ecce05ab4b60b86da12822f)，工作区版本 `0.5.0`。
   此基线之后的提交不包含在虹构首个预览版中；链接仅用于可追溯，不承诺其后一直是最新版本。
 
@@ -20,3 +22,11 @@
 后续独立应用标识与数据迁移需要单独设计和测试，不能仅靠替换字符串完成。
 
 具体功能差异见 [docs/differences.md](docs/differences.md)，作者致谢见 [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md)。
+
+## 2026-10-10 集成策略
+
+- 核心功能采用上述官方固定提交；密集描摹轮廓保护、并行描摹、复杂度限制和渲染恢复等采用官方实现。
+- 保留虹构品牌、中文字体字重回退、补充标点禁则、短屏布局、批量选择查询、忽略白色孔洞和异常 PDF 坐标保护。
+- 沿用 APFS DMG、中文 App 名称、无白边图标和隐私路径映射；不引入官方 DMG 品牌背景。
+- 不使用无共同历史的普通合并猜测基线；从明确首版基线执行三方补丁集成。
+- 验证及范围记录见 [集成说明](docs/upstream-integration-2026-10-10.md)。

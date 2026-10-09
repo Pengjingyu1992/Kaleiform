@@ -66,7 +66,7 @@ macro_rules! style_cmds {
                 concat!($p, ".apply"),
                 concat!("Apply ", $what, " Style"),
                 &[],
-                "{name, clearOverrides?, ids?|id + start?/end? (a Type tool range)} → {count}",
+                "{name, clearOverrides?, ids?|id + start?/end? (a Type tool range: character styles style it, paragraph styles apply to the paragraphs it touches)} → {count}",
                 |s, p| apply(s, p, $kind),
                 true,
             ),
@@ -179,7 +179,7 @@ fn text_mut(d: &mut Document, id: NodeId) -> Option<&mut vectorcraft_doc::TextOb
     }
 }
 
-/// How many runs (char) or text objects (para) use `name`.
+/// How many runs (char) or paragraphs (para) use `name`.
 fn uses(d: &Document, kind: Kind, name: &str) -> usize {
     let target = (name != kind.normal()).then_some(name);
     let mut n = 0;
@@ -187,7 +187,7 @@ fn uses(d: &Document, kind: Kind, name: &str) -> usize {
         if let NodeKind::Text(t) = &node.kind {
             n += match kind {
                 Kind::Char => t.runs.iter().filter(|r| r.style.style_name.as_deref() == target).count(),
-                Kind::Para => usize::from(t.para.style_name.as_deref() == target),
+                Kind::Para => (0..t.paragraph_count()).filter(|&i| t.para_at(i).style_name.as_deref() == target).count(),
             };
         }
     });
@@ -210,9 +210,11 @@ fn update_users(d: &mut Document, kind: Kind, name: &str, old: &Map<String, Valu
                 }
             }
             Kind::Para => {
-                if t.para.style_name == target {
-                    t.para = restyle(&t.para, old, new);
-                    changed = true;
+                for pa in t.para_styles_mut() {
+                    if pa.style_name == target {
+                        *pa = restyle(pa, old, new);
+                        changed = true;
+                    }
                 }
             }
         }
@@ -231,13 +233,23 @@ fn selection_attrs(s: &Session, p: &Value, kind: Kind) -> Result<Option<Map<Stri
         None => text_targets(s, &json!({}), "").ok().and_then(|v| v.first().copied()),
     };
     let Some(NodeKind::Text(t)) = id.and_then(|i| d.node(i)).map(|n| &n.kind) else { return Ok(None) };
+    let at = p.get("start").and_then(Value::as_u64).map_or(0, |v| usize::try_from(v).unwrap_or(usize::MAX));
     Ok(Some(match kind {
-        Kind::Char => {
-            let at = p.get("start").and_then(Value::as_u64).unwrap_or(0) as usize;
-            to_attrs(&vectorcraft_text::edit::style_at(&t.runs, at))
-        }
-        Kind::Para => to_attrs(&t.para),
+        Kind::Char => to_attrs(&vectorcraft_text::edit::style_at(&t.runs, at)),
+        // The paragraph at `start`.
+        Kind::Para => to_attrs(t.para_at(t.paragraphs_in(at, at).start)),
     }))
+}
+
+/// The selected text's character (`para`: paragraph) attributes, every one of them: what a
+/// library keeps of a text style. `None` without text selected.
+pub(crate) fn selected_style_attrs(s: &Session, para: bool) -> Result<Option<Map<String, Value>>> {
+    selection_attrs(s, &json!({}), if para { Kind::Para } else { Kind::Char })
+}
+
+/// Whether the document has a character (`para`: paragraph) style `name`, and its attributes.
+pub(crate) fn style_attrs(d: &Document, para: bool, name: &str) -> Option<Map<String, Value>> {
+    if para { Kind::Para } else { Kind::Char }.attrs(d, name)
 }
 
 fn name_param<'a>(p: &'a Value, kind: Kind, verb: &str) -> Result<&'a str> {
@@ -261,6 +273,26 @@ fn attrs_param(p: &Value, kind: Kind, verb: &str) -> Result<Option<Map<String, V
     }
 }
 
+/// The attributes of a new style made from nothing (no `attrs`, no text selected): while the
+/// interface is in Japanese, new type's em box top-to-top leading (paragraph styles) and em box
+/// centre alignment (character styles); else none (the defaults).
+fn new_style_attrs(s: &Session, kind: Kind) -> Map<String, Value> {
+    if !s.japanese_interface() {
+        return Map::new();
+    }
+    let (set, default) = match kind {
+        Kind::Char => {
+            let st = CharStyle { char_align: vectorcraft_doc::CharAlign::EmBoxCenter, ..CharStyle::default() };
+            (to_attrs(&st), to_attrs(&CharStyle::default()))
+        }
+        Kind::Para => {
+            let st = ParaStyle { leading_model: vectorcraft_doc::LeadingModel::EmBoxTop, ..ParaStyle::default() };
+            (to_attrs(&st), to_attrs(&ParaStyle::default()))
+        }
+    };
+    set.into_iter().filter(|(k, v)| default.get(k) != Some(v)).collect()
+}
+
 // ---------- commands ----------
 
 fn list(s: &mut Session, kind: Kind) -> Result<Value> {
@@ -275,7 +307,14 @@ fn new(s: &mut Session, p: &Value, kind: Kind) -> Result<Value> {
     let c = kind.cmd("new");
     let attrs = match attrs_param(p, kind, "new")? {
         Some(a) => a,
-        None => selection_attrs(s, p, kind)?.unwrap_or_default(),
+        None => match selection_attrs(s, p, kind)? {
+            Some(a) => a,
+            None => {
+                let a = new_style_attrs(s, kind);
+                s.note_journal("attrs", Value::Object(a.clone()));
+                a
+            }
+        },
     };
     let d = &s.doc()?.doc;
     let base = if kind == Kind::Char { "Character Style" } else { "Paragraph Style" };
@@ -302,8 +341,9 @@ fn apply(s: &mut Session, p: &Value, kind: Kind) -> Result<Value> {
     let normal = kind.attrs(d, kind.normal()).unwrap_or_default();
     let clear = bool_or(p, "clearOverrides", false);
     let style_name = (name != kind.normal()).then(|| name.clone());
-    // A Type tool range (character styles only) or whole text objects.
-    let range = id_param(p, "id").filter(|_| kind == Kind::Char && (p.get("start").is_some() || p.get("end").is_some()));
+    // A Type tool range or whole text objects.
+    let text_range = super::typecmd::TextRange::parse(p, &c)?;
+    let range = id_param(p, "id").filter(|_| text_range.is_some());
     let ids = match range.or_else(|| id_param(p, "id")) {
         Some(id) => vec![id],
         None => text_targets(s, p, &c)?,
@@ -349,7 +389,17 @@ fn apply(s: &mut Session, p: &Value, kind: Kind) -> Result<Value> {
                         return Err(e);
                     }
                 }
-                Kind::Para => t.para = para_fn(&t.para)?,
+                Kind::Para => {
+                    let mut v = t.paragraph_styles();
+                    let span = match (range, text_range) {
+                        (Some(_), Some(r)) => r.paras(t),
+                        _ => 0..v.len(),
+                    };
+                    for st in v.iter_mut().take(span.end).skip(span.start) {
+                        *st = para_fn(st)?;
+                    }
+                    t.set_paragraph_styles(v);
+                }
             }
             refresh_bounds(t);
         }
@@ -420,7 +470,7 @@ fn rename(s: &mut Session, p: &Value, kind: Kind) -> Result<Value> {
             };
             match kind {
                 Kind::Char => t.runs.iter_mut().for_each(|r| fix(&mut r.style.style_name)),
-                Kind::Para => fix(&mut t.para.style_name),
+                Kind::Para => t.para_styles_mut().for_each(|pa| fix(&mut pa.style_name)),
             }
         }
         Ok(())
@@ -445,7 +495,7 @@ fn delete(s: &mut Session, p: &Value, kind: Kind) -> Result<Value> {
             };
             match kind {
                 Kind::Char => t.runs.iter_mut().for_each(|r| fix(&mut r.style.style_name)),
-                Kind::Para => fix(&mut t.para.style_name),
+                Kind::Para => t.para_styles_mut().for_each(|pa| fix(&mut pa.style_name)),
             }
         }
         Ok(())

@@ -180,7 +180,7 @@ fn typography(ui: &mut egui::Ui, d: &mut Dialog) {
         }
         ui.end_row();
         for (key, label) in [("superscript", tl!("Superscript:")), ("subscript", tl!("Subscript:"))] {
-            ui.label(egui::RichText::new(label).color(t.text));
+            widgets::field_label(ui, egui::RichText::new(label).color(t.text));
             for part in ["size", "position"] {
                 let v = d.fields.get(key).and_then(|m| m.get(part)).and_then(Value::as_f64).unwrap_or(0.0);
                 if let Some(n) = widgets::plain_field(ui, (key, part), v, "%", 1, 70.0) {
@@ -191,7 +191,7 @@ fn typography(ui: &mut egui::Ui, d: &mut Dialog) {
             }
             ui.end_row();
         }
-        ui.label(egui::RichText::new(tl!("Small Caps:")).color(t.text));
+        widgets::field_label(ui, egui::RichText::new(tl!("Small Caps:")).color(t.text));
         if let Some(n) = widgets::plain_field(ui, "smallCaps", d.f64("smallCapsSize", 70.0), "%", 1, 70.0) {
             d.fields.insert("smallCapsSize".into(), json!(n));
         }

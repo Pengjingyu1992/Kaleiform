@@ -27,7 +27,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Character",
             [],
             None,
-            "{id, start?: byte, end?: byte (default: all text), font?, style?, size?: pt, leading?: pt|\"auto\", tracking?, kerning?: 1/1000 em|\"auto\", baselineShift?: pt, hScale?: %, vScale?: %, rotation?: deg, fill?: colour|\"none\", stroke?: colour|\"none\", strokeWidth?: pt, strokeOptions?: {weight?, cap?, join?, miterLimit?, dash?, dashOffset?, alignDashes?} (as stroke.set: the character stroke), underline?, strikethrough?, allCaps?: bool, smallCaps?: bool, position?: \"normal\"|\"superscript\"|\"subscript\" (sizes from Document Setup), features?: [\"dlig\", \"-liga\", …], charAlign?: \"romanBaseline\"|\"emBoxTop\"|\"emBoxCenter\"|\"emBoxBottom\"} style a character range (runs are split at the range ends) → {id, runs}",
+            "{id, start?: byte, end?: byte (default: all text), font?, style?, size?: pt, leading?: pt|\"auto\", tracking?, kerning?: 1/1000 em|\"auto\", baselineShift?: pt, hScale?: %, vScale?: %, rotation?: deg, fill?: colour|\"none\", stroke?: colour|\"none\", strokeWidth?: pt, strokeOptions?: {weight?, cap?, join?, miterLimit?, dash?, dashOffset?, alignDashes?} (as stroke.set: the character stroke), underline?, strikethrough?, allCaps?: bool, smallCaps?: bool, position?: \"normal\"|\"superscript\"|\"subscript\" (sizes from Document Setup), features?: [\"dlig\", \"-liga\", …], charAlign?: \"romanBaseline\"|\"emBoxTop\"|\"emBoxCenter\"|\"emBoxBottom\"|\"icfTop\"|\"icfBottom\"} style a character range (runs are split at the range ends) → {id, runs}",
             has_doc,
             set_range_style
         ),
@@ -45,7 +45,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Area / Path Type",
             [],
             None,
-            "{path: id, mode: \"area\"|\"onPath\", text?: \"\", vertical?: bool = false, at?: [x, y] (on-path start: nearest point), size?, font?, placeholder?: bool (placeholder text instead, as text.create)} turn a path into an area-type frame or a type-on-a-path baseline (the path's paint is dropped) → {id}",
+            "{path: id, mode: \"area\"|\"onPath\", text?: \"\", vertical?: bool = false, at?: [x, y] (on-path start: nearest point), size?, font?, fit?: none|autoHeight|shrinkText, fitMinPercent? (area: as text.areaOptions; default autoHeight when the autoSizeAreaType preference is on), placeholder?: bool (placeholder text instead, as text.create), leadingModel?, charAlign? (as text.create)} turn a path into an area-type frame or a type-on-a-path baseline (the path's paint is dropped) → {id}",
             has_doc,
             create_in_path
         ),
@@ -135,6 +135,13 @@ fn edit_range(s: &mut Session, p: &Value) -> Result<Value> {
     let insert = str_param(p, "insert").unwrap_or("").to_string();
     let caret = s.edit("Typing", |d, _| {
         let t = text_mut(d, id).ok_or(EngineError::NoNode(id))?;
+        // Paragraph styles follow the edit: a split paragraph's new one continues its style, a
+        // merge keeps the first paragraph's.
+        let inserted: String = match &styled {
+            Some(r) => r.iter().map(|r| r.text.as_str()).collect(),
+            None => insert.clone(),
+        };
+        t.splice_paras(a, b, &inserted);
         let caret = match &styled {
             Some(r) => edit::replace_range_styled(&mut t.runs, a, b, r),
             None => edit::replace_range(&mut t.runs, a, b, &insert),
@@ -191,7 +198,7 @@ pub(crate) fn features_param(p: &Value, cmd: &str) -> Result<Option<Vec<String>>
     Ok(Some(vectorcraft_text::OtFeatures::default().with_tags(tags).to_tags()))
 }
 
-/// `charAlign: "romanBaseline"|"emBoxTop"|"emBoxCenter"|"emBoxBottom"` (Character Alignment).
+/// `charAlign: "romanBaseline"|"emBoxTop"|"emBoxCenter"|"emBoxBottom"|"icfTop"|"icfBottom"` (Character Alignment).
 pub(crate) fn char_align_param(p: &Value, cmd: &str) -> Result<Option<vectorcraft_doc::CharAlign>> {
     use vectorcraft_doc::CharAlign;
     let Some(v) = p.get("charAlign").filter(|v| !v.is_null()) else { return Ok(None) };
@@ -200,7 +207,14 @@ pub(crate) fn char_align_param(p: &Value, cmd: &str) -> Result<Option<vectorcraf
         Some("emBoxTop") => CharAlign::EmBoxTop,
         Some("emBoxCenter") => CharAlign::EmBoxCenter,
         Some("emBoxBottom") => CharAlign::EmBoxBottom,
-        _ => return Err(bad(cmd, "`charAlign` must be \"romanBaseline\", \"emBoxTop\", \"emBoxCenter\" or \"emBoxBottom\"")),
+        Some("icfTop") => CharAlign::IcfTop,
+        Some("icfBottom") => CharAlign::IcfBottom,
+        _ => {
+            return Err(bad(
+                cmd,
+                "`charAlign` must be \"romanBaseline\", \"emBoxTop\", \"emBoxCenter\", \"emBoxBottom\", \"icfTop\" or \"icfBottom\"",
+            ));
+        }
     }))
 }
 
@@ -453,21 +467,29 @@ fn create_in_path(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let text = str_param(p, "text").unwrap_or("").to_string();
     let start = match point_param(p, "at") {
-        Some(at) if on_path => vectorcraft_text::path_fraction_at(&path.to_bezpath(), at).0,
+        Some(at) if on_path => vectorcraft_geom::ArcPath::new(path).fraction_at(at).unwrap_or(0.0),
         _ => 0.0,
     };
-    let kind = if on_path { TextKind::OnPath { path: path.clone(), start } } else { TextKind::Area { frame: path.clone() } };
+    let kind = if on_path { TextKind::OnPath { path: path.clone(), start, end: None } } else { TextKind::Area { frame: path.clone() } };
     let mut t = TextObject {
         vertical: p.get("vertical").and_then(Value::as_bool).unwrap_or(false),
         kind,
         xf: Affine::IDENTITY,
-        runs: vec![TextRun { text, style }],
+        runs: vec![TextRun { text, style, inline: None }],
         para: super::create::new_type_para(),
+        paras: Vec::new(),
         area: Default::default(),
         path_effect: Default::default(),
+        path_align: Default::default(),
+        path_spacing: 0.0,
         wrap: Vec::new(),
         cached_bounds: None,
+        cached_baselines: Vec::new(),
     };
+    super::create::new_type_alignment(s, p, C, &mut t)?;
+    if !on_path {
+        t.area.fit = super::create::new_area_fit(s, p, C)?;
+    }
     if bool_or(p, "placeholder", false) {
         super::typemenu::fill_with_placeholder(&mut t);
     } else {
@@ -593,10 +615,14 @@ fn headline_tracking(t: &TextObject, target: f64) -> Option<f64> {
             xf: Affine::IDENTITY,
             runs: head.clone(),
             para: Default::default(),
+            paras: Vec::new(),
             area: Default::default(),
             path_effect: Default::default(),
+            path_align: Default::default(),
+            path_spacing: 0.0,
             wrap: Vec::new(),
             cached_bounds: None,
+            cached_baselines: Vec::new(),
         };
         for r in &mut h.runs {
             r.style.tracking = tr;

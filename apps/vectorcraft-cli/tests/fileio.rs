@@ -82,3 +82,14 @@ fn help_lists_readable_formats() {
     let out = ok(&["--help"]);
     assert!(out.contains("Readable formats: .vectorcraft") && out.contains(".ait") && out.contains(".webp"), "{out}");
 }
+
+/// `info` reports the import warnings: an EPS read only up to an error names it.
+#[test]
+fn info_reports_why_an_eps_read_partly() {
+    let eps = tmp("partial.eps");
+    std::fs::write(&eps, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n%%EndComments\n0 0 10 10 rectfill frobnicate\n%%EOF\n").unwrap();
+    let v = info(&eps);
+    let w = v["warnings"][0].as_str().unwrap_or_default();
+    assert!(w.contains("`frobnicate`"), "{v}");
+    assert_eq!(v["kinds"]["Path"], 1, "{v}");
+}

@@ -4,12 +4,14 @@
 //! vectorcraft-cli mcp [--connect 127.0.0.1:7979 | --headless]
 //! vectorcraft-cli run [--in FILE] [--cmd id [--params '{json}']]... [--export out.svg]... [--scale 2]
 //! vectorcraft-cli commands
-//! vectorcraft-cli convert IN OUT [--scale 2] [--artboard 0 | --range 1-3,5] [--outline-text]
+//! vectorcraft-cli convert IN OUT [--scale 2] [--artboard 0 | --range 1-3,5] [--outline-text] [--replace-lossy]
 //! vectorcraft-cli info FILE
 //! vectorcraft-cli bench FILE [--size 2880x1800] [--iters 5]
 //! vectorcraft-cli perf [--paths 50000]
 //! ```
-#![forbid(unsafe_code)]
+// Denied, not forbidden: the DirectWrite font lister shared with the desktop app (Windows) allows
+// it for its COM calls, and nothing else may.
+#![deny(unsafe_code)]
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -35,6 +37,10 @@ macro_rules! out {
 }
 
 mod perf;
+/// The desktop app's DirectWrite font lister, shared: exports and MCP find the same fonts.
+#[cfg(all(windows, not(target_vendor = "win7")))]
+#[path = "../../vectorcraft/src/system_fonts.rs"]
+mod system_fonts;
 
 use serde_json::{Value, json};
 use vectorcraft_mcp::{Backend, DEFAULT_ADDR, Headless, Remote, Server};
@@ -65,14 +71,19 @@ USAGE:
   vectorcraft-cli commands
       Print the command catalogue as JSON.
 
-  vectorcraft-cli convert IN OUT [--scale N] [--artboard I | --range R] [--outline-text]
+  vectorcraft-cli convert IN OUT [--scale N] [--artboard I | --range R] [--outline-text] [--replace-lossy]
       Open IN (any readable format) and export OUT in the format its extension picks (see Writable
       formats). --artboard is 0-based, --range 1-based (\"1-3,5\"); a PDF gets every artboard
       unless one of them is given, EPS the bounds of the art, the other formats the first artboard.
-      Live effects are kept; --outline-text writes SVG text as paths.
+      Live effects are kept, and hidden layers and objects (written hidden in SVG and PSD), with
+      SVG's data-* attributes; --outline-text writes SVG text as paths. OUT may not be IN when reading
+      IN left things out (hidden text, art or layers it could not read; the notes say which) unless
+      --replace-lossy is given.
 
   vectorcraft-cli info FILE
-      Print a JSON summary: title, colour mode, units, artboards, object counts by kind, fonts.
+      Print a JSON summary: the import warnings (what didn't come in as it was, such as an EPS
+      read from its preview and why), title, colour mode, units, artboards, object counts by
+      kind, fonts.
 
   vectorcraft-cli bench FILE [--size WxH] [--iters N]
       Render FILE (any readable format) fitted to WxH (default 2880x1800) and print ms per frame
@@ -90,6 +101,9 @@ fn usage() -> String {
 }
 
 fn main() -> ExitCode {
+    // Before any font lookup: the fonts font services load (#579).
+    #[cfg(all(windows, not(target_vendor = "win7")))]
+    system_fonts::install();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("mcp") => mcp(&args[1..]),
@@ -161,7 +175,7 @@ fn commands() -> Result<(), String> {
 
 fn convert(args: &[String]) -> Result<(), String> {
     let mut files = vec![];
-    let (mut scale, mut artboard, mut range, mut outline_text) = (1.0f64, None::<u64>, None::<String>, false);
+    let (mut scale, mut artboard, mut range, mut outline_text, mut replace_lossy) = (1.0f64, None::<u64>, None::<String>, false, false);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -169,18 +183,17 @@ fn convert(args: &[String]) -> Result<(), String> {
             "--artboard" | "-a" => artboard = Some(it.next().and_then(|v| v.parse().ok()).ok_or("--artboard needs an index")?),
             "--range" | "-r" => range = Some(it.next().cloned().ok_or("--range needs artboards such as 1-3,5")?),
             "--outline-text" => outline_text = true,
+            "--replace-lossy" => replace_lossy = true,
             f => files.push(f.to_string()),
         }
     }
     let [input, output] = <[String; 2]>::try_from(files).map_err(|_| "convert needs IN and OUT")?;
     let mut h = Headless::new();
     h.call("app.open", json!({"path": input})).map_err(|e| format!("open {input}: {e}"))?;
-    let r = h
-        .call(
-            "engine.execute",
-            json!({"command": "document.export", "params": {"path": output, "scale": scale, "artboard": artboard, "range": range, "outlineText": outline_text}}),
-        )
-        .map_err(|e| format!("export {output}: {e}"))?;
+    // A conversion keeps hidden layers and objects, written hidden, where the format can (SVG,
+    // PSD).
+    let params = json!({"path": output, "scale": scale, "artboard": artboard, "range": range, "outlineText": outline_text, "hiddenLayers": true, "acknowledgeLoss": replace_lossy});
+    let r = h.call("engine.execute", json!({"command": "document.export", "params": params})).map_err(|e| format!("export {output}: {e}"))?;
     outln!("{r}");
     Ok(())
 }
@@ -188,7 +201,7 @@ fn convert(args: &[String]) -> Result<(), String> {
 fn info(args: &[String]) -> Result<(), String> {
     let file = args.first().ok_or("info needs a FILE")?;
     let mut h = Headless::new();
-    h.call("app.open", json!({"path": file})).map_err(|e| format!("open {file}: {e}"))?;
+    let opened = h.call("app.open", json!({"path": file})).map_err(|e| format!("open {file}: {e}"))?;
     let base = h.call("engine.execute", json!({"command": "file.info", "params": {}}))?;
     let doc = h.session.doc().map_err(|e| e.to_string())?.doc.clone();
     let mut kinds: std::collections::BTreeMap<&'static str, usize> = Default::default();
@@ -196,7 +209,8 @@ fn info(args: &[String]) -> Result<(), String> {
     let fonts = h.call("engine.execute", json!({"command": "text.fonts", "params": {}})).unwrap_or(Value::Null);
     let artboards: Vec<Value> =
         doc.artboards.iter().map(|a| json!({"name": a.name, "rect": [a.rect.x0, a.rect.y0, a.rect.width(), a.rect.height()]})).collect();
-    let v = json!({"file": file, "info": base, "artboards": artboards, "kinds": kinds, "fonts": fonts});
+    // What didn't come in as it was (an EPS read from its preview says why).
+    let v = json!({"file": file, "warnings": opened["warnings"], "info": base, "artboards": artboards, "kinds": kinds, "fonts": fonts});
     outln!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
     Ok(())
 }

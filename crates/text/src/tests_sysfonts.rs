@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::*;
+use crate::fontdb::fonts_outside;
 
 const FAMILY: &str = "Sysfont Sans3";
 
@@ -183,4 +184,121 @@ fn installed_faces_are_found_by_postscript_name() {
     assert_eq!(db.by_postscript_name("SourceSans3-Bold"), Some((FAMILY.to_string(), "Bold".to_string())));
     assert_eq!(db.by_postscript_name("sourcesans3-regular"), Some((FAMILY.to_string(), "Regular".to_string())), "any case");
     assert_eq!(db.by_postscript_name("Rounded-X-Mplus-1c-black"), None);
+}
+
+/// Windows lists fonts installed as shortcuts, or by programs into their own folders, by their
+/// files' full paths: those files are scanned too (#443).
+#[test]
+fn a_font_file_named_by_itself_is_scanned() {
+    let dir = font_dir("file");
+    let db = FontDb::with_font_dirs(vec![dir.join("Sub/Sysfont-Bold.TTF"), dir.join("No Such Font.ttf")]);
+    assert_eq!(db.styles(FAMILY), ["Bold"]);
+    assert_eq!(db.load_system_fonts(), 1);
+}
+
+#[test]
+fn registered_fonts_outside_the_font_folders_are_their_full_paths() {
+    let dir = std::env::temp_dir().join("Fonts");
+    let elsewhere = std::env::temp_dir().join("Downloads").join("Montserrat-Regular.ttf");
+    let registered = [
+        // A file in the Windows font folder, by name.
+        "arial.ttf".into(),
+        // A file in a font folder (ignoring case).
+        dir.join("Lato-Regular.ttf").to_string_lossy().to_uppercase(),
+        elsewhere.to_string_lossy().into_owned(),
+        elsewhere.to_string_lossy().into_owned(),
+    ];
+    assert_eq!(fonts_outside(registered, &[dir]), [elsewhere]);
+}
+
+/// Fonts installed while the app runs are found when it comes back to the front, without
+/// scanning every time (#443).
+#[test]
+fn the_database_tells_when_fonts_were_installed_or_removed_since_its_scan() {
+    let dir = font_dir("changed");
+    let db = FontDb::with_font_dirs(vec![dir.clone(), dir.join("Later")]);
+    assert!(!db.installed_fonts_changed(), "nothing to compare with before the first scan");
+    assert!(!db.has_family("Other Sans 33"));
+    assert!(!db.installed_fonts_changed());
+    // Past the file system's clock tick, so the folders' times differ from the scan's.
+    let tick = || std::thread::sleep(std::time::Duration::from_millis(50));
+    tick();
+    std::fs::write(dir.join("Sub/Other.ttf"), renamed_to("SourceSans3-Regular.ttf", "Other Sans 33")).unwrap();
+    assert!(db.installed_fonts_changed(), "a font installed into a subfolder");
+    assert_eq!(db.load_system_fonts(), 3);
+    assert!(db.has_family("Other Sans 33") && !db.installed_fonts_changed());
+    tick();
+    std::fs::create_dir_all(dir.join("Later")).unwrap();
+    assert!(db.installed_fonts_changed(), "a font folder that didn't exist");
+    db.load_system_fonts();
+    tick();
+    std::fs::remove_file(dir.join("Sysfont-Regular.ttf")).unwrap();
+    assert!(db.installed_fonts_changed(), "a font removed");
+    assert_eq!(db.load_system_fonts(), 2);
+    assert_eq!(db.styles(FAMILY), ["Bold"]);
+}
+
+/// A font a font service loads from a file without an extension, outside the font folders.
+fn service_font() -> PathBuf {
+    std::env::temp_dir().join(format!("vc-sysfonts-{}-service", std::process::id())).join(".29457")
+}
+
+/// The fonts a font service (Adobe Fonts on Windows, through DirectWrite) loads in place are
+/// cataloged: named by the platform's lister, read whatever their file is called (#579).
+#[test]
+fn fonts_the_platform_lists_outside_the_font_folders_are_cataloged() {
+    let file = service_font();
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, renamed_to("SourceSans3-Regular.ttf", "Service Sans3")).unwrap();
+    // The lister's files outside the font folders are scanned with them, each once (a collection
+    // lists its file once per face).
+    fn lister() -> Vec<String> {
+        vec![service_font().to_string_lossy().into_owned(); 2]
+    }
+    set_platform_font_files(lister);
+    let dirs = system_font_dirs();
+    assert_eq!(dirs.iter().filter(|d| **d == file).count(), 1, "{dirs:?}");
+    // A file named by itself is read without a font's extension, one in a folder isn't.
+    let db = FontDb::with_font_dirs(vec![file.clone()]);
+    assert_eq!(db.styles("Service Sans3"), ["Regular"]);
+    assert!(!FontDb::with_font_dirs(vec![file.parent().unwrap().to_path_buf()]).has_family("Service Sans3"));
+}
+
+#[test]
+fn a_resource_fork_gives_up_its_font_files() {
+    let (regular, bold) = (renamed("SourceSans3-Regular.ttf"), renamed("SourceSans3-Bold.ttf"));
+    let fork = crate::suitcase::fork_of(&[regular.clone(), bold.clone()]);
+    assert_eq!(crate::suitcase::sfnt_resources(&fork), [regular.as_slice(), bold.as_slice()]);
+    // Damage keeps what was read before it, and never panics.
+    for cut in [0, 3, 16, 300, fork.len() - 1] {
+        let _ = crate::suitcase::sfnt_resources(&fork[..cut]);
+    }
+    assert!(crate::suitcase::sfnt_resources(&[0xFF; 600]).is_empty());
+    // A fork can't make the scan read more than so many fonts.
+    assert_eq!(crate::suitcase::sfnt_resources(&crate::suitcase::fork_of(&vec![b"font".to_vec(); 300])).len(), 256);
+}
+
+/// Office's fonts: a file with nothing in it but a resource fork holding the fonts, named
+/// without an extension. Only macOS keeps a resource fork in a file.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_scan_reads_suitcase_fonts() {
+    let dir = font_dir("suitcase");
+    std::fs::remove_file(dir.join("Sysfont-Regular.ttf")).unwrap();
+    std::fs::remove_file(dir.join("Sub/Sysfont-Bold.TTF")).unwrap();
+    let suitcase = dir.join("Sysfont Sans3");
+    std::fs::write(&suitcase, b"").unwrap();
+    std::fs::write(
+        suitcase.join("..namedfork/rsrc"),
+        crate::suitcase::fork_of(&[renamed("SourceSans3-Regular.ttf"), renamed("SourceSans3-Bold.ttf")]),
+    )
+    .unwrap();
+    // A file with nothing in either fork is no font.
+    std::fs::write(dir.join("empty"), b"").unwrap();
+    let db = FontDb::with_font_dirs(vec![dir.clone()]);
+    assert_eq!(db.styles(FAMILY), ["Regular", "Bold"]);
+    let bold = db.face(FAMILY, "Bold").unwrap();
+    assert_eq!((bold.family.as_str(), bold.style.as_str()), (FAMILY, "Bold"));
+    assert_eq!(bold.path(), Some(suitcase.as_path()));
+    assert_eq!(db.find_family("SysfontSans3").as_deref(), Some(FAMILY), "by a PostScript-style name, as an EPS names it");
 }

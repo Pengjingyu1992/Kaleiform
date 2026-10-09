@@ -312,7 +312,7 @@ mod tests {
         assert!(s.guides.is_empty());
         // Pruning drops guides the document no longer has.
         let mut d = Document::new(100.0, 100.0);
-        d.guides.push(crate::Guide { vertical: true, pos: 10.0 });
+        d.guides.push(crate::Guide::new(true, 10.0));
         s.set_guides([0, 1]);
         s.prune(&d);
         assert_eq!(s.guides, vec![0]);

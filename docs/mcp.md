@@ -1,7 +1,7 @@
 # Kaleiform MCP server
 
 `vectorcraft-cli mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio
-(newline-delimited JSON-RPC 2.0, protocol `2025-06-18`; `2025-03-26` and `2024-11-05` also accepted). Agents use it to
+(newline-delimited JSON-RPC 2.0; see [Protocol](#protocol) for version negotiation). Agents use it to
 draw, inspect and look at Kaleiform documents.
 
 It has two backends:
@@ -35,16 +35,18 @@ For a live session, start the app first: `cargo run --release -p vectorcraft -- 
 ## Protocol
 
 Newline-delimited JSON-RPC 2.0 on stdio. The revision is **`2025-06-18`**; `2025-03-26` and `2024-11-05` are
-accepted too, and `initialize` answers with whichever of those the client asked for. The specs' own
-`resultType` fields and the `2026-07-28` revision are not implemented — see
-[Not implemented](#not-implemented).
+accepted too. Clients requesting `2026-07-28` through `initialize`, or through a request's
+`_meta["io.modelcontextprotocol/protocolVersion"]`, receive `resultType: "complete"`,
+`ttlMs` and `cacheScope: "private"` on tool/resource/template/prompt lists and resource/prompt reads.
+List TTL is 600000 ms; live reads use zero. Older clients keep the original response shapes.
+This does not add streaming or input requests — see [Not implemented](#not-implemented).
 
 `initialize` advertises:
 
 | Capability | What it covers |
 |---|---|
-| `tools` | The 25 tools below |
-| `resources` | Two fixed documents and four templates |
+| `tools` | The tools below |
+| `resources` | Three fixed resources and four templates |
 | `prompts` | Five ready-made workflows |
 | `completions` | `completion/complete` for prompt arguments and template variables |
 | `logging` | `logging/setLevel` and `notifications/message` |
@@ -69,8 +71,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"poster","
 
 ### Resource templates
 
-`vectorcraft://document` (summary) and `vectorcraft://document/json` (the whole model) are the fixed
-resources. The templates read one thing at a time, which matters on a real document: the full model
+`vectorcraft://document` (summary), `vectorcraft://document/json` (the whole model), and
+`vectorcraft://commands` (the live command catalog with enabled state) are the fixed resources. The templates read one thing at a time, which matters on a real document: the full model
 is thousands of lines an agent pays for again on every change.
 
 | `uriTemplate` | Reads |
@@ -123,6 +125,12 @@ crate that installed one would override whatever logger an embedder had already 
 `vectorcraft-mcp` directly means calling `vectorcraft_mcp::logging::install()` yourself if you want
 log records to reach your client.
 
+### Synchronous calls
+
+Exports complete synchronously. A `_meta.progressToken` is harmlessly ignored, as are
+`notifications/cancelled` (including unknown request ids). There are no background export jobs
+or progress notifications; cancellation cannot interrupt a running call.
+
 ### Not implemented
 
 Everything below needs the same thing first: the server reads one line at a time and answers it with
@@ -149,6 +157,27 @@ is here and subscriptions are not. The fix for the rest is a reader thread (or a
 the transport — a design change rather than a feature, so it is not in this crate yet.
 
 ## Tools
+
+### Common command tools
+
+These names match the conventions in [FilmCraft #28](https://github.com/storytold/filmcraft/pull/28).
+The older names below remain listed because existing workflows use them.
+
+| Tool | Arguments and result |
+|---|---|
+| `command_list` | Optional `filter`, `enabled_only`; returns the command array |
+| `command_run` | `id`, optional `params`; runs the command through the existing backend |
+| `command_batch` | `steps: [{id, params?}]`, optional `stop_on_error` (default true); returns `completed`, `failed`, `results: [{ok, result\|error}]`. Each edit has its own undo step; failures set `isError` |
+| `doc_inspect` | Optional `depth`, `childLimit`; same summary as `inspect_document` |
+| `render_preview` | Optional `max_side` (1–4096, default 1024); inline PNG of the first artboard without editing it. Artboards too large to render within the allocation bound return a tool error |
+| `ui_inspect`, `ui_screenshot` | Connected desktop state/window capture; tool errors in headless mode |
+
+Every tool declares read-only, destructive, idempotent and open-world hints. File-writing
+`screenshot`, `save_file` and `export` are conservatively marked as mutations. Unknown top-level
+argument keys return JSON-RPC `-32602`; command failures and caught tool panics return `isError`
+content, and the server continues serving. Command `params` are passed through: the registry
+currently describes them in prose, so MCP does not guess schemas or silently remove keys.
+
 
 Coordinates are points in document space: y points down, the origin is the first artboard's top-left, and a new
 document is 612 × 792 (US Letter). New objects become the selection. Most commands act on the selection or on
@@ -178,7 +207,7 @@ objects' fills or strokes differ (`fillMixed` / `strokeMixed`, drawn as a "?" pr
 | `invoke_menu` | `{command, params?}` | Invokes a menu item by command id. Includes UI commands such as `view.*` and `window.*` in remote mode. |
 | `open_panel` | `{panel}` | Remote only. `panel` is a panel id (`layers`, `swatches`, `colorGuide`, …, as `window.panel` takes) or its display label (`"Color Guide"`), in any case. |
 | `screenshot` | `{path?, scale?, artboard?, window?}` | Returns MCP image content (`image/png`, base64) plus a text block. Renders the artboard; `window:true` captures the app window (remote only). |
-| `open_file` | `{path}` | Opens any readable file as a new active document: `.vectorcraft`/`.drawcraft`, `.vctemplate`, `.svg`/`.svgz`, `.pdf`/`.ai`, `.ait`, `.eps`, `.dxf`, `.emf`, `.wmf`, PNG, JPEG, GIF, WebP, TIFF, BMP (an image opens as a document of its pixel size). Templates (`.vctemplate`, `.ait`) open as a new untitled document. PDF, `.ai` and SVG files saved with Preserve Editing reopen as the document they carry. `run_command document.formats` lists the formats. |
+| `open_file` | `{path}` | Opens any readable file as a new active document: `.vectorcraft`/`.drawcraft`, `.vctemplate`, `.svg`/`.svgz`, `.pdf`/`.ai`, `.ait`, `.eps`, `.dxf`, `.emf`, `.wmf`, PNG, JPEG, GIF, WebP, TIFF, BMP (an image opens as a document of its pixel size). Templates (`.vctemplate`, `.ait`) open as a new untitled document. PDF, `.ai` and SVG files saved with Preserve Editing reopen as the document they carry. The reply is `document.open`'s: its `warnings` say what didn't come in as it was (an EPS whose PostScript can't be read opens as its preview, and the warning names the PostScript error, the operator and the procedure). `run_command document.formats` lists the formats. |
 | `save_file` | `{path?}` | Runs `document.save`: the document's own file in its own format (native `.vectorcraft` unless it was opened from or saved as SVG, PDF or a restorable `.ai`; then `warnings` say what that format loses). A path's extension picks the format (`.vectorcraft`, `.vctemplate`, `.pdf`, `.svg`, `.svgz`, `.ai`: a PDF carrying the native document, which reopens editable). |
 | `export` | `{path?, format?, scale?, artboard?, range?, selection?, outlineText?, options?}` | `svg`, `svgz`, `pdf`, `eps`, `dxf`, `emf`, `wmf`, `png`, `jpg`, `webp`, `gif`, `png8` (an indexed `.png`), `tiff`, `bmp`, `tga`, `psd` (layered), `txt` (the document's text), `vectorcraft` or `template` (a native template). The tool's `format` enum and `document.formats` list them, generated from the engine's format table. When `format` is omitted, it comes from the path's extension. PDF writes one page per artboard: all of them, or `artboard` (0-based) / `range` (`"1-3, 5"`, 1-based); the other formats write one artboard. `options` carries more format options (e.g. `{"quality": 80}` for JPEG). `selection: true` exports the selected objects cropped to their bounds (the reply adds their `bounds`, and reports `format` and the encoder's `warnings` as a whole-document export does); `outlineText: true` writes SVG text as paths. Template layers are left out, live effects are kept, and exporting `vectorcraft` never changes the document's path. Without `path` the bytes come back as `dataBase64`. Both backends run the same `document.export` call. |
 | `add_text` | `{text, x?, y?, width?, height?, path?, mode?, pathEffect?, size?, font?, color?}` | Point type at (x, y); area type with `width`/`height`; or `path` + `mode` (`area`/`onPath`) to flow text in or along a path, with `pathEffect` (`rainbow`, `skew`, `3dRibbon`, `stairStep`, `gravity`). |
@@ -188,6 +217,16 @@ objects' fills or strokes differ (`fillMixed` / `strokeMixed`, drawn as a "?" pr
 | `create_graph` | `{type?, x, y, width, height, csv? \| series?, categories?, rows?}` | The nine Illustrator graph types: column, stacked column, bar, stacked bar, line, area, scatter, pie and radar. Edit later with `graph.setData` / `graph.setType` via `run_command`. |
 | `text_wrap` | `{ids?, offset?, invert?, release?}` | Area type below the objects (same layer) flows around them. |
 | `undo` / `redo` | `{}` | |
+
+With `mods.shift`, a marquee dragged with the Selection tool toggles the objects it reaches (the selected ones leave
+the selection, the others join it, the rest stays), and one dragged with Direct or Group Selection toggles the anchors
+inside it (a path left with none leaves the selection, one with all of them is selected whole). The Lasso adds anchors
+with `mods.shift` and takes them away with `mods.alt`. They run `select.toggle {ids}` and `select.anchorsMany {items,
+mode: "set"|"add"|"toggle"|"subtract"}`:
+
+```json
+{"name":"pointer_gesture","arguments":{"tool":"selection","mods":{"shift":true},"events":[{"kind":"down","x":180,"y":80},{"kind":"drag","x":300,"y":200},{"kind":"up","x":380,"y":200}]}}
+```
 
 Appearance stacks: an object can carry several fills and strokes (`appearance.addFill`, `appearance.addStroke`), indexed
 in paint order (0 is painted first, the bottom row of the Appearance panel). `paint.setFill`, `paint.setStroke`,
@@ -241,7 +280,7 @@ colour group (one undo step).
 SVG Options: `export` to SVG takes them in `options`, flat or as `{"svg": {…}}`: `styling` (`presentation`,
 `style`, `entities`, `css`), `outlineText`, `images` (`embed`, or `link`: embedded images are written next to the
 SVG, or returned as `linked`), `objectIds` (`layerNames`, `minimal`, `unique`), `decimals` (1–7), `minify`,
-`responsive`, `useArtboards`, `range: "all"` (one SVG per artboard, listed in `files`), `preserveEditing` (the SVG
+`responsive`, `useArtboards`, `range: "all"` (one SVG per artboard, listed in `files`, each holding only the art over its artboard), `preserveEditing` (the SVG
 reopens as the full document), `metadata` and `fewerTspans` (one `<tspan>` per line of type). Unknown keys inside `svg` are rejected; `run_command document.formats`
 lists every option with its default. `encoding` is `utf8`, `utf16` (big-endian after a byte order mark) or `latin1`
 (ISO 8859-1, other characters as `&#x…;` references); `document.serialize` still answers `text`, plus `dataBase64`
@@ -256,9 +295,10 @@ place and paste). `run_command document.save {path: "x.svg", svg: {…}}` saves 
 Symbols export as one `<symbol>` with a `<use>` per instance. An instance the def can't stand for is written as its
 own art: one stained by its fill; one scaled while the symbol has strokes (their weight doesn't scale), or rotated or
 scaled while it has effects, brushes or live objects; and every instance of a symbol with pattern paints or unlinked
-opacity masks (those stay on the page). `hiddenLayers: true` keeps hidden layers as groups that aren't displayed
-(`display:none`); `document.save` keeps them unless told otherwise, exports leave them out, and they reopen as
-hidden layers. A `preserveEditing` SVG carries the native document (CDATA in `<metadata>`) and a hash of the
+opacity masks (those stay on the page). `hiddenLayers: true` keeps hidden layers and objects, not displayed
+(`display="none"`); `document.save` and the CLI's `convert` keep them unless told otherwise, other exports leave
+them out, and they reopen hidden. An object's own data (`object.setProps {data: {pivot: "100,180"}}`) is written as
+`data-*` attributes (`data-pivot="100,180"`), and an SVG's `data-*` attributes come in as it. A `preserveEditing` SVG carries the native document (CDATA in `<metadata>`) and a hash of the
 markup around it: if another app changed the SVG since, `document.open` reads it as plain SVG and says so in
 `warnings`.
 
@@ -269,8 +309,12 @@ without a path), `file.newFromTemplate {path}`, `file.revert` and `file.formatOp
 with the values a save would use). Without a path the save commands return `{dataBase64, name, folder?, warnings}`. A document saved as SVG or PDF
 remembers its options, so the next save reuses them. A PDF opened with `pages`, `cropTo` or `password` is only part
 of the file, so Save asks for a new name instead of writing it back.
-`file.documentColorMode {mode, convert?, intent?}` switches the document colour mode, converting its colours
-through the colour settings (`object.convertDocumentColorMode` is an alias kept for older scripts).
+`file.documentColorMode {mode, convert?, intent?, grays?}` switches the document colour mode, converting the colours of
+the art, symbols, pattern tiles and swatches through the colour settings (`object.convertDocumentColorMode` is an
+alias kept for older scripts). Gray colours stay Gray and print on the black plate only. RGB greys are colours like any
+other: to CMYK they separate through the profile into four-colour greys and a rich black, as Illustrator converts
+them. `grays: "black"` puts RGB greys with R = G = B on the black plate instead, K = their grey value (the inks Edit Colors ›
+Convert to Grayscale before the switch would give); other colours convert as usual.
 
 SVG import keeps what the canvas edits live. `<pattern>` becomes a pattern swatch. A `<symbol>` with `<use>` becomes a
 symbol (named after its `data-name`, else its id) with an instance per `<use>`; a `<use>` that shows it differently
@@ -340,9 +384,11 @@ A `security` password encrypts the file (RC4 40-bit at PDF 1.3, RC4 128-bit at 1
 Pattern fills and strokes are written as their tiles clipped to the area they paint (a stroke's outline, with its
 dashes, caps, profile, arrowheads and alignment), and freeform gradients as an image of their colour field at the
 document's raster effects resolution, clipped the same way.
-`createLayers` writes each top-level layer (template layers are left out) as a PDF layer, an optional content group
-named as the layer: hidden layers are off, non-printing ones have `/PrintState /OFF` and locked ones are locked. It needs
-PDF 1.5 or later (at 1.4 it warns), and the file reopens with those layers.
+`createLayers` writes each layer and sublayer (template layers are left out) as a PDF layer, an optional content group
+named as the layer and listed under its parent layer's: hidden layers are off (their art is written, for the reader to
+show), non-printing ones have `/PrintState /OFF` and locked ones are locked. It needs PDF 1.5 or later (at 1.4 it
+warns), and the file reopens with those layers and sublayers. A `.ai` file writes them unless `createLayers` is false,
+so apps that read its PDF part find the layers, hidden ones included; hidden objects aren't in the PDF part.
 Images follow the `compression` settings of their kind (`color`, `gray`, or `mono` for black-and-white images): above
 `abovePpi` as placed they are resampled (`downsample`: `average`, `subsample` or `bicubic`) to `ppi`, and compressed
 with `zip`, `jpeg` (at `quality`; images with transparency stay lossless) or `auto` (JPEGs stay JPEG, the others
@@ -361,6 +407,17 @@ and `flattener` options over it (as `object.flattenTransparency` takes them); im
 transparency and rasterized areas are clipped to their regions. A file that would still have transparency fails the
 export. PDF/X-1a and PDF/X-3 files are PDF 1.3 files too.
 
+An Illustrator EPS (version 9 on) or `.ai` file opens from the editing data it carries (after the EPS page; in the
+`.ai` file's PDF private data): layers and sublayers (name, order, visibility, lock, printing, preview, dimming,
+colour), groups as they were nested, compound paths, clipping groups, object names, hidden and locked objects, fills and
+strokes (spot colours as spot swatches), linear and radial gradients, opacity, blend modes, isolation and knockout,
+embedded images with their alpha channel, guides, and every artboard where it is. An object with several fills or
+strokes, effects or a brush comes in as its drawn look (a group named after it). Type that shows is the page's, in its
+text object's place; hidden point type is made from the file's text document. A file whose editing data has symbols,
+pattern fills, placed files or anything else the reader doesn't read on a layer that shows, or whose layers look
+different from its page, opens as before: an EPS as its printed page, a `.ai` file from its PDF content (where plain
+groups open ungrouped), with a warning saying why.
+
 Opening a PDF (or `.ai`) imports every page as an artboard and layer; `document.open` takes `pages` ("2-3, 5", 1-based),
 `cropTo` (`bounding` (the art's bounds), `art`, `crop` (default), `trim`, `bleed`, `media`: the box each artboard gets)
 and `password` for an encrypted file. `document.pdfInfo` reads a file without opening it: the page count, each page's
@@ -370,7 +427,8 @@ and Separation and DeviceN inks become spot swatches the art links to at its tin
 (DeviceCMYK, or ICC-based with four components) keep their ink amounts: a CMYK JPEG as it is, any other as a CMYK TIFF
 (masked CMYK images, and ones with 1, 2 or 4 bits per sample, open in RGB with a warning). Placing a CMYK TIFF keeps it
 CMYK too.
-`colorMode: "rgb" | "cmyk"` opens any file in that mode instead, its colours converted as `file.documentColorMode` does:
+`colorMode: "rgb" | "cmyk"` opens any file in that mode instead, its colours converted as `file.documentColorMode` does
+(`grays` too):
 
 ```json
 {"name":"run_command","arguments":{"command":"document.pdfInfo","params":{"path":"/tmp/brochure.pdf","thumbnail":2,"cropTo":"trim"}}}
@@ -378,7 +436,9 @@ CMYK too.
 ```
 
 PostScript files (`.eps`, and `.ai` files saved in older formats or without PDF compatibility) open through the EPS
-reader (see EPS and PostScript import); an `.ai` whose PDF part is only a placeholder page says it can't be opened.
+reader (see EPS and PostScript import). An `.ai` saved without PDF compatibility (its PDF part is only a placeholder
+page) opens from its editing data alone: its type is made from the file's text document where it can be (point type), and
+what can't be is left out with a warning; without editing data it says it can't be opened.
 
 What a PDF holds comes in as editable art: soft masks become opacity masks (an alpha mask as a white copy of its art;
 the backdrop colour gives Clip, an inverting transfer function Invert), transparency groups keep isolation and knockout,
@@ -387,11 +447,14 @@ their stop opacity and stop where the shading doesn't extend. Text becomes point
 the file's font (by name; fonts that aren't available are listed in `warnings` and show in the fallback font, and
 every export that draws that type — PDF, EPS, EMF/WMF, raster images, SVG with outlined or embedded fonts — says in
 its `warnings` that it wrote the fallback font) — `textAs: "outlines"` keeps the glyph outlines the file draws instead
-(its embedded fonts, installed or not). Strokes stay live strokes (width, cap, join, miter limit, dash and paint), and
+(its embedded fonts, installed or not). Lines wrapped in a frame (each wrapped line ending in a space, sharing a left
+edge, font and leading) come back as one area type object, left aligned or justified, where laying it out breaks the
+lines where the file does; a stroke written as each glyph's outline stroked is the type object's stroke; glyphs set
+apart by gaps wider than a space keep their places. Strokes stay live strokes (width, cap, join, miter limit, dash and paint), and
 an object written as a fill and then a stroke of the same outline is one path with both. Optional content groups (the
 layers of PDF and PDF-compatible `.ai` files) become layers with their name, visibility (the default configuration's,
-or a view state that is off), print state and lock, nested as sublayers the way the file's layer order nests them; art
-that is off comes in as a hidden layer. Art outside them goes to a layer per page (except the opaque white page a `.ai`
+or a view state that is off), print state and lock, nested as sublayers the way the file's layer order nests them, stacked as the pages mark them
+(layers with no art come in empty); art that is off comes in as a hidden layer. Art outside them goes to a layer per page (except the opaque white page a `.ai`
 paints under its layers, which isn't art). `layers: false` gives one layer per page of only what shows:
 
 ```json
@@ -405,6 +468,8 @@ document exactly (`restored: true`); when another app changed the pages, or the 
 imported instead and the first warning says why. Choosing a standard turns it off (PDF/A refuses it). Save to a `.ai`
 path (`document.save {path: "art.ai"}` or `{format: "ai"}`) writes a PDF-compatible file that always carries the
 document, takes the PDF options and keeps its path when reopened, so Save writes `.ai` again; a `.ait` opens untitled.
+`document.export` / `serialize` to `.ai` (and the CLI's `run --export x.ai` and `convert in.svg out.ai`) write the same file
+without giving the document a path.
 
 Drive a tool like a mouse:
 
@@ -561,8 +626,12 @@ repeated names, and ids the document doesn't have are dropped.
 
 ## Ruler guides
 
-Ruler guides are numbered in the order they were made. `guide.add {vertical, pos}` makes one (the x of a vertical
-guide, the y of a horizontal one, in points) → `{index}`; `guide.list` → `[{index, vertical, pos, selected}…]`.
+Ruler guides are numbered in the order they were made. `guide.add {vertical, pos, artboard?}` makes one (the x of a
+vertical guide, the y of a horizontal one, in points) → `{index}`. With `artboard` (an artboard's index) it is an
+artboard guide: it runs across that artboard only, moves with it (`artboard.move`, a pure move in
+`artboard.setProps`, `artboard.rearrange`), scales with it (`artboard.setProps {scaleArt}`), is copied with it (`artboard.duplicate`, `artboard.move {copy}`) and is
+deleted with it (`artboard.delete`); without, a canvas guide runs across the whole canvas. `guide.list` →
+`[{index, vertical, pos, selected, artboard?}…]` (`artboard` only for artboard guides).
 `guide.select {indexes: [index…], toggle?}` selects guides on their own (the art is deselected; `toggle` adds or
 removes them) → `{selected}`. `guide.move {index, pos}` puts one guide somewhere, `guide.move {dx?, dy?, copy?}`
 moves the selected ones (vertical guides by `dx`, horizontal ones by `dy`; `copy` leaves them and selects the
@@ -573,11 +642,15 @@ View › Guides › Lock Guides (`view.guides.lock`) deselects them and refuses 
 The Selection, Direct Selection and Group Selection tools pick a guide within the selection tolerance, over the art
 (an anchor on it comes first with Direct Selection), and drag the selected guides: `mods.alt` copies them,
 `mods.shift` snaps the dragged guide to the ruler's ticks, and otherwise it snaps to whole pixels, the grid or, with
-Smart Guides, the art's edges, centres and anchors. In the desktop app a guide dropped off the canvas onto its
-ruler is deleted, and hidden guides (View › Guides › Hide Guides) can't be picked.
+Smart Guides, the edges, centres (so the sides' midpoints) and anchors of the art and of the artboards; with Smart
+Guides off, View › Snap to Point pulls it onto anchors. In the desktop app a guide dragged out of a ruler snaps the
+same way and is made where it is released over the canvas (with the Artboard tool, as an artboard guide of the
+active artboard), a guide dropped off the canvas onto its ruler is deleted, and hidden guides (View › Guides › Hide
+Guides) can't be picked. An artboard guide is picked, drawn and snapped to across its artboard only.
 
 ```json
 {"name":"run_command","arguments":{"command":"guide.add","params":{"vertical":true,"pos":100}}}
+{"name":"run_command","arguments":{"command":"guide.add","params":{"vertical":false,"pos":200,"artboard":0}}}
 {"name":"pointer_gesture","arguments":{"tool":"selection","events":[{"kind":"down","x":100,"y":50},{"kind":"drag","x":140,"y":50},{"kind":"up","x":140,"y":50}]}}
 {"name":"run_command","arguments":{"command":"guide.list","params":{}}}
 ```
@@ -709,7 +782,9 @@ swatch in the library panel does). `swatch.resetDefaults {replace?}` brings back
 as a library (`.vcswatches` keeps colour models, global, spot, gradients and colour groups; `.gpl` is 8-bit RGB;
 CSS writes custom properties); without `path` it returns `{data}`, and `user: true` saves into the user library
 folder of the desktop app (listed as category `user`, User Defined). `swatch.library.load {path? | data? |
-dataBase64?, name?}` loads a `.vcswatches` or `.gpl` file, or another document's swatches, as a library to add from.
+dataBase64?, name?}` loads a `.vcswatches`, `.gpl` or swatch exchange (`.ase`) file, or another document's swatches,
+as a library to add from. From an `.ase` file it reads RGB, CMYK, Lab and Gray colors as global, spot or process
+swatches and keeps their color groups.
 
 ## Graphic style libraries
 
@@ -734,6 +809,31 @@ with); without `path` it returns `{data}`, and `user: true` saves into the user 
 (category `user`, User Defined). `graphicStyle.loadLibrary {path? | data? | dataBase64?, name?}` loads a `.vcstyles`
 file, or another document's graphic styles, as a library to add from.
 
+## Libraries
+
+The Libraries panel's libraries hold graphics, colours and character and paragraph styles that any document can use.
+They are kept on this machine: each is a `.vclibrary` file (JSON) in the `Libraries` folder next to the preferences
+(none in the web app and headless sessions, where they last for the session). `library.list` lists them (`id`, `name`,
+the count of each kind, `current`, `folder`); `library.get {library?}` returns one's items (graphics with `id`, `name`,
+size and a PNG `thumbnail` in base64; colours with `name`, `hex` and `color`; styles with `name` and `attrs`).
+`library.create {name?}`, `library.rename {library?, name}`, `library.delete {library?}` and
+`library.setCurrent {library}` manage them; `library` is an id or a name, and without it the current library (the one
+the panel shows) is meant.
+
+`library.add {library?, kind, ids?, name?, color?}` adds from the selection: `graphic` (a copy of the objects with the
+images, symbols, patterns, swatches, styles and brushes they use, as Copy takes them), `fillColor` / `strokeColor` (the
+first selected object's solid colour, else the default one, or `color`), `charStyle` / `paraStyle` (the selected
+text's attributes). An item the library already has is reported as `existing`. `library.use {library?, kind, item,
+center?, to?}` uses one: a graphic is placed centred on `center` (pasted with its resources; a swatch name the document
+gives another colour merges into the document's), a colour paints the selection's fill or stroke, and a style is added
+to the document (numbered when its name is taken by other attributes) and applied to the selected text, each as one
+undo step. `library.removeItem {library?, kind, item}` removes one.
+
+```json
+{"name":"run_command","arguments":{"command":"library.add","params":{"kind":"graphic","name":"Logo"}}}
+{"name":"run_command","arguments":{"command":"library.use","params":{"kind":"graphic","item":"Logo","center":[300,200]}}}
+```
+
 ## Strokes on type
 
 `stroke.set` without an `item` gives type its characters' stroke: weight, cap, join, miter limit and the dash
@@ -743,6 +843,31 @@ characters as its place relative to the Characters row says. To stroke
 some characters, use `text.setRangeStyle {id, start, end, strokeOptions: {weight?, cap?, join?, miterLimit?, dash?,
 dashOffset?, alignDashes?}}`. `inspect_document` reports each object's stroke as `strokeOptions` (type: its first
 run's) in `stroke.set` terms. `stroke.set` on a group leaves the images and symbol instances in it alone.
+
+## Inline graphics in type
+
+A document symbol can sit in a line of type like a character (beyond Illustrator; like InDesign's inline
+anchored objects), e.g. mana symbols in card rules text. `text.insertInline {id?, at?, symbol?, scale?: 1,
+shift?: 0}` inserts one at byte offset `at` (default: the Type tool's selection, which it replaces) of text `id`
+(default: the text being edited), showing `symbol` (default: the Symbols panel's current symbol) → `{id, caret}`;
+Type → Insert Inline Symbol does the same at the caret. The graphic is one character, U+FFFC, in a run of its own:
+`text.getRange` reports it as `{text: "\uFFFC", style, inline: {symbol, scale, baseline_shift}}`, plain text (and
+copied text) shows U+FFFC, and `text.editRange` with styled `runs` can insert one. Typing over it, Backspace and
+Delete remove it whole; neighbouring text never merges into it.
+
+Layout: the art is scaled uniformly to `scale` × the run's font size tall, its left edge on the pen and its
+vertical centre on the middle of the cap height raised by `shift` points. Its advance is the scaled art width plus
+the run's tracking, so it breaks like a word (no break between it and punctuation stuck to it) and justifies like
+a glyph; a graphic taller than the font's ascent or descent opens up its line. Its art follows the symbol
+(Redefine Symbol resizes it); a missing or deleted symbol leaves an empty slot one em square that draws nothing.
+Its em box is its run's, whatever its scale: Character Alignment moves it with its run's text (it is one of
+the line's largest characters only when its run's size is), and Top-to-Top leading spaces its line by its run's
+em box (Roman leading by its run's leading). In right-to-left text it is a bidi neutral (U+FFFC): it takes the
+direction of the text around it and the line's reordering places it.
+The canvas draws the art inside the type's transparency (its opacity and blend mode apply). SVG keeps the text live
+(the text after a graphic is positioned after it) and writes each graphic as a `<use>` of the symbol's `<symbol>`
+def (or a copy of its art); type on a path with graphics is written as outlines. PDF draws the art as vector paths
+where the layout puts it.
 
 ## Flatten Transparency
 
@@ -826,6 +951,7 @@ and `layerRows`, the rows highlighted in the panel.
   dimImages, dimPercent; OK is one undo step), `ui.layersPanelOptions` opens Panel Options (`layersPanelOptions`:
   layersOnly, rowSize small|medium|large|other, otherSize, thumbLayers, thumbGroups, thumbObjects), and
   `ui.layersExpand {ids?, open?}` opens or closes rows as their triangles do (Alt-click: everything inside).
+  A document opens with only its top-level layers open; the open rows are saved in the native file and reopen that way.
 
 ```json
 {"name":"run_command","arguments":{"command":"layer.newSublayer","params":{"name":"Shadows"}}}
@@ -1016,6 +1142,38 @@ their facing handles are refitted so one cubic follows the two old segments; two
 {"name":"run_command","arguments":{"command":"path.removeAnchors","params":{}}}
 ```
 
+## Converting and cutting anchor points
+
+The Control bar's and the Properties panel's anchor buttons, one undo step each, act on the direct-selected anchors
+(all anchors of a path selected as a whole): `path.convertAnchors {to: "corner"|"smooth"}` retracts both handles,
+or pulls handles out in line with the neighbouring anchors (a smooth anchor keeps its own); `path.cutAtAnchors {}`
+(Cut Path at Selected Anchor Points) cuts there and answers `{ids}`: a closed path opens at the cut, its two ends
+on top of each other, and an open path becomes one path per piece. Each cut leaves one of its two anchors selected,
+so `path.moveAnchors {dx, dy}` (or a Direct Selection drag) pulls the path apart there; `path.join {}` (Connect
+Selected End Points) joins the ends again; `path.join {ids: [a, b], ends: ["last", "first"]}` joins the ends asked for
+(the Pen's join, #776: drawing on from one open path, a click on another's end makes them one path). `path.convertAnchor {id, subpath?, anchor, to, x?, y?}` and
+`path.split {id, subpath?, anchor}` do the same to one anchor (the Anchor Point and Scissors tools); the Pen with Alt
+held over a selected path's handle, anchor or segment works as the Anchor Point tool. `path.reshapeSegment {id,
+subpath?, segment, t, dx, dy}` (a segment dragged with Direct Selection or the Anchor Point tool) moves the segment's
+point at `t` by `dx`, `dy`: a smooth anchor at either end stays smooth, its other handle turning with the moved one.
+
+A `pointer_gesture` with `mods: {cmd: true}` held at the press, with any tool but the selection tools (Command on
+macOS, Ctrl elsewhere), drags with the selection tool chosen last (`select_tool`), or Direct Selection with the Pen,
+Curvature and anchor tools until one is chosen; the release gives the tool back as it was, so the Pen goes on drawing
+the path it had begun while that stays selected. Its reply's `tool` is the tool given back.
+
+```json
+{"name":"pointer_gesture","arguments":{"tool":"pen","events":[{"kind":"down","x":100,"y":300},{"kind":"up","x":100,"y":300},{"kind":"down","x":200,"y":300},{"kind":"drag","x":250,"y":300},{"kind":"up","x":250,"y":300}]}}
+{"name":"pointer_gesture","arguments":{"mods":{"cmd":true},"events":[{"kind":"down","x":250,"y":300},{"kind":"drag","x":250,"y":260},{"kind":"up","x":250,"y":260}]}}
+{"name":"pointer_gesture","arguments":{"events":[{"kind":"down","x":300,"y":350},{"kind":"up","x":300,"y":350}]}}
+```
+
+```json
+{"name":"run_command","arguments":{"command":"select.anchors","params":{"id":12,"anchors":[[0,2]]}}}
+{"name":"run_command","arguments":{"command":"path.cutAtAnchors","params":{}}}
+{"name":"run_command","arguments":{"command":"path.moveAnchors","params":{"dx":0,"dy":40}}}
+```
+
 ## Registration and trim marks
 
 Every document has the built-in `[Registration]` swatch (listed after None by `swatch.list`): a colour that prints on
@@ -1052,9 +1210,9 @@ for its colour mode). `profiles` (`all`, `destination`, or `taggedSource` for a 
 `edit.assignProfile`) writes colours in ICC-based spaces with their profiles embedded: CMYK with the destination's or
 the document's CMYK profile, RGB as sRGB, grey with the sRGB tone curve. `outputIntent` embeds a profile as the file's
 `/GTS_PDFX` output intent with `outputCondition`, `outputConditionId` and `registry`, and `trapped` sets `/Trapped`
-(PDF/A files keep their own output intent). `advanced: {outlineText: false}` writes type as selectable, searchable
-text in embedded subset fonts with a ToUnicode map; fonts whose licence forbids embedding stay outlines, with a
-warning.
+(PDF/A files keep their own output intent). Type is written as selectable, searchable text in embedded subset fonts
+with a ToUnicode map (fonts whose licence forbids embedding stay outlines, with a warning); `advanced: {outlineText:
+true}` writes every glyph as an outline instead.
 
 ```json
 {"name":"run_command","arguments":{"command":"document.exportPdf","params":{"path":"/tmp/press.pdf","output":{"conversion":"preserveNumbers","destination":"Kaleiform Generic CMYK (SWOP-like)","profiles":"destination","outputIntent":"Kaleiform Generic CMYK (SWOP-like)","trapped":true},"advanced":{"outlineText":false}}}}
@@ -1078,18 +1236,32 @@ size. The journal entry of a scaling command records the `strokes` and `corners`
 
 ## Live Corners
 
-`object.setLiveShape {id?, ids?, radius?, kind?, corners?}` sets the corners of live rectangles (one undo step):
-`radius` (pt) and `kind` (`round`, `invertedRound` or `chamfer`) go to the `corners` given (0 top-left, 1 top-right,
-2 bottom-right, 3 bottom-left), else to the corners holding a Direct-Selected anchor (`select.anchors`), else to all
-four. Each corner keeps its own radius and kind (the shape's `live` in queries has `radii` and, when a corner isn't
-round, `kinds`); a corner with no radius is one anchor, a cut one two, and Direct-Selected corners stay selected as
-that changes. With the Selection or Direct Selection tool, dragging a corner widget rounds the corners whose widgets
-show (all four, or the Direct-Selected ones), Alt-clicking one cycles their kind and double-clicking one opens Corners
-(`ui.corners {id?, corners?}`, dialog `corners`: `kind`, `radius`; OK runs `object.setLiveShape`).
+`object.setLiveShape {id?, ids?, radius?, kind?, corners?}` sets the corners of any path (one undo step): a live
+rectangle's or polygon's, a star's, a pen path's. A corner is an anchor without handles between two straight sides
+(not an open path's ends, not a smooth anchor, not one the sides run straight on through). `radius` (pt) and `kind`
+(`round`, `invertedRound` or `chamfer`) go to the `corners` given, else to the corners holding a Direct-Selected
+anchor (`select.anchors`), else to every corner. `corners` are anchor indices of the path with its corners uncut,
+counting every subpath's anchors in order: a rectangle's 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left; a
+polygon's from its first vertex clockwise; a star's from its first tip; an index past the last anchor is an error.
+Each corner keeps its own radius and kind (the shape's `live` in queries has `radii` and, when a corner isn't round,
+`kinds`); a corner with no radius is one anchor, a cut one two, and Direct-Selected corners stay selected as that
+changes. A path that isn't a live shape keeps its uncut outline (`live` `{"shape": "path", "base", "radii"}`) so its
+corners stay editable, and is a plain path again once no corner is cut; a polygon stays a live polygon, its corners
+keeping the radius they shared when `sides` changes. Every corner is a circular arc tangent to both sides: a radius
+draws no larger than takes the cut halfway along the corner's shorter side (half the shorter side of a rectangle, the
+same limit for its four corners), the corners stay circular through uneven scales (the radius scales by the mean scale,
+or keeps its size with Scale Corners off), and a rectangle from a file that kept an uneven scale in its transform
+(elliptical corners) gets circular ones in document units when its corners are next set. Dragging a corner widget
+rounds the corners whose widgets show (every corner, or the Direct-Selected ones), outlining in red those that reach
+their limit; the Selection tool shows the widgets of live rectangles and polygons, the Direct Selection tool those of
+any path. Alt-clicking one cycles their kind and double-clicking one opens Corners (`ui.corners {id?, corners?}`,
+dialog `corners`: `kind`, `radius`; OK runs `object.setLiveShape`).
 
 ```json
 {"name":"run_command","arguments":{"command":"object.setLiveShape","params":{"id":12,"corners":[1],"radius":16}}}
 {"name":"run_command","arguments":{"command":"object.setLiveShape","params":{"id":12,"corners":[0,3],"radius":8,"kind":"chamfer"}}}
+{"name":"run_command","arguments":{"command":"shape.star","params":{"cx":200,"cy":200,"radius1":60,"radius2":30}}}
+{"name":"run_command","arguments":{"command":"object.setLiveShape","params":{"radius":5}}}
 ```
 
 ## Use Preview Bounds
@@ -1109,8 +1281,9 @@ Effects off a 100 pt wide rectangle with a 10 pt stroke set to `width: 220` gets
 
 The Selection & Anchor Display and General preferences apply to `pointer_gesture` as they do to the mouse:
 
-- `selectionTolerance` (1–8 px, 3 by default): how near a click must be to a path to pick it, and to an anchor or
-  handle for Direct Selection.
+- `selectionTolerance` (1–8 px, 3 by default): how near a click must be to a path to pick it, and to an anchor,
+  handle or segment for Direct Selection, the Anchor Point, Add and Delete Anchor Point and Scissors tools, and the
+  Pen with Alt. A handle shorter than that leaves its anchor to be picked when pressed nearer the anchor.
 - `objectSelectionByPathOnly`: a click inside a filled path or compound path doesn't select it, one on its path does.
 - `ctrlClickSelectsBehind` (on by default): a Selection tool click with `mods: {cmd: true}` (Command on macOS, Ctrl
   elsewhere) selects the object under the selected one there, the next such click the one under that, then the
@@ -1121,11 +1294,13 @@ The Selection & Anchor Display and General preferences apply to `pointer_gesture
   point a selection is dragged by, a drawn point and a transform tool's reference point land on an anchor or a ruler
   guide that near.
 - `moveLockedWithArtboard`: `artboard.move {moveArt: true}`, the Artboard tool and `artboard.rearrange` move locked and
-  hidden art with the artboard too; off (the default) it stays where it is.
+  hidden art with the artboard too, and `artboard.setProps {scaleArt: true}` scales it too; off (the default) it stays
+  where it is.
 - `penRubberBand`, `curvatureRubberBand` (on by default): off, the Pen and Curvature tools draw no preview segment to
   the pointer.
-- `showHandlesMultipleAnchors` (on by default): off, Direct Selection shows and drags direction handles only while a
-  single anchor is selected. `handleStyle` (`solid`, `hollow`, `large`) draws their ends (desktop app).
+- `showHandlesMultipleAnchors` (on by default): off, Direct Selection (and the Anchor Point tool, and the Pen with Alt)
+  shows and drags direction handles only while a single anchor is selected. On, the handles of the direct-selected
+  anchors, or of every anchor of a path selected as a whole, show and drag. `handleStyle` (`solid`, `hollow`, `large`) draws their ends (desktop app).
 - `hideCornerWidgetAbove` (177° by default): corners wider than this show no Live Corners widget (a rectangle's right
   angles hide below 90°).
 - `transformPatternTiles` (off by default): the default of the transforms' `patterns` param (`object.transform`,
@@ -1142,7 +1317,69 @@ The Selection & Anchor Display and General preferences apply to `pointer_gesture
 The preferences for the view need the desktop app (`vectorcraft-cli mcp --connect`): `zoomWithMouseWheel` (the
 wheel zooms about the pointer, Shift-wheel scrolls up and down, Cmd/Ctrl-wheel sideways; the control channel's
 `ui.wheel` turns the wheel), `zoomToSelection` (on: Zoom In and Zoom Out centre the selection), `showToolTips`,
-`anchorSize` (1–7), `gridColor`, `gridStyle`, `gridsInBack`, `guideColor`, `guideStyle` and `recentFontsCount`.
+`anchorSize` (1–7), `gridColor`, `gridStyle`, `gridsInBack`, `guideColor`, `guideStyle`, `showPixelGrid` (on by
+default: in View › Pixel Preview at 600% zoom and above, a line at every document pixel over the art),
+`recentFontsCount`, `antiAliasedArtwork` (on by default; off, the canvas draws the art with hard edges — a pixel is
+painted when the art covers at least half of it — while raster effects and pattern tiles stay smooth; exports keep
+their own Anti-aliasing option),
+`scrubNumericFields` (on: a horizontal drag on a numeric field's label steps the field, one undo step per drag; the
+control channel's `ui.drag` scrubs), `showHomeScreen` (on by default: the Home screen while no document is open;
+off, an empty window, and the Home button or `app.home` still shows the screen) and `autoCollapseIconPanels` (off by
+default: on, a click away from a panel popped out of the icon column puts it away).
+
+The Smart Guides preferences (Preferences › Smart Guides) apply to `pointer_gesture` with Smart Guides on (the
+default view) and to the mouse; they change what the tools show and how far a target pulls, and only Construction
+Guides change where a snapped point lands:
+
+- `smartGuideColor` (`#ff3dfc` by default): the colour of the smart guides' lines and labels.
+- `alignmentGuides` (on by default): off, no line is drawn along the edge or centre the art lines up with; the art
+  still snaps into line.
+- `anchorPathLabels` (on by default): off, no "anchor", "center", "path" or "align" label.
+- `measurementLabels` (on by default): off, no size or offset readout while drawing, moving (Free Transform's move
+  too), dragging a ruler guide, drawing and resizing an artboard, or moving and resizing a slice.
+- `transformToolsGuides` (on by default): off, no readout while scaling or rotating with the Selection tool, the
+  Free Transform tool or the Rotate, Scale, Shear and Reflect tools.
+- `objectHighlighting` (on by default; desktop app): off, the Selection tools no longer outline the object under the
+  pointer. The outline also needs View › Smart Guides on.
+- `snappingTolerance` (0–40 px, 4 by default): how near an anchor, edge, centre or artboard edge pulls a drawn point,
+  a dragged selection, a bounding-box handle, a ruler guide or an artboard. With Smart Guides off, Snap to Point uses
+  `snapToPointTolerance` instead.
+- `constructionGuides` (on by default) and `constructionAngles` (`90° & 45° Angles` by default; also `90° Angles`,
+  `45° Angles`, `60° Angles`, `30° Angles`, `90° & 45° & 30° Angles`): a point drawn near a line at one of those
+  angles through the point it leaves from (the Pen's or Curvature tool's last anchor, a line's start) lands on that
+  line, where a target's alignment line crosses it if one does nearby. "90°" gives the horizontal and the vertical,
+  "45°" the diagonals, "60°" and "30°" the multiples of those angles in between. Off, the point only lines up.
+
+With Smart Guides on, a bounding-box handle dragged with the Selection or Free Transform tool (`mods.shift`
+proportional, `mods.alt` from the centre) lands on another object's anchor or centre (labelled "anchor" or
+"center"), else its corners and side line up with the edges and centres of the other objects and the artboards (a
+line and "align"). The Rotate, Scale, Shear and Reflect tools start a drag from the anchor or centre they grab and
+snap the pointer as drawing tools do, so dragging a corner onto another object's anchor scales exactly onto it:
+
+```json
+{"name":"pointer_gesture","arguments":{"tool":"scale","events":[{"kind":"down","x":100,"y":100},{"kind":"up","x":100,"y":100},{"kind":"down","x":199,"y":198},{"kind":"drag","x":302,"y":262},{"kind":"up","x":302,"y":262}]}}
+```
+
+Every point a drawing tool places snaps the same way, through one snapper (#506): the Pen's and Curvature tool's
+anchors, the Pencil's first and last point, the shape tools' start and dragged corner or radius (`rectangle`,
+`roundedRectangle`, `ellipse`, `polygon`, `star`, `lineSegment`, `arc`, `spiral`, `rectangularGrid`, `polarGrid`), the
+Type tool's click and frame, and a new artboard's corners. The point lands on another object's anchor, centre or
+path ("anchor", "center", "path"), else lines up with the anchors, edges and centres of the art and the artboards (a
+line from the target and "align"); the Pen's lands on the path being drawn too, so a click on its first anchor closes
+it exactly. With `mods.shift` the point keeps to its 45° step from the anchor before it (from `constrainAngle`; a box
+dragged keeps its corner on a diagonal) and slides along that way into line with the nearest target. A `move` event
+before the press shows where it would go, as hovering does with the mouse. The targets are the art in the window (all
+of it headless), gathered once per document state; the shape being drawn is never one of them:
+
+```json
+{"name":"pointer_gesture","arguments":{"tool":"rectangle","events":[{"kind":"down","x":202,"y":203},{"kind":"drag","x":330,"y":341},{"kind":"up","x":330,"y":341}]}}
+{"name":"pointer_gesture","arguments":{"tool":"pen","events":[{"kind":"down","x":300,"y":420},{"kind":"up","x":300,"y":420},{"kind":"down","x":151.5,"y":431},{"kind":"up","x":151.5,"y":431}]}}
+```
+
+With a 100 × 100 square at (100, 100), the first starts the rectangle on its corner (200, 200); the second puts the
+Pen's second anchor at (150, 431), in line with the square's centre.
+
+Not read yet: Spacing Guides (the tools draw none).
 
 ## Type preferences
 
@@ -1155,6 +1392,11 @@ wheel zooms about the pointer, Shift-wheel scrolls up and down, Cmd/Ctrl-wheel s
   selection (←/→), leading (↑/↓) and baseline shift (Shift+↑/↓), five steps with Cmd/Ctrl too.
 - `missingGlyphProtection` (on by default): `text.setStyle` and `text.setRangeStyle` changing the font leave the
   characters the new font has no glyph for in the font that had one.
+- `typeSelectionByPathOnly` (off by default): on, the Selection tools (`pointer_gesture` with `selection`, and the
+  mouse) pick type on its type path only — the baseline of each of its lines (a vertical column's centre line), area
+  type's frame, type on a path's path — within `selectionTolerance`; a click among the glyphs, between the lines or
+  inside the frame selects nothing. Off, anywhere in the type's bounds selects it. Marquee selection is unchanged, and
+  the Type tools (a click among the characters edits them) and the Eyedropper (`eyedropper`) are not affected.
 
 ```json
 {"name":"run_command","arguments":{"command":"prefs.set","params":{"values":{"typeSizeIncrement":4,"trackingIncrement":50}}}}
@@ -1240,6 +1482,10 @@ three: General (rulers, positions and sizes, the Info panel, dialog distances, c
 (`document.inspect` → `units`): `document.setUnits {units}` (Document Setup) sets it for that document, and
 `prefs.set {key: "unitsGeneral", value}` sets it for the active document too (one undo step) and is the units
 `file.new` starts in when it gets no `units`. Stroke and Type are the preferences `unitsStroke` and `unitsType`.
+`numbersWithoutUnitsArePoints` (on by default) makes the desktop app's length fields in picas read a number typed
+with no unit in points (`12` is 12 pt, `2p6` and `1p` stay picas, `12 mm` millimetres); off, it is in picas. Fields in
+other units read it in their unit either way, and the Preferences dialog dims the option unless a unit is Picas.
+Command params are in points either way.
 `prefs.list` marks the length preferences (`keyboardIncrement`, `cornerRadius`, `pasteOffset`, `gridlineEvery`,
 `typeSizeIncrement`, `baselineShiftIncrement`) with `measure: "general"|"type"`; they are kept in points and also take
 a string with a unit. Unit names: `Points`, `Picas`, `Inches`, `Millimeters`, `Centimeters`, `Pixels`, `Feet & Inches`,
@@ -1280,8 +1526,11 @@ passed straight back to `file.new`. Print presets and sizes without `units` star
 
 `file.place` puts another file's art into the active document as one undo step without touching the clipboard:
 a raster image at 100% of its physical size (the resolution its file declares, else 72 ppi; linked to its `path`
-unless `link: false`), an SVG as one group, a PDF/.ai page or a native document's artboard (`page`, `crop`) as one
-clipped group, with the images, symbols, patterns and swatches it uses. `at` centres it, `rect` fits it, `replace`
+unless `link: false`), an SVG as one group, a PDF/.ai page as one clipped group, with the images, symbols, patterns
+and swatches it uses. A VectorCraft document read from `path` is a placed document: one locked object showing its
+artboard `page` (or, with `crop: "bounding"`, its art's bounds), linked to the file and read again when it changes
+(see Linked images), and vectors in every output; with `link: false` (or from `dataBase64`) it is an editable copy
+of its art, as one clipped group. `at` centres it, `rect` fits it, `replace`
 swaps the selected object (keeping its place and transform), `template` puts it on a new template layer.
 `file.place.info` describes a file without placing it and `image.info` reports a placed image's link, colour mode and
 effective ppi. `file.place.queue` loads the place cursor (the `place` tool) with several files: headless, drive it
@@ -1318,7 +1567,32 @@ on top / at the bottom of the current layer. `edit.pasteOnAllArtboards` keeps th
 copied from. `layer.pasteRemembersLayers {on?}` (a document option, `document.inspect` → `pasteRemembersLayers`)
 pastes objects back into the layers they came from, by name, making missing ones.
 
+Artboards copy with their art. `artboard.copy {index?, art?}` puts an artboard on the clipboard together with the
+art fully inside it (`art` defaults to the Artboard tool's `moveArt` option, Move/Copy Artwork with Artboard; locked
+and hidden art only with prefs `moveLockedWithArtboard`); with the Artboard tool chosen, `edit.copy` does this for
+the tool's artboard and `edit.cut` runs `artboard.cut`, which also deletes them (never the only artboard). Then
+`edit.paste` adds a copy of the artboard right of the last one, with its art in the layers it came from, in one undo
+step (`edit.pasteInPlace`, `edit.pasteInFront` and `edit.pasteInBack` put it where it was; `edit.pasteOnAllArtboards`
+pastes only the art), in this document or another; the result's `artboard` is the new artboard's index.
+`artboard.duplicate {index?, art?}` (Window › Artboards › Duplicate Artboards, or a row dragged onto New Artboard)
+does the same in one step → `{index, ids}`, and `artboard.move {copy: true, moveArt: true}` is the Artboard tool's
+Alt-drag.
+
+Scale Artwork with Artboard (#602): `artboard.setProps {index, x?, y?, width?, height?, scaleArt: true}` resizes an
+artboard and scales the art fully inside it, and its artboard guides, from the old rectangle onto the new one, each side
+by its own ratio (keep the proportions for an even scale), in one undo step → `{scaled: [id…]}`. Locked and hidden art
+scales only with `lockedAndHidden: true` (default: prefs `moveLockedWithArtboard`); strokes, effects and corners scale
+as with `object.scale` (`strokes?`, `corners?`, default: Scale Strokes & Effects and Scale Corners), pattern tiles with
+`patterns?` (default: Transform Pattern Tiles). A move that keeps the size scales nothing (art moves with
+`artboard.move {moveArt}`). The Artboard tool's `scaleArt` option (`tool.setOption {tool: "artboard", key: "scaleArt",
+value: true}`; the Control bar's and Properties' Scale Artwork with Artboard check box, beside Move Artwork with
+Artboard) makes its handle drags proportional and passes `scaleArt`, as do Properties' and the Transform panel's
+artboard size fields while the tool is in use.
+
 ```json
+{"name":"run_command","arguments":{"command":"artboard.copy","params":{"index":0}}}
+{"name":"run_command","arguments":{"command":"edit.paste","params":{}}}
+{"name":"run_command","arguments":{"command":"artboard.duplicate","params":{"index":0,"art":true}}}
 {"name":"run_command","arguments":{"command":"clipboard.conflicts","params":{}}}
 {"name":"run_command","arguments":{"command":"edit.paste","params":{"center":[300,200],"swatchConflict":{"Brand":"add"}}}}
 {"name":"run_command","arguments":{"command":"layer.pasteRemembersLayers","params":{"on":true}}}
@@ -1376,6 +1650,14 @@ in `updatedLinks`), each as `{name, path, ids}`. `links.check` reports every lin
 another file (or each at the file of its name in a folder); images keep their bounds, one undo step each. Without a
 file system (the web), linked images show their previews.
 
+Placed documents (a `.vectorcraft` file placed linked) work the same way: the document keeps the file's bytes and a
+preview (JPEG or PNG, 1 px per point, at most 1024 px a side), and a save writes the preview (Include Linked Files:
+the file); output reads the file again, or uses the preview with a warning when it is gone or changed.
+`links.list` and `links.info` give them `document: true` and the artboard's `pageWidth` and `pageHeight` (pt).
+Saving the file in the app updates the open documents that place it. `links.embed` (the Links panel's Break Link)
+turns one into the editable copy placing without link gives, its symbols, patterns, swatches and images joining
+the document; so does `object.expand`.
+
 ```json
 {"name":"run_command","arguments":{"command":"links.check","params":{}}}
 {"name":"run_command","arguments":{"command":"links.relink","params":{"ids":[12],"path":"/new/photo.png"}}}
@@ -1427,8 +1709,11 @@ physical size) or `clipboard.importText {text}` (point text in the default type 
 (default: the first artboard); then any `edit.paste*` command pastes it. The desktop app does this itself: Copy and
 Cut publish the formats to the system clipboard, and a Paste outside text editing first reads what another app
 copied (SVG, then PDF, then text, then a bitmap; SVG markup in text counts as SVG). Pasting what Kaleiform copied
-keeps the lossless internal clipboard. Windows carries every format both ways; macOS and Linux carry one format
-(the text, else the PNG) and paste text and bitmaps. On the web only SVG text goes through the system clipboard.
+keeps the lossless internal clipboard. Windows carries every format both ways and pastes a bitmap from PNG, else
+from the device-independent bitmap screenshots copy (`CF_DIBV5`, then `CF_DIB`; alpha kept, opaque when it is zero
+throughout, at most 32768 px a side); macOS and Linux carry one format (the text, else the PNG) and paste text and
+bitmaps (macOS the pasteboard's PNG, else TIFF, as screenshots copy them). On the web Copy publishes SVG text, and
+Paste takes SVG text and the pictures and files a paste carries (a screenshot pastes as an embedded image).
 
 The `pasteTextFormatting` preference (`keep` or `plain`): with `plain`, text the Type tool copied pastes into type
 without its formatting, taking the style at the caret.
@@ -1445,9 +1730,10 @@ without its formatting, taking the style at the caret.
 `document.exportDxf` (also `document.export` / `export` with format `dxf`) writes a CAD drawing, ASCII DXF R12 to 2018
 (`version`: `R12`, `R13`, `R14`, `2000`, `2004`, `2007`, `2010`, `2013`, `2018`; default `2018`). Each layer becomes a
 DXF layer (hidden layers switched off, locked ones locked, non-printing ones not plotted; template layers left out),
-straight paths become polylines, curved ones cubic splines through every anchor, fills solid hatches (R12 has none:
-their outlines), strokes lines with their lineweight and a linetype per dash pattern, and placed images image entities
-linked to PNG or JPEG files (`rasterFormat`) written next to the drawing (`linked` in the result). Coordinates are y up
+straight paths become polylines, curved ones cubic splines through every anchor, fills their outlines followed by
+solid hatches (laser and cutter software reads the outlines and skips hatches; R12 has no hatches: the outlines
+alone), strokes lines with their lineweight and a linetype per dash pattern, and placed images image entities linked
+to PNG or JPEG files (`rasterFormat`) written next to the drawing (`linked` in the result). Coordinates are y up
 from the bottom-left corner of the first artboard (or `artboard`), in drawing units: `scale` units per `unit` (default
 1 mm = 1 unit, which sets `$INSUNITS`); `scaleLineweights` scales the lineweights with them. `colors` is `8`, `16` or
 `256` indexed colours, or `true` (default; true colour with the nearest index, DXF 2004 and later). `preserve:
@@ -1891,7 +2177,9 @@ dictionaries (the standard ones are values in `systemdict`; `dictstack`, `intern
 intervals share storage, resources (categories made from `Generic`, `resourceforall`), executable filters (`cvx exec`
 runs their data; `flushfile` skips it), axial and radial shadings and shading patterns (gradients), images and image
 masks (data in the file through ASCII85, hex, run-length, Flate, LZW or DCT filters, or from procedures), and type as
-point type in the font the file names (embedded font programs are skipped). The artboard is the `%%HiResBoundingBox`
+point type in the font the file names (embedded font programs are skipped). In a file in Illustrator's own format
+(Illustrator 3–8 `.ai` and their EPS, written with the prolog that defines its operators) the groups it writes (`u` …
+`U`) come in as groups, nested as they were; clips and groups nest at most 128 deep. The artboard is the `%%HiResBoundingBox`
 (else `%%BoundingBox`; a letter page without one). A program the interpreter can't run (an operator it doesn't know,
 an error, a runaway loop) or that draws nothing comes in as its TIFF preview (palette previews with an alpha channel
 too) with a warning; without a preview, the art drawn up to the error is kept with a warning, and a file with none is
@@ -2022,6 +2310,161 @@ undo step. Object › Transform › Scale, the Scale tool and the Transform pane
 {"name":"run_command","arguments":{"command":"text.reshapeArea","params":{"id":42,"anchors":[[0,2]],"dx":40,"dy":60}}}
 ```
 
+### Vertical alignment
+
+`text.areaOptions {verticalAlign: top|center|bottom|justify}` (Area Type Options › Align) places the lines of each
+row/column cell on its own: `center` centres the block of lines in the cell, `bottom` puts the last line's descent on
+the cell's bottom (inside the inset), `justify` keeps the first line at the top, moves the last one to the bottom and
+shares the space left over equally between the lines (there is no paragraph spacing limit: every line gap grows by
+the same amount). A cell with a single line justifies to the top, and a full or overflowing cell only moves by the
+less-than-a-line of space it has left. In rectangular frames without text wrap the lines just move; in other
+frames (and around wrap objects) the text flows again starting lower until it settles, never losing text that fit
+top-aligned. Vertical type aligns along its block axis (`bottom` is the frame's left edge). Exports lay type out
+again, so SVG, PDF and EPS show the aligned text.
+
+```json
+{"name":"run_command","arguments":{"command":"text.areaOptions","params":{"verticalAlign":"center"}}}
+```
+
+## Fitting area type: Auto Size, Shrink Text to Fit, overflow
+
+`text.areaOptions` (and `text.create`'s `area`, `text.createInPath` in area mode) take a `fit`:
+
+- `none` (default): the frame keeps its size; text that doesn't fit overflows (the red "+").
+- `autoHeight`: Auto Size. After every edit (typing, `text.editRange`, character and paragraph changes, a new
+  width) the frame's bottom moves to just below the last line plus the inset, in the same undo step as the edit.
+  In several columns the frame gets the least height (to 0.01 pt) at which the columns hold the text. It applies
+  to rectangular frames of horizontal type in one row; `height` is ignored while it is on, and setting the height
+  by hand (a handle drag, `text.reshapeArea` moving the bottom) turns it off, as does threading the frame. The
+  `autoSizeAreaType` preference ("Auto Size New Area Type") gives new area type `autoHeight`.
+- `shrinkText` (beyond the reference app), with `fitMinPercent` (10–100, default 50): when the text overflows,
+  every run's size, leading (explicit leading; auto leading follows the size) and baseline shift are scaled by the
+  largest factor down to `fitMinPercent` % that makes it fit. Paragraph spacing and indents stay. The stored
+  sizes don't change: the scaling happens at layout time, so rendering and every export see it. The factor is
+  found by bisection over the first run's size in steps of 0.1 pt (its scaled size is a whole number of tenths of
+  a point, so the result is deterministic); at `fitMinPercent` the text may still overflow.
+
+The file stores `"fit": "autoHeight"` or `"fit": {"shrinkText": {"minPercent": 40}}` in the object's `area`; the
+command also accepts that object form. The query (and every reply) of `text.areaOptions` reports `fit` as its id,
+`fitMinPercent`, `overflow` (the text doesn't fit its frame) and `fitScale` (Shrink Text's factor, 1 unshrunk).
+`document.inspect` (and `document.node {summary: true}`) reports `overflow` for area type and type on a path (text past
+the end of the path), and `fit` and `fitScale` for area type.
+
+```json
+{"name":"run_command","arguments":{"command":"text.areaOptions","params":{"fit":"shrinkText","fitMinPercent":60}}}
+```
+
+## Converting between point type and area type
+
+With the Selection tool, a single selected point or area type object shows the type widget: a small circle beside
+the middle of its bounding box's right side, hollow on point type and filled on area type. Double-clicking it runs
+`type.convertToAreaType` (point type gets a frame around its text, which keeps its place and doesn't rewrap) or
+`type.convertToPointType` (soft line wraps become line breaks), the same commands as the Type menu's Convert To Area
+Type and Convert To Point Type. Either keeps the text and its styles and is one undo step; `ids` picks the objects
+(default: the selection).
+
+```json
+{"name":"run_command","arguments":{"command":"type.convertToAreaType","params":{"ids":[42]}}}
+```
+
+## Kinsoku Set
+
+`text.setFormat {kinsoku: "hard"|"soft"|"none"}` sets the Paragraph panel's Kinsoku Set of the selected type (or `ids`):
+which Japanese characters may not start or end a line. **Hard** (the default; new type and documents from before the
+setting) keeps closing brackets, commas, full stops, middle dots, iteration marks, the prolonged sound mark ー and small
+kana off the line start, and opening brackets off the line end. **Soft** lets 々, ー and small kana start a line, as
+JLREQ's level 3 line-breaking rules do (https://www.w3.org/TR/jlreq/#addendum_a3); the rest of the set stays.
+**None** applies no kinsoku. `hard` isn't saved. One undo step.
+
+```json
+{"name":"run_command","arguments":{"command":"text.setFormat","params":{"kinsoku":"soft"}}}
+```
+
+## Hanging punctuation (burasagari)
+
+`text.setFormat {burasagari: "none"|"standard"|"forced"}` sets the Paragraph panel menu's Burasagari (None / Regular /
+Force) of the selected type (or `ids`): an East Asian comma or full stop ending an area type line (、。，．, half-width
+､｡) hangs outside the frame, Regular only when it doesn't fit, Force always (the rest of the line then fills the
+measure). Closing brackets and Latin punctuation don't hang; point type, right-to-left and hyphenated lines are left as
+they are. The hanging mark is as wide as its punctuation spacing makes it (`mojikumi`). New type (the Type tools,
+`text.create`) takes `standard`; documents from before it and imported text keep `none`, and `none` isn't saved. One
+undo step.
+
+```json
+{"name":"run_command","arguments":{"command":"text.setFormat","params":{"burasagari":"forced"}}}
+```
+
+## Character Alignment
+
+`text.setFormat {charAlign}` (the selected type, or `ids`) and `text.setRangeStyle {id, start, end, charAlign}` (a range)
+set where characters smaller than the largest on their line line up with it: `romanBaseline` (the default), the em box's
+`emBoxTop`, `emBoxCenter` or `emBoxBottom`, or the ideographic character face's (ICF) `icfTop` or `icfBottom`. In
+vertical type top and bottom are the right and left of the column. The ICF comes from the font's BASE table (`icfb`,
+`icft`, as the OpenType baseline tags define them), else from the average ink box of some ideographs and kana; a font
+without ideographs uses its em box. One undo step.
+
+```json
+{"name":"run_command","arguments":{"command":"text.setFormat","params":{"charAlign":"icfTop"}}}
+```
+
+## New type in a Japanese interface
+
+While the interface is in Japanese (VectorCraft › Language, or `auto` on a Japanese system), new type starts with em
+box top-to-top leading (`leadingModel: "emBoxTop"`) and em box centre character alignment (`charAlign: "emBoxCenter"`);
+in other languages it starts on the Roman baseline (#432). This covers the Type tools,
+`text.create` and `text.createInPath`, which also take `leadingModel` and `charAlign` to choose, and `paraStyle.new` /
+`charStyle.new` made with no `attrs` and no text selected. The values used are kept in the journal, so a replay sets the
+same in any language. Saved documents keep what they say, and imported text (PDF, SVG, DXF…) keeps the Roman baseline.
+
+```json
+{"name":"run_command","arguments":{"command":"text.create","params":{"x":40,"y":60,"text":"雅楽","leadingModel":"emBoxTop","charAlign":"emBoxCenter"}}}
+```
+
+## Moving and flipping type on a path
+
+Type on a path flows between a start and an end bracket, stored as fractions of its path's length.
+`type.pathOptions {start?, end?, flip?, effect?, alignToPath?, spacing?, ids?}` sets them and the rest of Type on a
+Path Options: `end: null` puts the end bracket back at the end of the path (or once round a closed one); `flip`
+then turns the type to the other side of its path, the path running the other way and the brackets swapping ends so
+the type keeps its stretch of the path; `alignToPath` runs the `ascender`, `descender`, `center` or `baseline` (the
+default) along the path; `spacing` (points) closes glyphs up round the outside of curves and opens them up round the
+inside. With none of them it queries the first selected type on a path:
+`{start, end, flip: false, effect, alignToPath, spacing}`. The Options dialog shows Effect, Flip, Align to Path and
+Spacing and leaves the brackets where they are. As in the reference app, the Selection and Direct Selection tools
+show selected type on a path's brackets: dragging the start or end bracket (`pointer_gesture`) sets where the type
+begins or ends, dragging the centre bracket slides the type along its path and, dragged across the path, flips it
+(with Cmd/Ctrl held it only slides). Each is one undo step.
+
+```json
+{"name":"run_command","arguments":{"command":"type.pathOptions","params":{"start":0.25,"end":0.75,"flip":true}}}
+```
+
+## Paragraph attributes per paragraph
+
+Each paragraph (text split at `\n`) has its own alignment, indents, space before and after, hyphenation,
+punctuation spacing (`mojikumi`), hanging punctuation (`burasagari`), direction, leading model, tab stops and
+paragraph style. `text.setStyle {justify}`, `text.setFormat {leftIndent, rightIndent, firstLineIndent,
+spaceBefore, spaceAfter, hyphenate, mojikumi, burasagari, direction, leadingModel}`, `text.tabs.set` / `text.tabs.clear` and `paraStyle.apply` take optional
+`start` / `end` byte offsets of the plain text (as `text.setRangeStyle` does): they change the paragraphs the range
+touches (a caret, `start == end`, touches its paragraph). Without a range they change every paragraph of the
+targeted objects, as before. With a range, the character attributes of `text.setStyle` and `text.setFormat` style
+that range of characters. `text.tabs.get {start?}` and `paraStyle.new` / `paraStyle.redefine {id, start?}` read the
+paragraph at `start`; `paraStyle.list` counts paragraphs as uses. A Return the Type tool types (or `text.editRange`
+inserting `\n`) continues the style of the paragraph it splits; deleting a break keeps the first paragraph's style;
+`text.setText` gives every paragraph the first one's attributes. Threaded text keeps each paragraph's attributes as
+the story re-flows (a paragraph split between frames has them in both).
+
+In the native file a text object's `para` holds the first paragraph's attributes and `paras` (left out when every
+paragraph is alike) one entry per paragraph, so older readers keep the first paragraph's. SVG export anchors each
+centred or right-aligned line on its own (`<tspan text-anchor>`), and SVG import gives each line's paragraph its
+alignment back, with indents that keep it in place.
+
+```json
+{"name":"run_command","arguments":{"command":"text.setStyle","params":{"id":42,"justify":"center","start":0,"end":0}}}
+{"name":"run_command","arguments":{"command":"text.setFormat","params":{"ids":[42],"spaceBefore":6,"start":12,"end":30}}}
+{"name":"run_command","arguments":{"command":"paraStyle.apply","params":{"name":"Heading","id":42,"start":0,"end":0}}}
+```
+
 ## Constrain proportions
 
 The link between W and H in the Transform panel, the Properties panel and the Control bar is the
@@ -2070,15 +2513,21 @@ tone (mono, or CMYK screens multiplied over each other), clipped to the art's ou
 
 ## Fonts
 
-Type can use the bundled fonts, fonts added to the session and the fonts installed on the system (none on the web).
-The installed fonts are cataloged once per session (in the background when the app starts, else on the first lookup
+Type can use the bundled fonts, fonts added to the session and the fonts installed on the system (none on the web):
+the system's and the user's font folders (Windows: `Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, plus fonts
+registered outside them, such as fonts installed as shortcuts, and in the desktop app and `vectorcraft-cli` (MCP
+included) the fonts in DirectWrite's system font collection, such as those Adobe Fonts activates while Creative Cloud runs; macOS: `/System/Library/Fonts`, `/Library/Fonts`,
+`/Network/Library/Fonts`, `~/Library/Fonts` and downloaded system fonts; Linux and BSD: `/usr/share/fonts`,
+`/usr/local/share/fonts`, `~/.fonts` and the XDG data folders' `fonts`, `~/.local/share/fonts` among them, and in a
+Flatpak sandbox the host's fonts). The installed fonts are cataloged once per session (in the background when the app starts, else on the first lookup
 by family name), so opening, placing, pasting and importing files find them whatever ran before. `text.fontList`
 lists every family available, the installed ones included, as the font menus do: without the system's hidden
 families, whose names start with "." (macOS's ".SF NS", ".LastResort"), which still resolve when a document names
 them. With `family` it gives that family's styles (upright by weight, then italics) and fails when the family isn't
 available. `text.rescanFonts` (Character panel menu ›
 Refresh Font List) scans the font folders again, for fonts installed or removed since the app started: type set in a
-font that became available redraws in it, without editing the document.
+font that became available redraws in it, without editing the document. The app does so by itself when its window
+comes to the front and a font folder changed meanwhile.
 
 ```json
 {"name":"run_command","arguments":{"command":"text.fontList","params":{}}}
@@ -2305,6 +2754,20 @@ symbol switch halfway). New blends are knockout groups (`object.setProps {knocko
 canvas as they export. `object.blend.expand` and `object.blend.release` keep the blend's name, transparency,
 opacity mask and appearance (Release on a group around the keys and spine when the blend has any), and
 `object.expand` with `object: true` expands the blends in the selection.
+
+## Paragraph composer
+
+`text.setFormat {ids?, composer: "singleLine"|"everyLine"}` sets how a text object's lines are broken (the Paragraph
+panel menu's Single-line and Every-line Composer; stored in the paragraph attributes as `para.composer`, saved only
+when it is Single-line). Every-line, the default, picks the breaks of the whole paragraph together in area type:
+justified text gets even word spacing, ragged text (left, centre or right aligned) an even rag, so it may move a word
+that fits to the next line to avoid a lone short word on the last line or a full line next to a short one.
+Single-line fills each line as far as it goes. Point type and type on a path have no line width, so both composers
+give the same result there; paragraphs that mix type sizes fall back to Single-line.
+
+```json
+{"name":"run_command","arguments":{"command":"text.setFormat","params":{"ids":[7],"composer":"singleLine"}}}
+```
 
 ## Editing envelopes
 

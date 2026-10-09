@@ -11,6 +11,7 @@ pub mod bbox;
 pub mod builder;
 pub mod catalog;
 pub mod corners;
+pub mod cropimage;
 pub mod cut;
 pub mod direct;
 pub mod distort;
@@ -20,6 +21,7 @@ pub mod guides;
 pub mod meshblend;
 pub mod meshedit;
 pub mod params;
+pub mod pathtype;
 pub mod pen;
 pub mod place;
 pub mod printtiling;
@@ -30,6 +32,7 @@ pub mod shape;
 pub mod slice;
 pub mod symbolism;
 pub mod text;
+pub mod typewidget;
 pub mod xform;
 
 use serde::{Deserialize, Serialize};
@@ -214,6 +217,10 @@ impl ScreenFrame {
 /// Read-only context a tool sees.
 pub struct ToolContext<'a> {
     pub doc: &'a Document,
+    /// Which open document `doc` is (its process-unique id) and its revision, which moves with
+    /// every change of the document or the selection: what a tool keeps between pointer events
+    /// for the document as it is (the snap targets of hovering) is keyed on it.
+    pub revision: (u64, u64),
     pub selection: &'a Selection,
     /// Screen pixels per document point.
     pub zoom: f64,
@@ -232,7 +239,7 @@ pub struct ToolContext<'a> {
     /// points (a transform's reference point) land on anchors and ruler guides within
     /// [`Self::snap_tolerance`].
     pub snap_to_point: bool,
-    /// View → Show Corner Widget: live rectangles show draggable Live Corners widgets.
+    /// View → Show Corner Widget: paths show draggable Live Corners widgets in their corners.
     pub corner_widgets: bool,
     /// Which paint proxy is in front (true = Fill): the one the Gradient tool edits.
     pub fill_active: bool,
@@ -268,9 +275,14 @@ pub struct ToolContext<'a> {
     /// Selection & Anchor Display → Tolerance: how near (screen pixels) a click must be to a path
     /// or an anchor to pick it.
     pub selection_tolerance: f64,
+    /// Selection & Anchor Display → Size (1–7, default 3): how big anchors and handles are drawn.
+    pub anchor_size: u32,
     /// Selection & Anchor Display → Object Selection by Path Only: a click inside a filled path
     /// doesn't pick it, only one on its path does.
     pub path_only: bool,
+    /// Type → Type Object Selection by Path Only: type is picked on its type path only (point
+    /// type's baseline, area type's frame, type on a path's path), not anywhere in its bounds.
+    pub type_path_only: bool,
     /// General → Double Click To Isolate: a double-click on a group with the Selection tool
     /// isolates it.
     pub double_click_isolate: bool,
@@ -300,6 +312,28 @@ pub struct ToolContext<'a> {
     /// Type → Fill New Type Objects With Placeholder Text: type the Type tools place starts with
     /// placeholder text, selected.
     pub placeholder_text: bool,
+    /// Smart Guides → Color: the smart guides' lines and labels (RGB).
+    pub smart_guide_color: [u8; 3],
+    /// Smart Guides → Alignment Guides: the lines along the edges and centres the art lines up
+    /// with show. Off, the art still snaps into line.
+    pub alignment_guides: bool,
+    /// Smart Guides → Anchor/Path Labels: the "anchor", "center", "path"… labels show.
+    pub anchor_path_labels: bool,
+    /// Smart Guides → Measurement Labels: the size and offset readouts while drawing and moving.
+    pub measurement_labels: bool,
+    /// Smart Guides → Transform Tools: the readouts while scaling, rotating and shearing.
+    pub transform_tools_guides: bool,
+    /// Smart Guides → Spacing Guides: a moved selection snaps to spacing equal to the gap between
+    /// two other objects in its row or column, or evenly between its two neighbours, and the
+    /// equal gaps show.
+    pub spacing_guides: bool,
+    /// Smart Guides → Snapping Tolerance (screen pixels): how near a smart guide target pulls the
+    /// pointer, a dragged edge or a drawn point.
+    pub snapping_tolerance: f64,
+    /// Smart Guides → Construction Guides: the angles (degrees, counter-clockwise from the x axis
+    /// as seen on the page) of the lines through the point a drawn point leaves from, onto which a
+    /// point near one lands ([`guides::construction_angles`]); none with the option off.
+    pub construction_angles: &'static [f64],
     /// The document window (none headless): screen-fixed widgets sit in it.
     pub screen: Option<ScreenFrame>,
     /// Where the Plane Switching Widget sits (Perspective Grid Options); None while it's hidden.
@@ -310,6 +344,10 @@ impl ToolContext<'_> {
     /// Tolerance in document units for `px` screen pixels.
     pub fn tol(&self, px: f64) -> f64 {
         px / self.zoom.max(1e-9)
+    }
+    /// How near (document units) a smart guide target pulls: Smart Guides → Snapping Tolerance.
+    pub fn snap_tol(&self) -> f64 {
+        self.tol(self.snapping_tolerance)
     }
     /// A length as measurement labels show it, in the General unit (`12.50 mm`).
     pub fn len(&self, v: f64) -> String {
@@ -331,8 +369,22 @@ impl ToolContext<'_> {
     pub fn pick_tol(&self) -> f64 {
         self.tol(self.selection_tolerance)
     }
+    /// How near (document units) a press picks an anchor or a direction handle's end: the
+    /// selection tolerance, but at least 2 px past the drawn point, so a point is easy to catch
+    /// and wins over the segments through it, which are tested after it (#593).
+    pub fn point_tol(&self) -> f64 {
+        // Anchors are drawn 5 px wide at the default Size 3, a pixel more or less per step.
+        let half = (5.0 + f64::from(self.anchor_size.clamp(1, 7)) - 3.0) / 2.0;
+        self.tol(self.selection_tolerance.max(half + 2.0))
+    }
     pub fn hit_options(&self) -> vectorcraft_doc::hit::HitOptions {
-        vectorcraft_doc::hit::HitOptions { tol: self.pick_tol(), outline: self.outline, path_only: self.path_only }
+        vectorcraft_doc::hit::HitOptions {
+            tol: self.pick_tol(),
+            outline: self.outline,
+            path_only: self.path_only,
+            type_path_only: self.type_path_only,
+            scope: self.isolation,
+        }
     }
 }
 
@@ -380,7 +432,10 @@ pub enum Cursor {
     PenDelete,
     PenClose,
     PenContinue,
-    /// Over the last anchor of the path being drawn: a click retracts its outgoing handle.
+    /// While drawing, over an end of another open path (a click joins the two).
+    PenJoin,
+    /// Over the last anchor of the path being drawn (a click retracts its outgoing handle), or with
+    /// Alt held over a selected path's handle or anchor (the Anchor Point tool's gesture).
     PenConvert,
     Text,
     Hand,
@@ -409,6 +464,15 @@ pub enum Cursor {
     BlendObject,
     /// The Blend tool over an anchor point (the blend starts there): a crosshair with a target.
     BlendAnchor,
+    /// Over a bracket of selected type on a path (a drag moves it): the arrow with a bracket.
+    PathBracket,
+    /// Over the type widget of selected type (a double-click converts point type to area type and
+    /// back): the arrow with a type badge.
+    TypeWidget,
+    /// The Shape Builder: a crosshair with a plus (merge mode)...
+    ShapeBuilder,
+    /// ...or, with Alt held, a minus (erase mode).
+    ShapeBuilderErase,
 }
 
 impl Cursor {
@@ -426,7 +490,9 @@ impl Cursor {
             | Cursor::Slice
             | Cursor::Blend
             | Cursor::BlendObject
-            | Cursor::BlendAnchor => Cursor::Crosshair,
+            | Cursor::BlendAnchor
+            | Cursor::ShapeBuilder
+            | Cursor::ShapeBuilderErase => Cursor::Crosshair,
             c => c,
         }
     }
@@ -452,6 +518,11 @@ pub trait Tool: Send {
     fn set_option(&mut self, _key: &str, _value: &Value) {}
     /// Is an interaction in progress (drag, open pen path)?
     fn busy(&self) -> bool {
+        false
+    }
+    /// Is a drag moving, scaling or rotating the selection (the canvas then hides the bounding box,
+    /// so only the art is seen going with the pointer)?
+    fn transforming(&self) -> bool {
         false
     }
     /// Does the tool take `key` now, ahead of the command shortcuts bound to it (the Gradient tool
@@ -523,6 +594,7 @@ pub fn create(id: &str) -> Box<dyn Tool> {
             .or_else(|| extra::create(other))
             .or_else(|| slice::create(other))
             .or_else(|| printtiling::create(other))
+            .or_else(|| cropimage::create(other))
             .or_else(|| cut::create(other))
             .unwrap_or_else(|| Box::new(NoopTool(tool_info(other).map(|t| t.id).unwrap_or("selection")))),
     }
@@ -569,6 +641,21 @@ pub(crate) mod testutil {
         (d, id)
     }
 
+    /// [`doc_with_rect`] plus type on a 300 pt path from (100, 300) to the right, from 20 % on.
+    pub fn doc_with_path_type() -> (Document, NodeId) {
+        let (mut d, _) = doc_with_rect();
+        let l = d.layers[0].id;
+        let id = d.alloc_id();
+        let mut t = vectorcraft_doc::TextObject::point(Point::ZERO, "Path type", Default::default());
+        let path = vectorcraft_geom::PathData::from_bezpath(&vectorcraft_geom::BezPath::from_vec(vec![
+            vectorcraft_geom::PathEl::MoveTo(Point::new(100.0, 300.0)),
+            vectorcraft_geom::PathEl::LineTo(Point::new(400.0, 300.0)),
+        ]));
+        t.kind = vectorcraft_doc::TextKind::OnPath { path, start: 0.2, end: None };
+        d.insert(Some(l), 1, Node::new(id, vectorcraft_doc::NodeKind::Text(Box::new(t)))).unwrap();
+        (d, id)
+    }
+
     pub fn paint() -> PaintDefaults {
         PaintDefaults::default()
     }
@@ -576,6 +663,7 @@ pub(crate) mod testutil {
     pub fn cx<'a>(d: &'a Document, s: &'a Selection, p: &'a PaintDefaults) -> ToolContext<'a> {
         ToolContext {
             doc: d,
+            revision: (0, 0),
             selection: s,
             zoom: 1.0,
             isolation: None,
@@ -602,7 +690,9 @@ pub(crate) mod testutil {
             slices_locked: false,
             auto_add_delete: true,
             selection_tolerance: 3.0,
+            anchor_size: 3,
             path_only: false,
+            type_path_only: false,
             double_click_isolate: true,
             select_behind: true,
             highlight_anchors: true,
@@ -613,6 +703,14 @@ pub(crate) mod testutil {
             pen_rubber_band: true,
             curvature_rubber_band: true,
             placeholder_text: false,
+            smart_guide_color: guides::MAGENTA,
+            alignment_guides: true,
+            anchor_path_labels: true,
+            measurement_labels: true,
+            transform_tools_guides: true,
+            spacing_guides: true,
+            snapping_tolerance: 4.0,
+            construction_angles: guides::construction_angles(guides::DEFAULT_CONSTRUCTION_ANGLES),
             screen: None,
             plane_widget: Some(Default::default()),
         }

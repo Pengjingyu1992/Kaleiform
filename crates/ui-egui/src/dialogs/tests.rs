@@ -4,6 +4,7 @@ use serde_json::json;
 use vectorcraft_engine::Session;
 
 use super::*;
+use crate::theme;
 
 fn app() -> VectorcraftApp {
     let mut app = VectorcraftApp::new(Session::new(), Default::default());
@@ -163,6 +164,30 @@ fn effect_preview_is_kept_as_one_undo_step() {
     assert_ne!(app.session.doc().unwrap().doc, before);
     app.run("edit.undo", json!({})).unwrap();
     assert_eq!(app.session.doc().unwrap().doc, before);
+}
+
+#[test]
+fn raster_filter_dialogs_preview_and_apply() {
+    for (effect, key, value) in [("blur.radial", "method", "zoom"), ("blur.smart", "quality", "high"), ("sharpen.unsharpMask", "amount", "120")] {
+        let mut app = app();
+        let id = app.run("shape.rectangle", json!({"x": 10, "y": 10, "width": 50, "height": 50})).unwrap()["id"].as_u64().unwrap();
+        app.run("select.all", json!({})).unwrap();
+        app.run("effect.dialog", json!({"effect": effect})).unwrap();
+        let d = app.ui.dialog.as_mut().unwrap();
+        let v: serde_json::Value = value.parse::<f64>().map_or_else(|_| json!(value), |n| json!(n));
+        d.fields.insert(key.into(), v.clone());
+        frame(&mut app, Default::default());
+        assert!(app.session.in_interaction(), "{effect}: previews");
+        confirm(&mut app).unwrap();
+        let n = app.session.doc().unwrap().doc.node(vectorcraft_doc::NodeId(id)).unwrap().clone();
+        assert_eq!(n.appearance.effects.len(), 1, "{effect}");
+        assert_eq!(n.appearance.effects[0].params[key], v, "{effect}");
+    }
+    // Fields follow the effect's documented order (its dialog's), not the alphabet.
+    let doc = vectorcraft_effects::effect_info("blur.smart").unwrap().params;
+    let ranks: Vec<usize> = ["radius", "threshold", "quality"].iter().map(|k| super::effect::doc_rank(doc, k)).collect();
+    assert!(ranks.windows(2).all(|w| w[0] < w[1]), "{ranks:?}");
+    assert_eq!(super::effect::doc_rank(doc, "nope"), usize::MAX);
 }
 
 #[test]

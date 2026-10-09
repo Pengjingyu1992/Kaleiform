@@ -67,11 +67,12 @@ fn current(app: &VectorcraftApp, kind: Kind) -> Option<(Option<String>, Map<Stri
     Some((name, m))
 }
 
-/// Parameters targeting the selection: the Type tool's selected characters, or the selected objects.
+/// Parameters targeting the selection: the Type tool's selected characters (paragraph styles: the
+/// paragraphs its selection or caret touches), or the selected objects.
 fn target(app: &VectorcraftApp, kind: Kind, mut p: Value) -> Value {
     if let Some((id, a, b)) = text_editing(app) {
         p["id"] = json!(id.0);
-        if kind == Kind::Char && b > a {
+        if kind == Kind::Para || b > a {
             p["start"] = json!(a);
             p["end"] = json!(b);
         }

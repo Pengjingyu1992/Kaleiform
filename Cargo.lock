@@ -2283,9 +2283,9 @@ dependencies = [
 
 [[package]]
 name = "muda"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6744ab645ebe79f9c428455c7cb9dfa4275fa3b50a25408e08f927da8dc618c"
+checksum = "9a7b000cca0783af26837fe2ebd9ddf1c42279463c085b97622ee1d2f444b89e"
 dependencies = [
  "crossbeam-channel",
  "dpi",
@@ -2294,7 +2294,6 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
- "once_cell",
  "png 0.18.1",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
@@ -2777,7 +2776,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3462,6 +3461,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4125,6 +4133,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
+
+[[package]]
 name = "type-map"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4297,7 +4311,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "arboard",
  "block2 0.6.2",
@@ -4313,15 +4327,28 @@ dependencies = [
  "rfd",
  "serde_json",
  "vectorcraft-engine",
+ "vectorcraft-text",
  "vectorcraft-ui-egui",
  "webbrowser",
+ "windows",
  "winit",
  "winresource",
 ]
 
 [[package]]
+name = "vectorcraft-affinity"
+version = "0.7.0-kaleiform.4"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "image",
+ "proptest",
+ "ruzstd",
+]
+
+[[package]]
 name = "vectorcraft-brush"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "kurbo 0.13.1",
  "serde",
@@ -4333,7 +4360,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-cad"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -4349,8 +4376,9 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-cli"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
+ "log",
  "serde_json",
  "vectorcraft-color",
  "vectorcraft-doc",
@@ -4361,11 +4389,13 @@ dependencies = [
  "vectorcraft-render",
  "vectorcraft-svg",
  "vectorcraft-testkit",
+ "vectorcraft-text",
+ "windows",
 ]
 
 [[package]]
 name = "vectorcraft-color"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "kurbo 0.13.1",
  "moxcms",
@@ -4377,7 +4407,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-doc"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "jpeg-encoder",
@@ -4394,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-effects"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "kurbo 0.13.1",
  "serde_json",
@@ -4408,16 +4438,19 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-engine"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
+ "crc32fast",
  "flate2",
  "image",
  "kurbo 0.13.1",
  "log",
  "proptest",
+ "ruzstd",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "vectorcraft-affinity",
  "vectorcraft-brush",
  "vectorcraft-cad",
  "vectorcraft-color",
@@ -4440,16 +4473,18 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-eps"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "flate2",
  "image",
  "kurbo 0.13.1",
+ "ruzstd",
  "vectorcraft-brush",
  "vectorcraft-color",
  "vectorcraft-doc",
  "vectorcraft-effects",
  "vectorcraft-geom",
+ "vectorcraft-metafile",
  "vectorcraft-render",
  "vectorcraft-testkit",
  "vectorcraft-text",
@@ -4457,7 +4492,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-format"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "flate2",
  "proptest",
@@ -4471,7 +4506,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-geom"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "kurbo 0.13.1",
  "proptest",
@@ -4483,7 +4518,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-mcp"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "log",
@@ -4502,7 +4537,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-metafile"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -4516,7 +4551,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-pathops"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "kurbo 0.13.1",
  "linesweeper",
@@ -4528,7 +4563,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-pdf"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "aes",
  "flate2",
@@ -4557,7 +4592,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-plugins"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -4571,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-render"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "flate2",
  "gif",
@@ -4596,7 +4631,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-svg"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "flate2",
  "image",
@@ -4620,7 +4655,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-testkit"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -4637,7 +4672,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-text"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo 0.13.1",
@@ -4649,12 +4684,13 @@ dependencies = [
  "unicode-script",
  "vectorcraft-doc",
  "vectorcraft-geom",
+ "windows-registry",
  "write-fonts",
 ]
 
 [[package]]
 name = "vectorcraft-tools"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -4669,7 +4705,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-trace"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "kurbo 0.13.1",
@@ -4682,7 +4718,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-ui-egui"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "egui",
  "egui_extras",
@@ -4711,7 +4747,7 @@ dependencies = [
 
 [[package]]
 name = "vectorcraft-web"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "eframe",
  "egui",
@@ -5422,6 +5458,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-registry"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02752bf7fbdcce7f2a27a742f798510f3e5ad88dbe84871e5168e2120c3d5720"
+dependencies = [
+ "windows-link",
+ "windows-result",
+ "windows-strings",
+]
+
+[[package]]
 name = "windows-result"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5803,7 +5850,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 dependencies = [
  "image",
  "serde_json",

@@ -455,7 +455,7 @@ fn general(ui: &mut egui::Ui, d: &mut Dialog, editor: bool) {
     flag(ui, d, "viewAfterSaving", tl!("View PDF after saving"), true);
     // PDF layers need PDF 1.5, and PDF/X-1a and PDF/X-3 have none.
     let layers = standard.allows_layers() && choice::<Compatibility>(d, "compatibility").unwrap_or_default().has_layers();
-    flag(ui, d, "createLayers", tl!("Create PDF layers from top-level layers"), layers);
+    flag(ui, d, "createLayers", tl!("Create PDF layers from layers and sublayers"), layers);
     flag(ui, d, "includeNonPrinting", tl!("Include non-printing layers"), true);
     if editor {
         heading(ui, tl!("Description"));

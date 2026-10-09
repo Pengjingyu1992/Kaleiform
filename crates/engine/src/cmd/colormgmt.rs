@@ -8,9 +8,11 @@
 //! become active when assigned.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde_json::{Value, json};
 use vectorcraft_color::cms::{self, ColorSettings, Intent, Model, ProofTarget};
+use vectorcraft_color::recolor::Neutral;
 use vectorcraft_color::{Color, Paint};
 use vectorcraft_doc::ColorMode;
 use vectorcraft_render::proof;
@@ -55,7 +57,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Convert Document Color Mode",
             [],
             None,
-            "same as file.documentColorMode: {mode: \"cmyk\"|\"rgb\", convert?: true, intent?} → {changed} (an alias kept for older scripts; the command palette leaves it out)",
+            "same as file.documentColorMode: {mode: \"cmyk\"|\"rgb\", convert?: true, intent?, grays?} → {changed} (an alias kept for older scripts; the command palette leaves it out)",
             has_doc,
             convert_mode
         ),
@@ -232,6 +234,28 @@ fn assign_profile(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"rgb": rgb, "cmyk": cmyk}))
 }
 
+/// How Document Color Mode converts neutral RGB greys (R = G = B) to CMYK (the `grays` param).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Grays {
+    /// Through the CMYK profile like any colour: four-colour greys and a rich black.
+    #[default]
+    Profile,
+    /// On the black plate only: K is the grey's ink percentage (as Convert to Grayscale and then
+    /// to CMYK would give).
+    Black,
+}
+
+impl Grays {
+    /// The `grays` param of `cmd`: `"profile"` (default) or `"black"`.
+    pub(crate) fn param(cmd: &str, p: &Value) -> Result<Self> {
+        match str_param(p, "grays").map(str::to_ascii_lowercase).as_deref() {
+            None | Some("profile") => Ok(Grays::Profile),
+            Some("black") => Ok(Grays::Black),
+            Some(g) => Err(bad(cmd, format!("grays must be \"profile\" or \"black\", not `{g}`"))),
+        }
+    }
+}
+
 /// File → Document Color Mode (`file.documentColorMode` and its alias
 /// `object.convertDocumentColorMode`): set the mode and, unless `convert: false`, convert every
 /// colour through the colour settings.
@@ -243,6 +267,7 @@ pub(crate) fn convert_mode(s: &mut Session, p: &Value) -> Result<Value> {
         _ => return Err(bad(C, "mode must be \"cmyk\" or \"rgb\"")),
     };
     let intent = intent_param(p, C)?;
+    let grays = Grays::param(C, p)?;
     // Choosing the mode the document already has (the checked menu item) is not an edit.
     if s.doc()?.doc.color_mode == mode {
         return Ok(json!({ "changed": 0 }));
@@ -250,18 +275,20 @@ pub(crate) fn convert_mode(s: &mut Session, p: &Value) -> Result<Value> {
     let convert = bool_or(p, "convert", true);
     let mut changed = 0usize;
     s.edit("Document Color Mode", |d, _| {
-        changed = set_color_mode(d, mode, convert, intent);
+        changed = set_color_mode(d, mode, convert, intent, grays);
         Ok(())
     })?;
     Ok(json!({ "changed": changed }))
 }
 
-/// Put `d` in colour `mode` and, with `convert`, convert every colour of its art, symbols and
-/// swatches through the colour settings (`intent`, default: theirs) → how many colours changed.
-/// Greys stay greys (they print on the black plate in either mode); Lab colours (spot colour
+/// Put `d` in colour `mode` and, with `convert`, convert every colour of its art, symbols,
+/// pattern tiles and swatches through the colour settings (`intent`, default: theirs) → how many
+/// colours of the art, symbols and patterns changed. Gray colours stay Gray (they print on the
+/// black plate in either mode); RGB greys are colours like any other and separate through the
+/// CMYK profile, unless `grays` puts them on the black plate. Lab colours (spot colour
 /// definitions) are device independent and fit either mode. Document Color Mode and
 /// `document.open {colorMode}` both convert this way.
-pub(crate) fn set_color_mode(d: &mut vectorcraft_doc::Document, mode: ColorMode, convert: bool, intent: Option<Intent>) -> usize {
+pub(crate) fn set_color_mode(d: &mut vectorcraft_doc::Document, mode: ColorMode, convert: bool, intent: Option<Intent>, grays: Grays) -> usize {
     d.color_mode = mode;
     if !convert {
         return 0;
@@ -269,15 +296,25 @@ pub(crate) fn set_color_mode(d: &mut vectorcraft_doc::Document, mode: ColorMode,
     let c = cms::active();
     let intent = intent.unwrap_or(c.settings().intent);
     let model = if mode == ColorMode::Cmyk { Model::Cmyk } else { Model::Rgb };
-    let conv = |col: &Color| if matches!(col, Color::Gray { .. } | Color::Lab { .. }) { *col } else { c.convert(col, model, intent) };
+    let k_only = model == Model::Cmyk && grays == Grays::Black;
+    let conv = |col: &Color| match col {
+        Color::Gray { .. } | Color::Lab { .. } => *col,
+        // Grey ink percentage, then K only (a Gray colour's CMYK).
+        Color::Rgb { .. } if k_only && Neutral::of(col).is_some() => c.convert(&c.convert(col, Model::Gray, intent), Model::Cmyk, intent),
+        _ => c.convert(col, model, intent),
+    };
     let mut changed = 0usize;
-    proof::map_document_colors(d, &mut |col, _| {
+    let mut count = |col: &Color, _: proof::Link| {
         let n = conv(col);
         if n != *col {
             changed += 1;
         }
         n
-    });
+    };
+    proof::map_document_colors(d, &mut count);
+    for a in d.patterns.iter_mut().flat_map(|p| &mut p.art) {
+        proof::map_node_colors(Arc::make_mut(a), &mut count);
+    }
     for sw in d.swatches_iter_mut() {
         match &mut sw.paint {
             Paint::Solid { color, .. } => *color = conv(color),

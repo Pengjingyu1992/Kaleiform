@@ -1,5 +1,6 @@
 //! Artboards panel: numbered list with inline rename (double-click the name), move up / down, new,
-//! delete. The highlighted row is the active artboard, the one the status bar's navigator shows and
+//! delete; a row dragged onto New Artboard duplicates its artboard (as Duplicate Artboards does, with
+//! its art when the Artboard tool's Move/Copy Artwork with Artboard is on). The highlighted row is the active artboard, the one the status bar's navigator shows and
 //! Fit Artboard in Window fits: clicking a row makes it active, double-clicking its number also
 //! fits it in the window.
 
@@ -11,19 +12,50 @@ use crate::theme::Tokens;
 use crate::widgets::{self, menu_item};
 use crate::{VectorcraftApp, icons};
 
+/// The Artboard tool's Move Artwork with Artboard and Scale Artwork with Artboard options (#602) as
+/// check boxes: the Control bar and Properties show them while the tool is in use.
+pub(crate) fn art_options(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let opts = app.session.tool_options();
+    for (key, label, default) in [("moveArt", tl!("Move Artwork with Artboard"), true), ("scaleArt", tl!("Scale Artwork with Artboard"), false)] {
+        let on = opts[key].as_bool().unwrap_or(default);
+        if widgets::check(ui, label, on, true) {
+            app.run("tool.setOption", json!({ "key": key, "value": !on })).ok();
+        }
+    }
+}
+
+/// Whether artboards resized while the Artboard tool is in use take their art along (its Scale
+/// Artwork with Artboard option): the panels' sizes pass it to `artboard.setProps` as `scaleArt`.
+pub(crate) fn scale_art(app: &VectorcraftApp) -> bool {
+    app.session.tool_id() == "artboard" && app.session.tool_options()["scaleArt"].as_bool().unwrap_or(false)
+}
+
 /// The active artboard (of `n`).
-fn selected(app: &VectorcraftApp, n: usize) -> usize {
+pub(crate) fn selected(app: &VectorcraftApp, n: usize) -> usize {
     app.view().map_or(0, |v| v.artboard).min(n.saturating_sub(1))
 }
 
 /// Make artboard `i` the active one, leaving the view where it is: the navigator's and, while it
 /// is the tool, the Artboard tool's.
-fn select(app: &mut VectorcraftApp, i: usize) {
+pub(crate) fn select(app: &mut VectorcraftApp, i: usize) {
     if let Some(v) = app.view_mut() {
         v.artboard = i;
     }
     if app.session.tool_id() == "artboard" {
         app.session.set_tool_option("active", &json!(i));
+    }
+}
+
+/// A row dragged in the list: the artboard's index.
+#[derive(Clone, Copy)]
+struct RowDrag(usize);
+
+/// Duplicate artboard `i` (`artboard.duplicate`) and make the copy the active artboard.
+fn duplicate(app: &mut VectorcraftApp, i: usize) {
+    if let Ok(r) = app.run("artboard.duplicate", json!({ "index": i }))
+        && let Some(copy) = r["index"].as_u64()
+    {
+        select(app, copy as usize);
     }
 }
 
@@ -41,7 +73,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.y = 0.0;
         egui::ScrollArea::vertical().id_salt("ab-scroll").max_height(220.0).show(ui, |ui| {
             for (i, name) in abs.iter().enumerate() {
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click_and_drag());
+                if resp.drag_started() {
+                    egui::DragAndDrop::set_payload(ui.ctx(), RowDrag(i));
+                }
                 if i == sel {
                     ui.painter().rect_filled(r, 0.0, t.row_selected);
                 } else if resp.hovered() {
@@ -96,7 +131,9 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     });
     let n = abs.len();
     widgets::bottom_bar(ui, |ui| {
-        widgets::icon_button_enabled(ui, "dc-rearrange", tl!("Rearrange All Artboards (on the roadmap)"), false, false, 24.0);
+        if widgets::icon_button_enabled(ui, "dc-rearrange", tl!("Rearrange All Artboards"), false, n > 1, 24.0).clicked() {
+            open_rearrange(app);
+        }
         ui.add_space((ui.available_width() - 4.0 * 28.0).max(0.0));
         if widgets::icon_button_enabled(ui, "dc-arrow-up", tl!("Move Up"), false, sel > 0, 24.0).clicked()
             && app.run("artboard.reorder", json!({"index": sel, "to": sel - 1})).is_ok()
@@ -108,13 +145,24 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         {
             select(app, sel + 1);
         }
-        if widgets::icon_button(ui, "dc-new-item", tl!("New Artboard"), false, 24.0).clicked() && app.run("artboard.new", json!({})).is_ok() {
+        let new = widgets::icon_button(ui, "dc-new-item", tl!("New Artboard"), false, 24.0);
+        if new.dnd_hover_payload::<RowDrag>().is_some() {
+            ui.painter().rect_stroke(new.rect, 3.0, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+        }
+        if let Some(row) = new.dnd_release_payload::<RowDrag>() {
+            duplicate(app, row.0);
+        } else if new.clicked() && app.run("artboard.new", json!({})).is_ok() {
             select(app, n);
         }
         if widgets::icon_button_enabled(ui, "trash-2", tl!("Delete Artboard"), false, n > 1, 24.0).clicked() {
             app.run("artboard.delete", json!({"index": sel})).ok();
         }
     });
+}
+
+/// Open Rearrange All Artboards (#681).
+pub(crate) fn open_rearrange(app: &mut VectorcraftApp) {
+    app.run("ui.menuDialog", json!({ "command": "artboard.rearrange" })).ok();
 }
 
 pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
@@ -124,7 +172,7 @@ pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
         app.run("artboard.new", json!({})).ok();
     }
     if menu_item(ui, tl!("Duplicate Artboards"), n > 0, false) {
-        app.run("artboard.duplicate", json!({"index": sel})).ok();
+        duplicate(app, sel);
     }
     if menu_item(ui, tl!("Delete Artboards"), n > 1, false) {
         app.run("artboard.delete", json!({"index": sel})).ok();
@@ -138,7 +186,9 @@ pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     if menu_item(ui, tl!("Artboard Options…"), n > 0, false) {
         app.select_tool("artboard");
     }
-    menu_item(ui, tl!("Rearrange All Artboards…"), false, false);
+    if menu_item(ui, tl!("Rearrange All Artboards…"), n > 1, false) {
+        open_rearrange(app);
+    }
     ui.separator();
     if menu_item(ui, tl!("Fit to Artwork Bounds"), n > 0, false) {
         app.run("artboard.fitToArt", json!({"index": sel})).ok();
@@ -239,5 +289,43 @@ mod tests {
             crate::canvas::dispatch(&mut app, &vectorcraft_tools::PointerEvent::new(kind, 100.0, 100.0), view);
         }
         assert_eq!((app.session.tool_options()["active"].clone(), selected(&app, 2)), (json!(0), 0));
+    }
+
+    /// A row dragged onto New Artboard duplicates its artboard with its art (#446), outlining the
+    /// button while it is held over it, and the copy becomes the active artboard.
+    #[test]
+    fn dragging_a_row_onto_new_artboard_duplicates_it() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.session.execute("file.new", &json!({"width": 200, "height": 150})).unwrap();
+        app.session.execute("shape.rectangle", &json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        let ctx = egui::Context::default();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(240.0, 400.0)));
+        let frame = |app: &mut VectorcraftApp, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: screen, ..Default::default() }, |ui| show(app, ui));
+            out.textures_delta.clear();
+            out.shapes
+        };
+        let shapes = frame(&mut app, vec![]);
+        let t = Tokens::get(&ctx);
+        let rect_of = |fill| {
+            shapes.iter().find_map(|c| match &c.shape {
+                egui::Shape::Rect(r) if r.fill == fill => Some(r.rect),
+                _ => None,
+            })
+        };
+        let row = rect_of(t.row_selected).unwrap().center();
+        // The bottom bar's buttons sit under its divider, New Artboard second from the right.
+        let bar = rect_of(t.divider).unwrap();
+        let new = pos2(bar.right() - 24.0 - 4.0 - 12.0, bar.bottom() + 2.0 + 12.0);
+        let button =
+            |at, pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![egui::Event::PointerMoved(row), button(row, true)]);
+        frame(&mut app, vec![egui::Event::PointerMoved(row + vec2(0.0, 12.0))]);
+        let held = frame(&mut app, vec![egui::Event::PointerMoved(new)]);
+        assert!(held.iter().any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.stroke.color == t.accent)), "New Artboard is outlined");
+        frame(&mut app, vec![button(new, false)]);
+        let d = &app.session.active().unwrap().doc;
+        assert_eq!((d.artboards.len(), d.layers[0].children().unwrap().len()), (2, 2), "the artboard and its art");
+        assert_eq!(app.view().unwrap().artboard, 1);
     }
 }

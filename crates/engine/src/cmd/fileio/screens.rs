@@ -161,7 +161,7 @@ impl Row {
             return Err(bad(C, "each format is an object {format, scale?, suffix?}"));
         }
         let format = writable(C, Some(str_param(row, "format").unwrap_or("png")), None)?;
-        if matches!(format.id, "vectorcraft" | "template" | "txt" | "dxf" | "eps" | "emf" | "wmf") {
+        if matches!(format.id, "vectorcraft" | "template" | "ai" | "txt" | "dxf" | "eps" | "emf" | "wmf") {
             return Err(bad(C, "Export for Screens writes png, png8, jpg, webp, gif, svg, svgz or pdf"));
         }
         // Vector formats have no pixel size: it doesn't apply and adds no @2x suffix (not even one

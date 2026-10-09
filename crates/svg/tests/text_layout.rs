@@ -30,7 +30,7 @@ fn area_doc(runs: Vec<TextRun>, w: f64, justify: Justify) -> Document {
 }
 
 fn run(text: &str, st: CharStyle) -> TextRun {
-    TextRun { text: text.into(), style: st }
+    TextRun { text: text.into(), style: st, inline: None }
 }
 
 /// The `<tspan …>` start tags.
@@ -66,6 +66,20 @@ fn wrapped_lines_get_one_tspan_each() {
     assert!(tspans(&svg).iter().all(|t| (attr(t, "x").unwrap() - 35.0).abs() < 0.01), "{svg}");
     // Left-aligned (and justified) lines are placed absolutely.
     assert!(!export(&d, &ExportOptions::default()).contains("text-anchor"));
+}
+
+#[test]
+fn vertically_aligned_area_type_exports_where_it_is_drawn() {
+    let top = area_doc(vec![run("alpha beta", style(12.0))], 200.0, Justify::Left);
+    let mut centred = top.clone();
+    let id = centred.layers[0].children().unwrap()[0].id;
+    if let Some(NodeKind::Text(t)) = centred.node_mut(id).map(|n| &mut n.kind) {
+        t.area.vertical_align = vectorcraft_doc::VerticalAlign::Center;
+    }
+    let y = |d: &Document| attr(tspans(&export(d, &ExportOptions::default()))[0], "y").unwrap();
+    let (yt, yc) = (y(&top), y(&centred));
+    // The 160 pt frame holds one 12 pt line: centring moves it down about (160 - 14.4) / 2.
+    assert!(yc - yt > 60.0 && yc - yt < 80.0, "{yt} → {yc}");
 }
 
 #[test]
@@ -184,5 +198,39 @@ fn a_viewer_draws_the_text_where_the_canvas_does() {
                 assert_similar(&render_artboard(&canvas), &render_artboard(&viewer), 40.0, 0.01);
             }
         }
+    }
+}
+
+#[test]
+fn paragraphs_aligned_differently_keep_their_alignment() {
+    let mut t = TextObject::point(Point::new(20.0, 20.0), "Left words here\nCentred line\nRight line", style(14.0));
+    t.kind = TextKind::Area { frame: shapes::rectangle(Rect::new(0.0, 0.0, 200.0, 160.0)) };
+    let para = |j| vectorcraft_doc::ParaStyle { justify: j, ..Default::default() };
+    t.set_paragraph_styles(vec![para(Justify::Left), para(Justify::Center), para(Justify::Right)]);
+    let mut d = Document::new(300.0, 200.0);
+    let n = Node::new(d.alloc_id(), NodeKind::Text(Box::new(t)));
+    let l = d.layers[0].id;
+    d.insert(Some(l), 0, n).unwrap();
+    for fewer_tspans in [false, true] {
+        let svg = export(&d, &ExportOptions { fewer_tspans, ..Default::default() });
+        // Each anchored line carries its own anchor (the <text> has none).
+        assert!(svg.contains("text-anchor=\"middle\"") && svg.contains("text-anchor=\"end\""), "{svg}");
+        assert!(!svg.contains("<text text-anchor"), "{svg}");
+        // A viewer draws each line where the canvas does.
+        let mut viewer = Document::new(300.0, 200.0);
+        let vl = viewer.layers[0].id;
+        for bp in viewer_outlines(&svg) {
+            let ap = vectorcraft_doc::Appearance::basic(Paint::solid(Color::BLACK), Paint::None, 0.0);
+            let n = Node::path(viewer.alloc_id(), PathData::from_bezpath(&bp), ap);
+            viewer.insert(Some(vl), usize::MAX, n).unwrap();
+        }
+        assert_similar(&render_artboard(&d), &render_artboard(&viewer), 40.0, 0.01);
+        // Read back: one paragraph per line, each with its alignment, drawn where it was.
+        let back = vectorcraft_svg::import(&svg).unwrap();
+        let text =
+            back.layers[0].children().unwrap().iter().find_map(|n| if let NodeKind::Text(t) = &n.kind { Some(t.clone()) } else { None }).unwrap();
+        let js: Vec<Justify> = text.paragraph_styles().iter().map(|p| p.justify).collect();
+        assert_eq!(js, [Justify::Left, Justify::Center, Justify::Right], "{svg}");
+        assert_similar(&render_artboard(&d), &render_artboard(&back), 40.0, 0.01);
     }
 }

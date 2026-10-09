@@ -238,43 +238,42 @@ impl Tool for ShaperTool {
                 vec![]
             }
             PointerKind::Drag => {
-                if !self.points.is_empty() && self.points.last().is_none_or(|l| l.distance(ev.pos) >= cx.tol(1.5)) {
+                if !self.points.is_empty() && self.points.len() < 4095 && self.points.last().is_none_or(|l| l.distance(ev.pos) >= cx.tol(1.5)) {
                     self.points.push(ev.pos);
                 }
                 vec![]
             }
             PointerKind::Up => {
+                // A fast final segment may arrive only on release; it still closes the stroke.
+                if !self.points.is_empty() && self.points.last().is_none_or(|p| *p != ev.pos) {
+                    self.points.push(ev.pos);
+                }
                 let pts = std::mem::take(&mut self.points);
-                let r = |x: vectorcraft_geom::Rect| json!({ "x": x.x0, "y": x.y0, "width": x.width(), "height": x.height() });
+                if pts.first().is_some_and(|first| pts.iter().all(|p| p.distance(*first) < cx.tol(3.0))) {
+                    return vec![Action::Exec("shaper.select".into(), json!({"point": [ev.pos.x, ev.pos.y]}))];
+                }
+                let r = |x: vectorcraft_geom::Rect, rotation: f64| json!({ "x": x.x0, "y": x.y0, "width": x.width(), "height": x.height(), "rotation": rotation });
                 match recognize(&pts) {
                     Some(Recognized::Line { a, b }) => vec![Action::Exec("shape.line".into(), json!({ "x1": a.x, "y1": a.y, "x2": b.x, "y2": b.y }))],
-                    Some(Recognized::Rectangle(x)) => vec![Action::Exec("shape.rectangle".into(), r(x))],
-                    Some(Recognized::Ellipse(x)) => vec![Action::Exec("shape.ellipse".into(), r(x))],
+                    Some(Recognized::Rectangle { rect, rotation }) => vec![Action::Exec("shape.rectangle".into(), r(rect, rotation))],
+                    Some(Recognized::Ellipse { rect, rotation }) => vec![Action::Exec("shape.ellipse".into(), r(rect, rotation))],
                     Some(Recognized::Polygon { center, radius, sides, rotation }) => {
                         vec![Action::Exec(
                             "shape.polygon".into(),
                             json!({ "cx": center.x, "cy": center.y, "radius": radius, "sides": sides, "rotation": rotation }),
                         )]
                     }
-                    Some(Recognized::Scribble(_)) => {
-                        // Delete the topmost objects the scribble crosses.
-                        let mut ids: Vec<u64> = vec![];
-                        for p in &pts {
-                            if let Some(h) = vectorcraft_doc::hit::hit_test(cx.doc, *p, cx.hit_options()) {
-                                let id = h.top_object(cx.isolation).0;
-                                if !ids.contains(&id) {
-                                    ids.push(id);
-                                }
-                            }
-                        }
-                        if ids.is_empty() {
-                            return vec![];
-                        }
-                        vec![Action::Exec("select.set".into(), json!({ "ids": ids })), Action::Exec("edit.clear".into(), json!({ "ids": ids }))]
-                    }
+                    Some(Recognized::Scribble(_)) => vec![Action::Exec(
+                        "shaper.scribble".into(),
+                        json!({"points": pts.iter().map(|p| [p.x, p.y]).collect::<Vec<_>>(), "tolerance": cx.tol(4.0)}),
+                    )],
                     None => vec![],
                 }
             }
+            PointerKind::DoubleClick => vec![
+                Action::Exec("shaper.select".into(), json!({"point": [ev.pos.x, ev.pos.y], "source": true})),
+                Action::SwitchTool("selection".into()),
+            ],
             _ => vec![],
         }
     }

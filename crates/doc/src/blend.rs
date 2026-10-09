@@ -527,7 +527,8 @@ impl Lerp {
             (NodeKind::Mesh(ma), NodeKind::Mesh(mb)) if ma.rows == mb.rows && ma.cols == mb.cols && ma.points.len() == mb.points.len() => Shape::Mesh,
             (NodeKind::Text(_), NodeKind::Text(_))
             | (NodeKind::SymbolInstance { .. }, NodeKind::SymbolInstance { .. })
-            | (NodeKind::Image(_), NodeKind::Image(_)) => Shape::Placed,
+            | (NodeKind::Image(_), NodeKind::Image(_))
+            | (NodeKind::PlacedDocument(_), NodeKind::PlacedDocument(_)) => Shape::Placed,
             _ => match (node_path(a), node_path(b)) {
                 (Some((pa, ra, ma)), Some((pb, rb, mb))) => {
                     Shape::Path { pair: PathPair::new(&pa, &pb, starts), rules: (ra, rb), members: ma.zip(mb) }
@@ -586,6 +587,7 @@ impl Lerp {
                         *o = lerp_affine(*x, *y, t)
                     }
                     (NodeKind::Image(o), NodeKind::Image(x), NodeKind::Image(y)) => o.xf = lerp_affine(x.xf, y.xf, t),
+                    (NodeKind::PlacedDocument(o), NodeKind::PlacedDocument(x), NodeKind::PlacedDocument(y)) => o.xf = lerp_affine(x.xf, y.xf, t),
                     _ => {}
                 }
                 n.mask = None;
@@ -687,6 +689,7 @@ fn lerp_text(o: &mut TextObject, x: &TextObject, y: &TextObject, t: f64) {
     }
     if resized {
         o.cached_bounds = None;
+        o.cached_baselines.clear();
     }
 }
 

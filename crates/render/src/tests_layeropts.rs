@@ -66,3 +66,22 @@ fn dim_images_fades_only_the_images() {
     assert_eq!(img.pixel(25, 25), [255, 0, 0, 255], "vector art stays");
     assert_eq!(render(&d, true).pixel(65, 25), [255, 0, 0, 255], "exports are not dimmed");
 }
+
+/// A guide path draws on screen only: exports leave it out, as they leave templates out (and as
+/// the SVG, PSD and PDF exports and printing already do).
+#[test]
+fn guides_draw_on_screen_only() {
+    let mut d = Document::new(100.0, 100.0);
+    let l = d.layers[0].id;
+    let mut g = Node::path(d.alloc_id(), shapes::rectangle(Rect::new(70.0, 70.0, 90.0, 90.0)), Appearance::default());
+    if let NodeKind::Path { guide, .. } = &mut g.kind {
+        *guide = true;
+    }
+    d.insert(Some(l), 0, g).unwrap();
+    let drawn = |export: bool| {
+        let r = render(&d, export);
+        (60..100).flat_map(|y| (60..100).map(move |x| (x, y))).filter(|&(x, y)| r.pixel(x, y) != [255, 255, 255, 255]).count()
+    };
+    assert!(drawn(false) > 0, "on screen the guide shows");
+    assert_eq!(drawn(true), 0, "exports leave it out");
+}

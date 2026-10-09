@@ -18,10 +18,10 @@ use super::edit::selected_roots;
 use super::*;
 use crate::EngineError;
 
-const SIZES_KEY: &str = "symbolSizes";
+const SIZES_KEY: &str = vectorcraft_doc::SYMBOL_SIZES;
 const CURRENT_SYMBOL: &str = "currentSymbol";
 /// Half the instance box `Node::geometric_bounds` uses for symbol instances.
-const HALF: f64 = 10.0;
+const HALF: f64 = vectorcraft_doc::SYMBOL_HALF;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![

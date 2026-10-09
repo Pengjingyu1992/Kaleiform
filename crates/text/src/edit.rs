@@ -4,7 +4,14 @@
 
 use std::ops::Range;
 
+use vectorcraft_doc::text::INLINE_CHAR;
 use vectorcraft_doc::{CharStyle, TextRun};
+
+/// Is `s` exactly one object replacement character (an inline graphic run's text)?
+pub fn is_inline_text(s: &str) -> bool {
+    let mut c = s.chars();
+    c.next() == Some(INLINE_CHAR) && c.next().is_none()
+}
 
 /// Total byte length of `runs`.
 pub fn runs_len(runs: &[TextRun]) -> usize {
@@ -58,21 +65,25 @@ pub fn insertion_style(runs: &[TextRun], start: usize, end: usize) -> CharStyle 
 }
 
 /// Merge adjacent runs with equal styles and drop empty runs (keeping one run so the object
-/// remembers its style).
+/// remembers its style). Inline graphic runs never merge: each stays one [`INLINE_CHAR`]; one
+/// whose text is anything else (malformed input) becomes plain text.
 pub fn normalize(runs: &mut Vec<TextRun>) {
     let first_style = runs.first().map(|r| r.style.clone());
     let mut out: Vec<TextRun> = Vec::with_capacity(runs.len());
-    for r in runs.drain(..) {
+    for mut r in runs.drain(..) {
         if r.text.is_empty() {
             continue;
         }
+        if r.inline.is_some() && !is_inline_text(&r.text) {
+            r.inline = None;
+        }
         match out.last_mut() {
-            Some(l) if l.style == r.style => l.text.push_str(&r.text),
+            Some(l) if l.style == r.style && l.inline.is_none() && r.inline.is_none() => l.text.push_str(&r.text),
             _ => out.push(r),
         }
     }
     if out.is_empty() {
-        out.push(TextRun { text: String::new(), style: first_style.unwrap_or_default() });
+        out.push(TextRun { text: String::new(), style: first_style.unwrap_or_default(), inline: None });
     }
     *runs = out;
 }
@@ -90,7 +101,10 @@ fn split_at(runs: &mut Vec<TextRun>, byte: usize) -> usize {
             let at = floor_char(&runs[i].text, byte - off);
             let tail = runs[i].text.split_off(at);
             let style = runs[i].style.clone();
-            runs.insert(i + 1, TextRun { text: tail, style });
+            // An inline graphic is one character: a split lands before it (`at` == 0), the empty
+            // head is dropped by `normalize` and the tail keeps the graphic.
+            let inline = runs[i].inline.clone();
+            runs.insert(i + 1, TextRun { text: tail, style, inline });
             return i + 1;
         }
         off += len;
@@ -103,7 +117,7 @@ fn split_at(runs: &mut Vec<TextRun>, byte: usize) -> usize {
 /// insertion.
 pub fn replace_range(runs: &mut Vec<TextRun>, start: usize, end: usize, insert: &str) -> usize {
     let style = insertion_style(runs, start, end);
-    replace_range_styled(runs, start, end, &[TextRun { text: insert.to_string(), style }])
+    replace_range_styled(runs, start, end, &[TextRun { text: insert.to_string(), style, inline: None }])
 }
 
 /// Replace `start..end` with styled runs (paste with formatting). Returns the caret after them.
@@ -153,7 +167,11 @@ pub fn slice_runs(runs: &[TextRun], start: usize, end: usize) -> Vec<TextRun> {
         let (a, b) = (start.max(rs), end.min(re));
         if a < b {
             let t = &r.text[floor_char(&r.text, a - rs)..floor_char(&r.text, b - rs)];
-            out.push(TextRun { text: t.to_string(), style: r.style.clone() });
+            if t.is_empty() {
+                off = re;
+                continue;
+            }
+            out.push(TextRun { text: t.to_string(), style: r.style.clone(), inline: r.inline.clone() });
         }
         off = re;
     }

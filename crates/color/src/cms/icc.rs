@@ -1,7 +1,7 @@
 //! ICC profiles through `moxcms` (pure Rust): built-in RGB spaces and user-supplied `.icc` files,
 //! and the profiles exports embed ([`encode_builtin`]), written in code from the CMS.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use moxcms::{
     ColorProfile, DataColorSpace, Layout, LocalizableString, LutMultidimensionalType, LutStore, LutWarehouse, Matrix3d, ProfileClass, ProfileText,
@@ -27,6 +27,9 @@ fn intent_index(i: Intent) -> usize {
 
 type Xf = Option<Arc<TransformF32Executor>>;
 
+/// A direct transform's cache key: destination name, intent index, black-point compensation.
+type DirectKey = (String, usize, bool);
+
 /// A parsed ICC profile plus lazily-built transforms to/from sRGB.
 pub struct IccProfile {
     pub name: String,
@@ -37,6 +40,21 @@ pub struct IccProfile {
     srgb: ColorProfile,
     to_srgb: [OnceLock<Xf>; 4],
     from_srgb: [OnceLock<Xf>; 4],
+    /// Direct transforms into other RGB profiles ([`Self::to_rgb_of`]), by destination, intent
+    /// and black-point compensation.
+    direct: Mutex<Vec<(DirectKey, Option<Arc<Direct>>)>>,
+}
+
+/// A transform from one profile into an RGB profile without passing through sRGB: into the
+/// destination's primaries with linear tone curves, where black-point compensation is a linear
+/// remap, then onto its own curves.
+struct Direct {
+    to_linear: Arc<TransformF32Executor>,
+    /// Linear → the destination's curves; `None` when the destination isn't a matrix profile
+    /// (the first transform goes straight into it, without compensation).
+    to_dest: Option<Arc<TransformF32Executor>>,
+    /// The source black's luminance in the linear destination (0: no compensation).
+    black: f32,
 }
 
 impl std::fmt::Debug for IccProfile {
@@ -72,6 +90,7 @@ impl IccProfile {
             srgb: ColorProfile::new_srgb(),
             to_srgb: Default::default(),
             from_srgb: Default::default(),
+            direct: Mutex::new(Vec::new()),
         })
     }
 
@@ -133,6 +152,72 @@ impl IccProfile {
         let mut dst = vec![0.0f32; self.channels()];
         xf.transform(&rgb, &mut dst).ok()?;
         Some(dst.into_iter().map(|x| x.clamp(0.0, 1.0)).collect())
+    }
+
+    /// Device values (RGB / CMYK / Gray, 0..1) → `dest`'s RGB, converted directly with `intent`:
+    /// not through sRGB, so colours outside sRGB keep their place in a wider space. With `bpc`
+    /// (and an intent other than absolute), this profile's black maps onto the destination's
+    /// black (black-point compensation, the darkest ink the profile prints becoming RGB 0 rather
+    /// than a dark grey). `None` when `dest` isn't RGB or no transform can be built.
+    pub fn to_rgb_of(&self, dest: &IccProfile, v: &[f32], intent: Intent, bpc: bool) -> Option<[f32; 3]> {
+        let t = self.direct_xf(dest, intent, bpc && intent != Intent::AbsoluteColorimetric)?;
+        let mut src = v.to_vec();
+        src.resize(self.channels(), 0.0);
+        let mut lin = [0.0f32; 3];
+        t.to_linear.transform(&src, &mut lin).ok()?;
+        let Some(to_dest) = &t.to_dest else { return Some(lin.map(|x| x.clamp(0.0, 1.0))) };
+        if t.black > 0.0 {
+            lin = lin.map(|x| (x - t.black) / (1.0 - t.black));
+        }
+        let lin = lin.map(|x| x.clamp(0.0, 1.0));
+        let mut out = [0.0f32; 3];
+        to_dest.transform(&lin, &mut out).ok()?;
+        Some(out.map(|x| x.clamp(0.0, 1.0)))
+    }
+
+    fn direct_xf(&self, dest: &IccProfile, intent: Intent, bpc: bool) -> Option<Arc<Direct>> {
+        if dest.kind != ProfileKind::Rgb {
+            return None;
+        }
+        let key = (dest.name.clone(), intent_index(intent), bpc);
+        let mut cache = self.direct.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, t)) = cache.iter().find(|(k, _)| *k == key) {
+            return t.clone();
+        }
+        let t = self.build_direct(dest, intent, bpc).map(Arc::new);
+        cache.push((key, t.clone()));
+        t
+    }
+
+    fn build_direct(&self, dest: &IccProfile, intent: Intent, bpc: bool) -> Option<Direct> {
+        let d = &dest.profile;
+        let matrix = d.red_trc.is_some() && d.green_trc.is_some() && d.blue_trc.is_some();
+        if !matrix {
+            let xf = self.profile.create_transform_f32(self.layout(), d, Layout::Rgb, Self::opts(intent)).ok()?;
+            return Some(Direct { to_linear: xf, to_dest: None, black: 0.0 });
+        }
+        let mut linear = d.clone();
+        for trc in [&mut linear.red_trc, &mut linear.green_trc, &mut linear.blue_trc] {
+            *trc = Some(ToneReprCurve::Parametric(vec![1.0]));
+        }
+        // A coding-independent code point names the transfer curve outright (moxcms's sRGB has
+        // one) and would override the linear curves.
+        linear.cicp = None;
+        let to_linear = self.profile.create_transform_f32(self.layout(), &linear, Layout::Rgb, Self::opts(intent)).ok()?;
+        let to_dest = linear.create_transform_f32(Layout::Rgb, d, Layout::Rgb, Self::opts(Intent::RelativeColorimetric)).ok()?;
+        // The source black: the darkest colour the profile reproduces, found as lcms does for an
+        // output profile (black sent into the profile and read back), made neutral.
+        let black = if bpc && self.kind == ProfileKind::Cmyk {
+            let inks = self.from_srgb([0.0; 3], Intent::RelativeColorimetric)?;
+            let mut lin = [0.0f32; 3];
+            to_linear.transform(&inks, &mut lin).ok()?;
+            let y = |c: &moxcms::Xyzd| c.y as f32;
+            let lum = lin[0] * y(&d.red_colorant) + lin[1] * y(&d.green_colorant) + lin[2] * y(&d.blue_colorant);
+            lum.clamp(0.0, 0.5)
+        } else {
+            0.0
+        };
+        Some(Direct { to_linear, to_dest: Some(to_dest), black })
     }
 
     /// Whether transforms can be built for this profile (checked at registration).

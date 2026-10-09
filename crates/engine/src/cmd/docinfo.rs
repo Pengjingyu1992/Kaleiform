@@ -49,13 +49,14 @@ pub const CATEGORIES: [(&str, &str); 11] = [
 ];
 
 /// The object counts of `document.info` and their labels.
-const OBJECT_LABELS: [(&str, &str); 16] = [
+const OBJECT_LABELS: [(&str, &str); 17] = [
     ("paths", "Paths"),
     ("compoundPaths", "Compound Paths"),
     ("groups", "Groups"),
     ("clipGroups", "Clipping Masks"),
     ("textObjects", "Text Objects"),
     ("images", "Images"),
+    ("placedDocuments", "Placed Documents"),
     ("symbolInstances", "Symbol Instances"),
     ("gradients", "Gradient Objects"),
     ("patterns", "Pattern Objects"),
@@ -252,6 +253,7 @@ fn info(s: &mut Session, p: &Value) -> Result<Value> {
                 NodeKind::Envelope { .. } => Some("envelopes"),
                 NodeKind::Mesh(_) => Some("meshes"),
                 NodeKind::Repeat(_) => Some("repeats"),
+                NodeKind::PlacedDocument(_) => Some("placedDocuments"),
             };
             if let Some(k) = k {
                 *counts.entry(k).or_default() += 1;

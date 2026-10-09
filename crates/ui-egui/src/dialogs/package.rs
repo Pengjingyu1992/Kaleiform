@@ -70,11 +70,8 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     if !downloads(app) {
         widgets::label_row(ui, tl!("Location:"), LABEL, |ui| {
             form::text(ui, d, "folder", 230.0);
-            if let Some(pick) = app.services.pick_folder.as_mut()
-                && ui.button(tl!("Choose…")).clicked()
-                && let Some(f) = pick()
-            {
-                d.fields.insert("folder".into(), json!(f));
+            if app.services.pick_folder.is_some() && ui.button(tl!("Choose…")).clicked() {
+                crate::picks::folder_field(app, d, "folder");
             }
         });
         ui.add_space(4.0);
@@ -107,7 +104,11 @@ fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> Result<Value, String> {
     }
     // The package holds the document as saved.
     if app.session.active().is_some_and(|st| st.is_dirty()) {
-        io::save(app, vectorcraft_engine::cmd::fileio::SaveMode::Save, &json!({}), false)?;
+        let r = io::save(app, vectorcraft_engine::cmd::fileio::SaveMode::Save, &json!({}), false)?;
+        // The save asks first (it would replace a file that loses what opening it left out).
+        if r.get("pending").is_some() {
+            return Ok(r);
+        }
     }
     let r = app.run("file.package", params)?;
     app.ui.dialog = None;

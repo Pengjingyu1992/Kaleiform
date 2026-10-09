@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathSeg, Point, Shape as _};
 use linesweeper::topology::{Topology, WindingNumber};
-use vectorcraft_geom::{FillRule, PathData};
+use vectorcraft_geom::{FillRule, PathData, SubPath};
 
 use crate::boolean::{DEFAULT_PRECISION, Seg, Tidy, eps_for, is_sliver, segs_to_subpath, snap_horizontals, tidy_segments, to_seg};
 use crate::pathfinder::{Region, Shape};
@@ -102,7 +102,12 @@ struct Outlines {
 
 impl Outlines {
     fn new(inputs: &[(BezPath, usize)], eps: f64) -> Self {
-        let segs = inputs.iter().flat_map(|(bp, i)| bp.segments().map(move |s| (s.bounding_box(), s, *i))).collect();
+        // A zero-length segment (a point) is the source of no edge, even one running through it.
+        let segs = inputs
+            .iter()
+            .flat_map(|(bp, i)| bp.segments().map(move |s| (s.bounding_box(), s, *i)))
+            .filter(|(r, ..)| r.width() > 0.0 || r.height() > 0.0)
+            .collect();
         // The sweep moves points by a few `eps` at most.
         Self { segs, tol: 16.0 * eps }
     }
@@ -292,26 +297,172 @@ pub fn live_paint(shapes: &[Shape]) -> (Vec<Region>, Vec<Shape>) {
 /// than the filled areas' arrangement, so past this only the filled areas count.
 pub const SHAPE_BUILDER_MAX_SEGMENTS: usize = 4096;
 
-/// Shape Builder regions of `shapes` (back → front), and the pieces of their open paths.
+/// The Shape Builder's arrangement: see [`shape_builder`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BuilderArrangement {
+    pub regions: Vec<Region>,
+    /// The pieces of the paths with no closed subpath, keyed by input index.
+    pub lines: Vec<Shape>,
+    /// The pieces of the other paths' outlines, keyed by input index (the front-most where inputs
+    /// share one); only when asked for.
+    pub edges: Vec<Shape>,
+}
+
+/// Shape Builder regions of `shapes` (back → front), the pieces of their open paths and, with
+/// `edges`, the pieces of their outlines (what erasing an edge deletes).
 ///
 /// Closed paths bound regions with their filled areas, as in [`regions`](crate::regions). Open
 /// paths (the caller closes the ones whose fill should count) are cutting edges: a line across a
 /// shape splits it, lines around an area enclose a region nothing fills (empty `sources`), and each
 /// path with no closed subpath comes back cut wherever another path meets it, as pieces keyed by
-/// its index in `shapes`. With no open path, more than [`SHAPE_BUILDER_MAX_SEGMENTS`] segments or
-/// a map that can't be built, only the filled areas count and there are no pieces.
-pub fn shape_builder(shapes: &[Shape]) -> (Vec<Region>, Vec<Shape>) {
+/// its index in `shapes`. Outlines are cut the same way. With no open path, more than
+/// [`SHAPE_BUILDER_MAX_SEGMENTS`] segments or a map that can't be built, only the filled areas
+/// count and there are no pieces.
+pub fn shape_builder(shapes: &[Shape], edges: bool) -> BuilderArrangement {
     let has_open = shapes.iter().flat_map(|s| &s.path.subpaths).any(|sp| !sp.closed && sp.anchors.len() >= 2);
     let segments: usize = shapes.iter().flat_map(|s| &s.path.subpaths).map(|sp| sp.segment_count()).sum();
-    if has_open && segments <= SHAPE_BUILDER_MAX_SEGMENTS {
-        let keyed: Vec<Shape> = shapes.iter().enumerate().map(|(i, s)| Shape::new(s.path.clone(), s.rule, i as u64)).collect();
-        let (faces, edges) = live_paint(&keyed);
-        if !faces.is_empty() || !edges.is_empty() {
-            let is_line = |i: u64| shapes.get(i as usize).is_some_and(|s| !s.path.subpaths.iter().any(|sp| sp.closed));
-            return (faces, edges.into_iter().filter(|e| is_line(e.key)).collect());
+    let planar = ((has_open || edges) && segments <= SHAPE_BUILDER_MAX_SEGMENTS)
+        .then(|| {
+            let keyed: Vec<Shape> = shapes.iter().enumerate().map(|(i, s)| Shape::new(s.path.clone(), s.rule, i as u64)).collect();
+            live_paint(&keyed)
+        })
+        .filter(|(faces, pieces)| !faces.is_empty() || !pieces.is_empty());
+    let Some((faces, pieces)) = planar else {
+        return BuilderArrangement { regions: crate::regions(shapes), ..Default::default() };
+    };
+    let is_line = |i: u64| shapes.get(i as usize).is_some_and(|s| !s.path.subpaths.iter().any(|sp| sp.closed));
+    let (lines, outline): (Vec<Shape>, Vec<Shape>) = pieces.into_iter().partition(|e| is_line(e.key));
+    BuilderArrangement {
+        regions: if has_open { faces } else { crate::regions(shapes) },
+        lines: if has_open { lines } else { Vec::new() },
+        edges: if edges { outline } else { Vec::new() },
+    }
+}
+
+/// Does `sp`, closed, enclose an area (rather than retrace itself)? The Shape Builder closes the
+/// open subpaths of filled paths that do.
+pub fn encloses_area(sp: &SubPath) -> bool {
+    let mut closed = sp.clone();
+    closed.closed = true;
+    let mut bp = BezPath::new();
+    closed.to_bezpath_into(&mut bp);
+    let size = bp.bounding_box().size();
+    bp.area().abs() > 1e-9 * (size.width * size.width + size.height * size.height)
+}
+
+/// `path` without `piece`, a run along one of its subpaths between two points (a Shape Builder
+/// edge): a closed subpath opens there, an open one splits in two (or loses an end), and a piece
+/// that runs all the way round takes its subpath. With `fill_closes`, open subpaths that enclose an
+/// area ([`encloses_area`]) run on round an invisible closing edge, as the Shape Builder sees a
+/// filled path: a piece may run over it, and it never comes back as a visible segment. None when
+/// the piece doesn't lie on `path` within `tol`.
+pub fn cut_out(path: &PathData, piece: &SubPath, fill_closes: bool, tol: f64) -> Option<PathData> {
+    let n = piece.segment_count();
+    if n == 0 {
+        return None;
+    }
+    // A point well inside the piece: the middle of its longest segment.
+    let arclen = |k: usize| kurbo::ParamCurveArclen::arclen(&piece.segment(k), 1e-3);
+    let mid = (0..n).map(|k| (arclen(k), k)).max_by(|x, y| x.0.total_cmp(&y.0)).map(|(_, k)| piece.segment(k).eval(0.5))?;
+    let (a, b) = (piece.anchors.first()?.p, piece.anchors.last()?.p);
+    let mut bp = BezPath::new();
+    piece.to_bezpath_into(&mut bp);
+    if bp.perimeter(1e-6) <= tol {
+        // A speck (where paths touch): there's nothing to cut.
+        return None;
+    }
+    // A piece that ends where it starts runs all the way round.
+    let whole = piece.closed || a.distance(b) <= tol;
+    // Each subpath as the piece may run along it: round its closing edge when it has one.
+    let ring = |sp: &SubPath| SubPath { anchors: sp.anchors.clone(), closed: sp.closed || (fill_closes && encloses_area(sp)) };
+    let (si, geom, um) = path
+        .subpaths
+        .iter()
+        .enumerate()
+        .filter_map(|(i, sp)| {
+            let g = ring(sp);
+            let (u, d) = nearest_u(&g, mid)?;
+            (d <= tol).then_some((i, g, u, d))
+        })
+        .min_by(|x, y| x.3.total_cmp(&y.3))
+        .map(|(i, g, u, _)| (i, g, u))?;
+    let len = geom.segment_count() as f64;
+    let real = path.subpaths.get(si)?.segment_count() as f64;
+    let at = |p: Point| nearest_u(&geom, p).filter(|(_, d)| *d <= tol).map(|(u, _)| u);
+    // The parameter spans of `geom` that stay (unrolled past the end of a ring).
+    let keep: Vec<(f64, f64)> = if whole {
+        Vec::new()
+    } else if geom.closed {
+        let (ua, ub) = (at(a)?, at(b)?);
+        let fwd = |from: f64, to: f64| (to - from).rem_euclid(len);
+        // The piece runs from one end through `mid` to the other; what stays runs on round.
+        let (start, end) = if fwd(ua, um) <= fwd(ua, ub) { (ub, ua) } else { (ua, ub) };
+        let rest = fwd(start, end);
+        if rest <= 1e-9 || len - rest <= 1e-9 {
+            Vec::new()
+        } else {
+            // Where the ring closes with an invisible edge (`real..len`), what stays stops at it.
+            let parts: &[(f64, f64)] = if real >= len { &[(0.0, 2.0 * len)] } else { &[(0.0, real), (len, len + real)] };
+            parts.iter().map(|&(lo, hi)| (start.max(lo), (start + rest).min(hi))).filter(|(x, y)| y - x > 1e-9).collect()
+        }
+    } else {
+        let (ua, ub) = (at(a)?, at(b)?);
+        let (lo, hi) = (ua.min(ub), ua.max(ub));
+        if !(lo - 1e-9..=hi + 1e-9).contains(&um) {
+            return None;
+        }
+        [(0.0, lo), (hi, len)].into_iter().filter(|(x, y)| y - x > 1e-9).collect()
+    };
+    let mut subpaths: Vec<SubPath> = path.subpaths.iter().take(si).cloned().collect();
+    subpaths.extend(keep.into_iter().filter_map(|(u0, u1)| span(&geom, u0, u1)).map(|sp| snap_ends(sp, [a, b], tol)));
+    subpaths.extend(path.subpaths.iter().skip(si + 1).cloned());
+    Some(PathData::new(subpaths))
+}
+
+/// The point of `sp` nearest `p`, as a parameter `segment + t`, with its distance.
+fn nearest_u(sp: &SubPath, p: Point) -> Option<(f64, f64)> {
+    use kurbo::ParamCurveNearest;
+    (0..sp.segment_count())
+        .map(|k| {
+            let n = sp.segment(k).nearest(p, 1e-9);
+            (k as f64 + n.t, n.distance_sq.sqrt())
+        })
+        .min_by(|x, y| x.1.total_cmp(&y.1))
+}
+
+/// `sp` with its end anchors within `tol` of one of `to` put exactly on it (where the planar map
+/// put the junction a piece ends at), handles moving with them.
+fn snap_ends(mut sp: SubPath, to: [Point; 2], tol: f64) -> SubPath {
+    let last = sp.anchors.len().saturating_sub(1);
+    for i in [0, last] {
+        if let Some(an) = sp.anchors.get_mut(i)
+            && let Some(q) = to.iter().find(|q| q.distance(an.p) <= tol)
+        {
+            let d = *q - an.p;
+            an.p = *q;
+            an.h_in += d;
+            an.h_out += d;
         }
     }
-    (crate::regions(shapes), Vec::new())
+    sp
+}
+
+/// The run of `sp` from parameter `u0` to `u1` (`u0 < u1`, unrolled past the end of a closed one),
+/// open.
+fn span(sp: &SubPath, u0: f64, u1: f64) -> Option<SubPath> {
+    let n = sp.segment_count();
+    if n == 0 || !(u0.is_finite() && u1.is_finite()) {
+        return None;
+    }
+    let first = u0.floor().max(0.0) as usize;
+    let last = (u1.ceil().max(0.0) as usize).min(first + 2 * n);
+    let segs: Vec<Seg> = (first..last)
+        .filter_map(|k| {
+            let (t0, t1) = ((u0 - k as f64).clamp(0.0, 1.0), (u1 - k as f64).clamp(0.0, 1.0));
+            (t1 - t0 > 1e-12).then(|| Seg { c: sp.segment(k % n).subsegment(t0..t1), line: sp.segment_is_line(k % n) })
+        })
+        .collect();
+    segs_to_subpath(&segs, false)
 }
 
 fn build(shapes: &[Shape]) -> Option<(Vec<Region>, Vec<Shape>)> {
@@ -618,7 +769,7 @@ pub fn interior_point(path: &PathData) -> Option<Point> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use vectorcraft_geom::{Rect, SubPath, shapes};
+    use vectorcraft_geom::{Rect, shapes};
 
     fn line(a: (f64, f64), b: (f64, f64), key: u64) -> Shape {
         Shape::new(PathData::single(SubPath::polyline(&[Point::new(a.0, a.1), Point::new(b.0, b.1)], false)), FillRule::NonZero, key)
@@ -766,14 +917,14 @@ mod tests {
     fn shape_builder_lines_cut_regions() {
         // A line across a rectangle: two regions, the line in three pieces keyed by its index.
         let s = [rect(0.0, 0.0, 100.0, 50.0, 7), line((40.0, -20.0), (60.0, 70.0), 8)];
-        let (regions, lines) = shape_builder(&s);
+        let BuilderArrangement { regions, lines, .. } = shape_builder(&s, false);
         assert_eq!(regions.len(), 2);
         assert!(regions.iter().all(|r| r.sources == [0]));
         assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.key == 1 && !l.path.is_closed()));
         // Lines alone enclose a region nothing fills.
         let s = [line((0.0, 0.0), (100.0, 100.0), 0), line((100.0, 0.0), (0.0, 100.0), 0), line((-10.0, 80.0), (110.0, 80.0), 0)];
-        let (regions, lines) = shape_builder(&s);
+        let BuilderArrangement { regions, lines, .. } = shape_builder(&s, false);
         assert_eq!(regions.len(), 1);
         assert!(regions[0].sources.is_empty() && regions[0].top().is_none());
         assert_eq!(lines.len(), 9);
@@ -782,10 +933,10 @@ mod tests {
     #[test]
     fn shape_builder_closed_only_or_degenerate_is_the_filled_arrangement() {
         let s = [rect(0.0, 0.0, 100.0, 100.0, 0), rect(50.0, 0.0, 150.0, 100.0, 1)];
-        assert_eq!(shape_builder(&s), (crate::regions(&s), vec![]));
+        assert_eq!(shape_builder(&s, false), BuilderArrangement { regions: crate::regions(&s), ..Default::default() });
         // A broken line can't be swept: what the filled areas give (nothing here, without a panic).
         let s = [rect(0.0, 0.0, 100.0, 100.0, 0), line((0.0, 0.0), (f64::NAN, 1.0), 1)];
-        assert_eq!(shape_builder(&s), (crate::regions(&s), vec![]));
+        assert_eq!(shape_builder(&s, false), BuilderArrangement { regions: crate::regions(&s), ..Default::default() });
         // Zero-length and doubled-back lines don't break it either.
         let s = [
             rect(0.0, 0.0, 100.0, 100.0, 0),
@@ -793,7 +944,7 @@ mod tests {
             line((0.0, 0.0), (100.0, 0.0), 2),
             line((50.0, 0.0), (50.0, 100.0), 3),
         ];
-        let (regions, _) = shape_builder(&s);
+        let regions = shape_builder(&s, false).regions;
         assert_eq!(regions.len(), 2);
         assert!((regions.iter().map(area).sum::<f64>() - 10000.0).abs() < 1e-6);
     }
@@ -815,14 +966,75 @@ mod tests {
             s.push(line((-150.0, y), (150.0, y + 7.0), 1));
         }
         let started = std::time::Instant::now();
-        let (regions, lines) = shape_builder(&s);
+        let BuilderArrangement { regions, lines, .. } = shape_builder(&s, false);
         assert!(regions.len() >= 5, "the ring cut in five bands at least (the waves make pockets)");
         assert!(lines.len() >= 12, "{}", lines.len());
         assert!(started.elapsed().as_secs_f64() < 5.0, "{:?}", started.elapsed());
         // Past the cap, only the filled areas count.
         s.push(line((0.0, 0.0), (1.0, 1.0), 2));
         s[0].path.subpaths[0].anchors.extend((0..16).map(|k| vectorcraft_geom::Anchor::corner(Point::new(100.0, f64::from(k)))));
-        assert!(shape_builder(&s).1.is_empty());
+        assert!(shape_builder(&s, false).lines.is_empty());
+    }
+
+    fn poly(pts: &[(f64, f64)], closed: bool) -> SubPath {
+        SubPath::polyline(&pts.iter().map(|&(x, y)| Point::new(x, y)).collect::<Vec<_>>(), closed)
+    }
+
+    fn ends(sp: &SubPath) -> (Point, Point) {
+        (sp.anchors[0].p, sp.anchors[sp.anchors.len() - 1].p)
+    }
+
+    #[test]
+    fn shape_builder_edges_are_the_outlines_cut_where_paths_meet() {
+        // Two overlapping squares: each outline in two pieces, cut where the other crosses it.
+        let s = [rect(0.0, 0.0, 100.0, 100.0, 0), rect(50.0, 50.0, 150.0, 150.0, 1)];
+        let with = shape_builder(&s, true);
+        assert_eq!(with.regions, shape_builder(&s, false).regions, "the regions don't change");
+        assert!(with.lines.is_empty() && shape_builder(&s, false).edges.is_empty());
+        assert_eq!(with.edges.len(), 4);
+        for key in [0, 1] {
+            assert_eq!(with.edges.iter().filter(|e| e.key == key && !e.path.is_closed()).count(), 2);
+        }
+        let inner = with.edges.iter().find(|e| e.key == 0 && e.path.bounds() == Some(Rect::new(50.0, 50.0, 100.0, 100.0))).expect("A inside B");
+        // Erasing it opens A there.
+        let cut = cut_out(&s[0].path, &inner.path.subpaths[0], false, 1e-3).expect("on A");
+        assert_eq!(cut.subpaths.len(), 1);
+        let sp = &cut.subpaths[0];
+        assert!(!sp.closed && sp.anchors.len() == 5, "{sp:?}");
+        let (a, b) = ends(sp);
+        assert!([a, b].contains(&Point::new(100.0, 50.0)) && [a, b].contains(&Point::new(50.0, 100.0)), "{a:?} {b:?}");
+        assert!((cut.length() - 300.0).abs() < 1e-6, "{}", cut.length());
+        // Not on B.
+        assert_eq!(cut_out(&s[1].path, &inner.path.subpaths[0], false, 1e-3), None);
+        // A lone square's edge is its whole outline: erasing it leaves nothing.
+        let lone = shape_builder(&s[..1], true);
+        assert_eq!(lone.edges.len(), 1);
+        assert!(cut_out(&s[0].path, &lone.edges[0].path.subpaths[0], false, 1e-3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cut_out_splits_open_paths_and_keeps_closing_edges_invisible() {
+        let open = PathData::single(poly(&[(0.0, 0.0), (100.0, 0.0)], false));
+        let cut = cut_out(&open, &poly(&[(60.0, 0.0), (30.0, 0.0)], false), false, 1e-3).unwrap();
+        let mut parts: Vec<(Point, Point)> = cut.subpaths.iter().map(ends).collect();
+        parts.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        assert_eq!(parts, vec![(Point::new(0.0, 0.0), Point::new(30.0, 0.0)), (Point::new(60.0, 0.0), Point::new(100.0, 0.0))]);
+        // An end piece only shortens it.
+        let cut = cut_out(&open, &poly(&[(70.0, 0.0), (100.0, 0.0)], false), false, 1e-3).unwrap();
+        assert_eq!(cut.subpaths.iter().map(ends).collect::<Vec<_>>(), vec![(Point::new(0.0, 0.0), Point::new(70.0, 0.0))]);
+
+        // A filled open path runs on round its invisible closing edge (100,100) → (0,0).
+        let corner = PathData::single(poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)], false));
+        let piece = poly(&[(100.0, 50.0), (100.0, 100.0), (50.0, 50.0)], false);
+        assert_eq!(cut_out(&corner, &piece, false, 1e-3), None, "without the fill it isn't on the path");
+        let cut = cut_out(&corner, &piece, true, 1e-3).unwrap();
+        assert_eq!(cut.subpaths.len(), 1);
+        assert_eq!(cut.subpaths[0].anchors.iter().map(|a| a.p).collect::<Vec<_>>(), [(0.0, 0.0), (100.0, 0.0), (100.0, 50.0)].map(Point::from));
+        // Cut elsewhere, the closing edge stays invisible: two open runs, not one through it.
+        let cut = cut_out(&corner, &poly(&[(20.0, 0.0), (60.0, 0.0)], false), true, 1e-3).unwrap();
+        assert_eq!(cut.subpaths.len(), 2);
+        assert!(cut.subpaths.iter().all(|sp| !sp.closed));
+        assert!((cut.length() - 160.0).abs() < 1e-6, "{}", cut.length());
     }
 
     fn arb_segment() -> impl Strategy<Value = Shape> {
@@ -870,6 +1082,26 @@ mod tests {
             // to that much along every outline.
             let outlines: f64 = closed.iter().map(|s| s.path.to_bezpath().perimeter(1e-6)).sum();
             prop_assert!((filled - regions).abs() <= 1e-9 + DEFAULT_PRECISION * outlines, "{} vs {}", filled, regions);
+        }
+
+        /// Every edge and line piece cuts out of the input it is keyed by, which loses its length
+        /// and nothing else.
+        #[test]
+        fn pieces_cut_out_of_their_inputs(shapes in prop::collection::vec(arb_segment(), 1..6)) {
+            let arr = shape_builder(&shapes, true);
+            for e in arr.edges.iter().chain(&arr.lines) {
+                let (Some(s), Some(piece)) = (shapes.get(e.key as usize), e.path.subpaths.first()) else { continue };
+                let len = e.path.length();
+                let cut = cut_out(&s.path, piece, false, 0.05);
+                if len <= 0.05 {
+                    // A speck where two paths touch.
+                    prop_assert!(cut.is_none());
+                    continue;
+                }
+                prop_assert!(cut.is_some(), "{:?} not on {:?}", piece, s.path);
+                let lost = s.path.length() - cut.map_or(0.0, |c| c.length());
+                prop_assert!((lost - len).abs() <= 0.05 + 1e-3 * len, "lost {} for a piece {} long", lost, len);
+            }
         }
 
         /// Lines anywhere (not on a grid): faces stay disjoint, and nothing panics.

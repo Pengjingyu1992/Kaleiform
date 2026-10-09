@@ -1,0 +1,2 @@
+# Translation keys and status-bar fragments intentionally retain trailing spaces.
+crates/ui-egui/src/i18n/*.tsv whitespace=-blank-at-eol

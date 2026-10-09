@@ -185,17 +185,23 @@ fn collect(app: &mut VectorcraftApp, ctx: &egui::Context, ids: Option<Vec<NodeId
 /// folder picker: the last folder Export for Screens used, else the Desktop); the web downloads
 /// them, several as one zip.
 fn export(app: &mut VectorcraftApp, ids: Vec<u64>, files_each: usize) {
+    // The folder picked off the UI thread exports them then.
+    crate::picks::button(app, move |app| export_now(app, ids.clone(), files_each));
+}
+
+fn export_now(app: &mut VectorcraftApp, ids: Vec<u64>, files_each: usize) {
     let mut p = json!({ "assets": ids });
     if io::is_web(app) {
         p["zip"] = json!(ids.len() * files_each > 1);
     } else {
         let saved = app.session.active().map(|st| st.doc.export_settings.clone()).unwrap_or_default();
-        let folder = match app.services.pick_folder.as_mut() {
-            Some(pick) => match pick() {
+        let folder = if crate::picks::can(app, &crate::picks::PickRequest::Folder) {
+            match crate::picks::folder(app) {
                 Some(f) => f,
                 None => return,
-            },
-            None => match saved
+            }
+        } else {
+            match saved
                 .get("folder")
                 .and_then(Value::as_str)
                 .filter(|f| !f.is_empty())
@@ -204,7 +210,7 @@ fn export(app: &mut VectorcraftApp, ids: Vec<u64>, files_each: usize) {
             {
                 Some(f) => f,
                 None => return app.status("choose a folder to export to".to_string()),
-            },
+            }
         };
         p["folder"] = json!(folder);
         p["openLocation"] = json!(saved.get("openLocation").and_then(Value::as_bool).unwrap_or(true));

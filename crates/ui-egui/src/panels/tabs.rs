@@ -3,7 +3,7 @@
 
 use egui::{Sense, Stroke, Ui, vec2};
 use serde_json::{Value, json};
-use vectorcraft_doc::{NodeKind, TabAlign, TabStop};
+use vectorcraft_doc::{Node, NodeKind, TabAlign, TabStop, TextKind};
 
 use super::{first_selected, pstate, set_pstate};
 use crate::VectorcraftApp;
@@ -26,15 +26,54 @@ fn align_id(a: TabAlign) -> &'static str {
     }
 }
 
-/// The first selected text object's stops and the ruler span in points (the frame width for area type).
-fn current(app: &VectorcraftApp) -> Option<(Vec<TabStop>, f64)> {
-    let n = first_selected(app)?;
+/// The panel body's margin and the ruler's own inset: the ruler's 0 is this far right of the panel.
+const RULER_LEFT: f32 = 10.0 + 4.0;
+
+/// The text object, the stops of the caret's paragraph while the Type tool edits text (else the
+/// first selected text object's first paragraph) and the ruler span in points (the frame width for
+/// area type).
+fn current(app: &VectorcraftApp) -> Option<(Node, Vec<TabStop>, f64)> {
+    let editing = super::character::text_editing(app);
+    let n = match editing {
+        Some((id, _, _)) => app.session.active()?.doc.node(id)?.clone(),
+        None => first_selected(app)?,
+    };
     let NodeKind::Text(t) = &n.kind else { return None };
+    let para = editing.map_or(0, |(_, a, _)| t.paragraphs_in(a, a).start);
     let span = match &t.kind {
-        vectorcraft_doc::TextKind::Area { frame } => frame.bounds().map_or(360.0, |b| b.width()),
+        TextKind::Area { frame } => frame.bounds().map_or(360.0, |b| b.width()),
         _ => 360.0,
     };
-    Some((t.para.tabs.clone(), span.max(72.0)))
+    let tabs = t.para_at(para).tabs.clone();
+    Some((n, tabs, span.max(72.0)))
+}
+
+/// Position Panel Above Text: float the panel just above text `n`, as wide as its ruler needs to
+/// put 0 on the text's left edge and its marks at the canvas zoom, so each stop sits over the
+/// column it sets (#729). `span`: the ruler's length in the text's points.
+fn above_text(app: &mut VectorcraftApp, ctx: &egui::Context, n: &Node, span: f64) -> Option<()> {
+    let xf = crate::canvas::Xf::new(app.canvas_rect?, app.view()?);
+    let on_screen = xf.rect_to_screen(n.geometric_bounds()?);
+    // Screen points per point of the text: across the frame for area type (so a scaled frame
+    // lines up too), the zoom for point type.
+    let per = match &n.kind {
+        NodeKind::Text(t) if matches!(t.kind, TextKind::Area { .. }) => on_screen.width() / span as f32,
+        _ => xf.zoom as f32,
+    };
+    if !per.is_finite() || per <= 0.0 {
+        return None;
+    }
+    let width = span as f32 * per + RULER_LEFT * 2.0;
+    let height = ctx.memory(|m| m.area_rect(crate::floating::area_id("tabs"))).map_or(240.0, |r| r.height());
+    let pos = egui::pos2(on_screen.left() - RULER_LEFT, on_screen.top() - height - 6.0);
+    if crate::floating::group_of(&app.ui, "tabs").is_none() {
+        crate::floating::float(&mut app.ui, &["tabs"], "tabs", pos);
+    }
+    let gi = crate::floating::group_of(&app.ui, "tabs")?;
+    let g = app.ui.floating_panels.get_mut(gi)?;
+    g.pos = [pos.x, pos.y];
+    g.width = Some(width);
+    Some(())
 }
 
 fn stops_json(stops: &[TabStop]) -> Value {
@@ -47,9 +86,9 @@ fn stops_json(stops: &[TabStop]) -> Value {
 }
 
 fn apply(app: &mut VectorcraftApp, stops: &[TabStop]) {
-    if let Some((id, _, _)) = super::character::text_editing(app) {
+    if let Some((id, a, b)) = super::character::text_editing(app) {
         super::character::end_typing(app);
-        app.run("text.tabs.set", json!({"stops": stops_json(stops), "ids": [id.0]})).ok();
+        app.run("text.tabs.set", json!({"stops": stops_json(stops), "ids": [id.0], "start": a, "end": b})).ok();
     } else {
         app.run("text.tabs.set", json!({"stops": stops_json(stops)})).ok();
     }
@@ -57,7 +96,7 @@ fn apply(app: &mut VectorcraftApp, stops: &[TabStop]) {
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    let Some((mut stops, span)) = current(app) else {
+    let Some((node, mut stops, span)) = current(app) else {
         super::empty_state(ui, "pilcrow", tl!("No text selected"), tl!("Select a text object to set its tab stops."));
         return;
     };
@@ -83,6 +122,11 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 }
             }
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(tl!("Above Text")).on_hover_text(tl!("Position Panel Above Text")).clicked() {
+                above_text(app, ui.ctx(), &node, span);
+            }
+        });
     });
     ui.add_space(4.0);
     egui::Grid::new("tabs-grid").num_columns(2).spacing([6.0, 4.0]).show(ui, |ui| {
@@ -203,13 +247,13 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
 }
 
 pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
-    let Some((mut stops, _)) = current(app) else {
+    let Some((_, mut stops, _)) = current(app) else {
         ui.add_enabled(false, egui::Button::new(tl!("Select text")).frame(false));
         return;
     };
     let sel: usize = pstate(ui.ctx(), "tabs-sel");
     if menu_item(ui, tl!("Clear All Tabs"), false, !stops.is_empty()) {
-        app.run("text.tabs.clear", json!({})).ok();
+        apply(app, &[]);
     }
     if menu_item(ui, tl!("Delete Tab"), false, sel < stops.len()) {
         stops.remove(sel);
@@ -253,11 +297,39 @@ mod tests {
         frame(&mut app);
         app.session.execute("text.tabs.set", &json!({"stops": [{"position": 50}, {"position": 120, "align": "decimal"}]})).unwrap();
         frame(&mut app);
-        let (stops, span) = current(&app).unwrap();
+        let (_, stops, span) = current(&app).unwrap();
         assert_eq!(stops.len(), 2);
         assert_eq!(span, 300.0);
         // The stops survive a JSON round trip through the panel's encoding.
         let back: Vec<serde_json::Value> = stops_json(&stops).as_array().unwrap().clone();
         assert_eq!(back[1]["align"], json!("decimal"));
+    }
+
+    /// Position Panel Above Text floats the panel over the text, its ruler's 0 on the frame's left
+    /// edge and a stop's mark over the column it sets, at any zoom (#729).
+    #[test]
+    fn above_text_puts_the_ruler_over_the_text_at_the_zoom() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.session.execute("file.new", &json!({"width": 600, "height": 400})).unwrap();
+        app.session.execute("text.create", &json!({"x": 40, "y": 200, "text": "a	b", "area": {"width": 300, "height": 100}})).unwrap();
+        app.canvas_rect = Some(egui::Rect::from_min_size(egui::pos2(50.0, 40.0), vec2(1000.0, 700.0)));
+        for zoom in [1.0, 2.0] {
+            if let Some(v) = app.view_mut() {
+                v.zoom = zoom;
+            }
+            let (node, _, span) = current(&app).unwrap();
+            let ctx = egui::Context::default();
+            above_text(&mut app, &ctx, &node, span).unwrap();
+            let g = &app.ui.floating_panels[crate::floating::group_of(&app.ui, "tabs").unwrap()];
+            let xf = crate::canvas::Xf::new(app.canvas_rect.unwrap(), app.view().unwrap());
+            let frame = xf.rect_to_screen(node.geometric_bounds().unwrap());
+            assert!((g.pos[0] + RULER_LEFT - frame.left()).abs() < 0.01, "0 on the frame's left edge");
+            assert!(g.pos[1] < frame.top(), "above the text");
+            // The ruler (the panel less its margins) spans the frame at this zoom.
+            let ruler = g.width.unwrap() - RULER_LEFT * 2.0;
+            assert!((ruler - frame.width()).abs() < 0.01, "{ruler} {}", frame.width());
+            assert!((ruler - 300.0 * zoom as f32).abs() < 0.01);
+        }
+        assert_eq!(app.ui.floating_panels.len(), 1, "placed again, not floated twice");
     }
 }

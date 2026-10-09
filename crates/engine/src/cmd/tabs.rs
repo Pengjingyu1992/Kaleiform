@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use vectorcraft_doc::{NodeKind, TabAlign, TabStop};
 
-use super::typecmd::{refresh_bounds, text_targets};
+use super::typecmd::{TextRange, para_span, refresh_bounds, text_targets};
 use super::*;
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -13,12 +13,25 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Tab Stops",
             ["Window", "Tabs"],
             None,
-            "{stops: [{position: pt, align?: left|center|right|decimal, leader?: \". \", alignOn?: \".\"}], ids?} replace the tab stops of the selected text",
+            "{stops: [{position: pt, align?: left|center|right|decimal, leader?: \". \", alignOn?: \".\"}], ids?, start?: byte, end?: byte} replace the tab stops of the selected text (with a range: of the paragraphs it touches)",
             has_selection,
             set
         ),
-        cmd!(query "text.tabs.get", "Tab Stops", [], None, "{ids?} → {stops} of the first selected text object", has_selection, get),
-        cmd!("text.tabs.clear", "Clear All Tabs", ["Window", "Tabs"], None, "{ids?}", has_selection, |s, p| apply(s, p, vec![], "Clear All Tabs")),
+        cmd!(
+            query "text.tabs.get",
+            "Tab Stops",
+            [],
+            None,
+            "{ids?, start?: byte} → {stops} of the first selected text object (its paragraph at `start`; default the first)",
+            has_selection,
+            get
+        ),
+        cmd!("text.tabs.clear", "Clear All Tabs", ["Window", "Tabs"], None, "{ids?, start?: byte, end?: byte}", has_selection, |s, p| apply(
+            s,
+            p,
+            vec![],
+            "Clear All Tabs"
+        )),
     ]
 }
 
@@ -54,11 +67,13 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn apply(s: &mut Session, p: &Value, stops: Vec<TabStop>, label: &str) -> Result<Value> {
     let ids = text_targets(s, p, "text.tabs.set")?;
+    let range = TextRange::parse(p, "text.tabs.set")?;
     let n = stops.len();
     s.edit(label, |d, _| {
         for id in &ids {
             if let Some(NodeKind::Text(t)) = d.node_mut(*id).map(|n| &mut n.kind) {
-                t.para.tabs = stops.clone();
+                let span = para_span(range, t);
+                t.edit_paras(span, |pa| pa.tabs = stops.clone());
                 refresh_bounds(t);
             }
         }
@@ -69,9 +84,10 @@ fn apply(s: &mut Session, p: &Value, stops: Vec<TabStop>, label: &str) -> Result
 
 fn get(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = text_targets(s, p, "text.tabs.get")?;
+    let range = TextRange::parse(p, "text.tabs.get")?;
     let st = s.doc()?;
     let tabs = ids.iter().find_map(|id| match st.doc.node(*id).map(|n| &n.kind) {
-        Some(NodeKind::Text(t)) => Some(t.para.tabs.clone()),
+        Some(NodeKind::Text(t)) => Some(t.para_at(para_span(range, t).map_or(0, |r| r.start)).tabs.clone()),
         _ => None,
     });
     Ok(json!({ "stops": serde_json::to_value(tabs.unwrap_or_default()).unwrap_or(Value::Null) }))

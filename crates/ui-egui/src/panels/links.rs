@@ -83,10 +83,12 @@ fn cached(app: &mut VectorcraftApp, ctx: &egui::Context, o: &Options) -> Option<
     Some(c)
 }
 
-/// The ids of the selected image objects.
+/// The ids of the selected image objects and placed documents.
 fn selected_images(app: &VectorcraftApp) -> Vec<u64> {
     let Some(st) = app.session.active() else { return vec![] };
-    let image = |id: &NodeId| st.doc.node(*id).is_some_and(|n| matches!(n.kind, vectorcraft_doc::NodeKind::Image(_)));
+    let image = |id: &NodeId| {
+        st.doc.node(*id).is_some_and(|n| matches!(n.kind, vectorcraft_doc::NodeKind::Image(_) | vectorcraft_doc::NodeKind::PlacedDocument(_)))
+    };
     st.selection.objects.iter().filter(|id| image(id)).map(|id| id.0).collect()
 }
 
@@ -114,15 +116,23 @@ fn report(app: &mut VectorcraftApp, r: Result<Value, String>, done: impl FnOnce(
 
 /// Relink images `ids` to a picked file.
 pub(crate) fn relink(app: &mut VectorcraftApp, ids: Vec<u64>) {
+    crate::picks::button(app, move |app| relink_picked(app, ids.clone()));
+}
+
+fn relink_picked(app: &mut VectorcraftApp, ids: Vec<u64>) {
     let pick = crate::FilePick { filters: vectorcraft_engine::cmd::fileio::place_filters().collect(), ..Default::default() };
-    let Some(path) = app.services.pick_open.as_mut().and_then(|f| f(&pick)) else { return };
+    let Some(path) = crate::picks::open(app, &pick) else { return };
     let r = app.run("links.relink", json!({ "ids": ids, "path": path }));
     report(app, r, |v| format!("Relinked {} image(s)", v["relinked"].as_array().map_or(0, Vec::len)));
 }
 
 /// Relink images `ids` (none: every missing one) to the files of their names in a picked folder.
 fn relink_to_folder(app: &mut VectorcraftApp, ids: Vec<u64>) {
-    let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f()) else { return };
+    crate::picks::button(app, move |app| relink_to_picked_folder(app, ids.clone()));
+}
+
+fn relink_to_picked_folder(app: &mut VectorcraftApp, ids: Vec<u64>) {
+    let Some(folder) = crate::picks::folder(app) else { return };
     let ids = Some(ids).filter(|i| !i.is_empty());
     let r = app.run("links.relink", json!({ "ids": ids, "folder": folder }));
     report(app, r, |v| {
@@ -152,9 +162,12 @@ pub(crate) fn unembed(app: &mut VectorcraftApp, id: u64, name: &str) {
         }
         return;
     }
-    let Some(path) = app.services.pick_save.as_mut().and_then(|f| f(&crate::FilePick::named(name))) else { return };
-    let r = app.run("links.unembed", json!({ "id": id, "path": path }));
-    report(app, r, |v| format!("Unembedded to {}", v["path"].as_str().unwrap_or_default()));
+    let name = name.to_string();
+    crate::picks::button(app, move |app| {
+        let Some(path) = crate::picks::save(app, &crate::FilePick::named(&name)) else { return };
+        let r = app.run("links.unembed", json!({ "id": id, "path": path }));
+        report(app, r, |v| format!("Unembedded to {}", v["path"].as_str().unwrap_or_default()));
+    });
 }
 
 /// The UI commands `links.editOriginal` (open the linked file in its app) and `links.reveal`
@@ -169,6 +182,11 @@ pub(crate) fn open_file(app: &mut VectorcraftApp, p: &Value, reveal: bool) -> Re
     let path = info["path"].as_str().ok_or("select a linked image: an embedded one has no file")?.to_string();
     if info["status"] == "missing" {
         return Err(format!("{path} can't be found: relink it first"));
+    }
+    // A placed document's file opens here, in a new tab: saving it updates this document.
+    if !reveal && info["document"] == true {
+        app.run("document.open", json!({ "path": path }))?;
+        return Ok(json!({ "path": path }));
     }
     if reveal { crate::io::reveal_path(app, &path) } else { crate::io::open_in_app(app, &path) }?;
     Ok(json!({ "path": path }))
@@ -293,11 +311,13 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         None => {}
     }
     if o.info {
-        link_info(ui, cache.info.as_ref().map(|(_, i)| i));
+        let units = app.session.general_unit();
+        link_info(ui, cache.info.as_ref().map(|(_, i)| i), units);
     }
     let sel = selected_rows(&cache.list, &selected);
     let modified = ids(&sel, |r| status_is(r, "modified") || r["preview"] == true && !status_is(r, "missing"));
     let can_edit = sel.iter().any(|r| r["linked"] == true && !status_is(r, "missing"));
+    let linked = ids(&sel, |r| r["linked"] == true);
     widgets::bottom_bar(ui, |ui| {
         let info = !o.info;
         if widgets::icon_button(ui, if o.info { "chevron-down" } else { "chevron-right" }, tl!("Show Link Info"), false, 24.0).clicked() {
@@ -319,7 +339,21 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             if widgets::icon_button_enabled(ui, "link", tl!("Relink…"), false, !sel.is_empty() && can_pick(app), 24.0).clicked() {
                 relink(app, ids(&sel, |_| true));
             }
+            if widgets::icon_button_enabled(ui, "link-2-off", tl!("Break Link"), false, !linked.is_empty(), 24.0).clicked() {
+                break_link(app, linked.clone());
+            }
         });
+    });
+}
+
+/// Break Link (`links.embed`) of `ids`: images keep their files' pixels, placed documents become
+/// editable copies of their art.
+fn break_link(app: &mut VectorcraftApp, ids: Vec<u64>) {
+    let r = app.run("links.embed", json!({ "ids": ids }));
+    report(app, r, |v| {
+        let missing = v["missing"].as_array().map_or(0, Vec::len);
+        let n = v["embedded"].as_array().map_or(0, Vec::len);
+        if missing == 0 { format!("Broke {n} link(s)") } else { format!("Broke {n} link(s); {missing} can't be read: relink or update them first") }
     });
 }
 
@@ -344,7 +378,7 @@ pub(crate) fn date_label(ms: u64) -> String {
 }
 
 /// The Link Info section: the details of `info` (`links.info`), or a hint.
-fn link_info(ui: &mut Ui, info: Option<&Value>) {
+fn link_info(ui: &mut Ui, info: Option<&Value>, units: vectorcraft_doc::Unit) {
     widgets::divider(ui);
     let Some(i) = info else {
         widgets::dim_label(ui, tl!("Select an image to see its Link Info."));
@@ -365,9 +399,19 @@ fn link_info(ui: &mut Ui, info: Option<&Value>) {
     if let Some(l) = i["location"].as_str() {
         row(ui, tl!("Location"), l.into());
     }
-    row(ui, tl!("PPI"), pair("ppi"));
-    row(ui, tl!("Effective PPI"), pair("effectivePpi"));
-    row(ui, tl!("Dimensions"), format!("{} × {} px", i["pixelWidth"], i["pixelHeight"]));
+    // A placed document has no resolution: its rows are left out.
+    for (label, k) in [(tl!("PPI"), "ppi"), (tl!("Effective PPI"), "effectivePpi")] {
+        if i.get(k).is_some() {
+            row(ui, label, pair(k));
+        }
+    }
+    // Pixels, or a placed document's artboard size.
+    let dims = match (i["pixelWidth"].as_u64(), i["pageWidth"].as_f64(), i["pageHeight"].as_f64()) {
+        (Some(w), _, _) => format!("{w} × {} px", i["pixelHeight"].as_u64().unwrap_or(0)),
+        (None, Some(w), Some(h)) => format!("{} × {}", units.format(w), units.format(h)),
+        _ => String::new(),
+    };
+    row(ui, tl!("Dimensions"), dims);
     let scale: Vec<f64> = i["scale"].as_array().into_iter().flatten().filter_map(Value::as_f64).collect();
     if let [x, y] = scale[..] {
         row(ui, tl!("Scale"), format!("H: {x:.1}%  V: {y:.1}%"));

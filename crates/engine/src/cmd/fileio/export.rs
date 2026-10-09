@@ -45,6 +45,9 @@ pub(super) fn serialize(s: &mut Session, p: &Value) -> Result<Value> {
 
 pub(super) fn export(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path");
+    if let Some(path) = path {
+        super::check_not_lossy_overwrite(s.doc()?, path, p, "document.export")?;
+    }
     let f = writable("document.export", str_param(p, "format"), path)?;
     let expanded = expand_presets(s, "document.export", p)?;
     let p = &*expanded;
@@ -85,6 +88,26 @@ fn selected_part(n: &Node, keep: &HashSet<NodeId>) -> Option<Node> {
     let mut out = n.clone();
     *out.children_mut()? = kept;
     Some(out)
+}
+
+/// `doc` with only the art over `rect` (an artboard): objects whose visual bounds miss it are left
+/// out, at any depth of layers and sublayers, and objects that reach it stay whole (the file's
+/// bounds clip them), as DXF's crop leaves them. A clipping layer keeps every object, its clipping
+/// path among them. An artboard's file then holds its own art, not a whole document of artboards.
+pub(super) fn art_over(doc: &Document, rect: vectorcraft_geom::Rect) -> Document {
+    fn kept(n: &Arc<Node>, rect: vectorcraft_geom::Rect) -> Option<Arc<Node>> {
+        if matches!(n.kind, NodeKind::Layer { clip: false, .. }) {
+            let mut layer = Node::clone(n);
+            let children = layer.children_mut()?;
+            *children = children.iter().filter_map(|c| kept(c, rect)).collect();
+            return Some(Arc::new(layer));
+        }
+        let over = |b: vectorcraft_geom::Rect| b.x0 <= rect.x1 && rect.x0 <= b.x1 && b.y0 <= rect.y1 && rect.y0 <= b.y1;
+        n.visual_bounds().is_none_or(over).then(|| n.clone())
+    }
+    let mut d = doc.clone();
+    d.layers = doc.layers.iter().filter_map(|l| kept(l, rect)).collect();
+    d
 }
 
 /// `p` without its artboard choice, also inside its SVG options (for documents made of one
@@ -146,6 +169,9 @@ pub(crate) fn isolated(doc: &Document, ids: &[NodeId], name: &str) -> Option<(Do
 /// template layers are guides, not artwork, and are left out.
 pub(super) fn export_selection(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "document.exportSelection";
+    if let Some(path) = str_param(p, "path") {
+        super::check_not_lossy_overwrite(s.doc()?, path, p, C)?;
+    }
     let path = str_param(p, "path");
     let f = writable(C, str_param(p, "format"), path)?;
     let expanded = expand_presets(s, C, p)?;
@@ -161,6 +187,9 @@ pub(super) fn export_selection(s: &mut Session, p: &Value) -> Result<Value> {
 /// `transparent`.
 pub(super) fn export_for_office(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "document.exportForOffice";
+    if let Some(path) = str_param(p, "path") {
+        super::check_not_lossy_overwrite(s.doc()?, path, p, C)?;
+    }
     let path = str_param(p, "path");
     let ppi = f64_or(p, "ppi", 150.0);
     let doc = &s.doc()?.doc;

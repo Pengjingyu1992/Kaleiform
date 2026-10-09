@@ -10,8 +10,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use vectorcraft_doc::{Artboard, Document, LAYER_COLORS, LayerColor, Node, NodeId, NodeKind};
-use vectorcraft_geom::Rect;
+use vectorcraft_doc::{Artboard, Document, LAYER_COLORS, LayerColor, Node, NodeId, NodeKind, Scaling};
+use vectorcraft_geom::{Affine, Rect};
 
 use super::*;
 use crate::EngineError;
@@ -135,7 +135,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Artboard Options…",
             ["Window", "Artboards"],
             None,
-            "{index, name?, x?, y?, width?, height?}",
+            "{index, name?, x?, y?, width?, height?, scaleArt?: bool (Scale Artwork with Artboard: resized, the artboard takes the art fully inside it (locked and hidden art only with lockedAndHidden?: bool, default prefs moveLockedWithArtboard) and its guides from its old rectangle onto the new one, each side by its own ratio; strokes/corners/patterns as object.scale)} → null, or with scaleArt {scaled: the art scaled}",
             has_doc,
             artboard_set
         ),
@@ -735,14 +735,16 @@ fn artboard_new(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn artboard_delete(s: &mut Session, p: &Value) -> Result<Value> {
     let i = p.get("index").and_then(Value::as_u64).ok_or_else(|| bad("artboard.delete", "missing index"))? as usize;
-    s.edit("Delete Artboard", |d, _| {
+    s.edit("Delete Artboard", |d, sel| {
         if d.artboards.len() <= 1 {
             return Err(EngineError::Other("a document needs at least one artboard".into()));
         }
         if i >= d.artboards.len() {
             return Err(EngineError::Other("no such artboard".into()));
         }
-        d.artboards.remove(i);
+        // Its guides go with it.
+        let id = d.artboards.remove(i).id;
+        d.retain_guides(sel, |_, g| g.artboard != Some(id));
         Ok(())
     })?;
     ok()
@@ -750,15 +752,62 @@ fn artboard_delete(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn artboard_set(s: &mut Session, p: &Value) -> Result<Value> {
     let i = p.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let was = s.doc()?.doc.artboards.get(i).map(|a| a.rect).ok_or_else(|| EngineError::Other("no such artboard".into()))?;
+    let now = rect_from(p, was);
+    let resized = (now.width() - was.width()).abs() > 1e-6 || (now.height() - was.height()).abs() > 1e-6;
+    // Scale Artwork with Artboard: resized, it takes the art fully inside it (as Move Artwork with
+    // Artboard gathers it) and its guides from the old rectangle onto the new one.
+    let scale_art = bool_or(p, "scaleArt", false);
+    let fit = if scale_art && resized { rect_map(was, now) } else { None };
+    let art = if fit.is_some() {
+        // Locked and hidden art too? Noted in the journal, so a replay scales the same objects
+        // whatever the preference is then.
+        let all = bool_or(p, "lockedAndHidden", s.prefs.move_locked_with_artboard);
+        s.note_journal("lockedAndHidden", json!(all));
+        s.doc()?.doc.art_on_artboard(was, all)
+    } else {
+        vec![]
+    };
+    let mut sc = match fit {
+        Some(xf) if Scaling::factor(xf).is_some() => super::object::scaling(s, p),
+        _ => Scaling::default(),
+    };
+    sc.patterns = super::object::transform_patterns(s, p, &art)?;
     s.edit("Artboard Options", |d, _| {
         let a = d.artboards.get_mut(i).ok_or_else(|| EngineError::Other("no such artboard".into()))?;
-        a.rect = rect_from(p, a.rect);
+        a.rect = now;
         if let Some(n) = str_param(p, "name") {
             a.name = n.to_string();
         }
+        let id = a.id;
+        if let Some(xf) = fit {
+            d.map_artboard_guides(id, xf);
+            for id in &art {
+                if let Some(n) = d.node_mut(*id) {
+                    n.transform(xf, sc);
+                }
+            }
+        } else if !resized {
+            // Moved (not resized), it takes its guides along.
+            d.move_artboard_guides(id, now.origin() - was.origin());
+        }
         Ok(())
     })?;
-    ok()
+    if !scale_art {
+        return ok();
+    }
+    Ok(json!({ "scaled": art.iter().map(|i| i.0).collect::<Vec<_>>() }))
+}
+
+/// The map taking artboard rectangle `from` onto `to`, each side scaled by its own ratio. None
+/// when `from` has no area or the map isn't finite (a size out of range).
+fn rect_map(from: Rect, to: Rect) -> Option<Affine> {
+    if from.width() <= 1e-9 || from.height() <= 1e-9 {
+        return None;
+    }
+    let (sx, sy) = (to.width() / from.width(), to.height() / from.height());
+    let xf = Affine::translate(to.origin().to_vec2()) * Affine::scale_non_uniform(sx, sy) * Affine::translate(-from.origin().to_vec2());
+    xf.is_finite().then_some(xf)
 }
 
 fn artboard_fit_art(s: &mut Session, p: &Value) -> Result<Value> {

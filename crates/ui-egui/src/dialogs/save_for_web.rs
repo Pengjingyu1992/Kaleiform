@@ -646,8 +646,8 @@ fn colors_row(ui: &mut egui::Ui, d: &mut Dialog) {
             n = c.parse().unwrap_or(n);
             d.fields.insert("colors".into(), json!(n));
         }
-        if ui.add(egui::DragValue::new(&mut n).range(2..=256)).changed() {
-            d.fields.insert("colors".into(), json!(n));
+        if let Some(n) = widgets::range_field(ui, "sfw-colors-n", f64::from(n), 2.0..=256.0, "", 0, 52.0) {
+            d.fields.insert("colors".into(), json!(n as u16));
         }
     });
 }
@@ -813,7 +813,7 @@ fn image_size(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, s: Option
         if let Some(v) = widgets::plain_field(ui, "sfw-w", f64::from(w), " px", 0, 80.0) {
             set(d, "width", json!(v.round().max(1.0)));
         }
-        ui.label(tl!("H:"));
+        widgets::field_label(ui, tl!("H:"));
         if let Some(v) = widgets::plain_field(ui, "sfw-h", f64::from(h), " px", 0, 80.0) {
             set(d, "height", json!(v.round().max(1.0)));
         }

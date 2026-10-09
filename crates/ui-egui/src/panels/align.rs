@@ -52,9 +52,20 @@ pub const DISTRIBUTE: [(&str, &str, &str, &str); 6] = [
     ("dc-dist-right", "Horizontal Distribute Right", "horizontal", "right"),
 ];
 
+/// Whether the selection has a key object.
+fn has_key(app: &VectorcraftApp) -> bool {
+    app.session.active().is_some_and(|st| st.selection.key.is_some())
+}
+
+/// What Align aligns to: the key object while there is one (a click on an object of the
+/// selection makes it the key), else the Align To choice.
+fn align_to(app: &VectorcraftApp, ctx: &egui::Context) -> AlignTo {
+    if has_key(app) { AlignTo::Key } else { pstate(ctx, "align-to") }
+}
+
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let n = selection_len(app);
-    let to: AlignTo = pstate(ui.ctx(), "align-to");
+    let to = align_to(app, ui.ctx());
     widgets::subheader(ui, tl!("Align Objects:"));
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 5.0;
@@ -116,6 +127,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 ] {
                     if widgets::icon_button(ui, icon, tl!(tip), to == v, 28.0).clicked() {
                         set_pstate(ui.ctx(), "align-to", v);
+                        // Aligning to the selection or the artboard lets go of the key object.
+                        if v != AlignTo::Key && has_key(app) {
+                            app.run("select.key", json!({})).ok();
+                        }
                     }
                 }
             });
@@ -132,8 +147,7 @@ pub fn menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     if menu_item(ui, tl!("Use Preview Bounds"), true, pb) {
         super::transform::set_pref(app, "usePreviewBounds", !pb);
     }
-    let to: AlignTo = pstate(ui.ctx(), "align-to");
-    if menu_item(ui, tl!("Cancel Key Object"), to == AlignTo::Key, false) {
+    if menu_item(ui, tl!("Cancel Key Object"), align_to(app, ui.ctx()) == AlignTo::Key, false) {
         set_pstate(ui.ctx(), "align-to", AlignTo::Selection);
         app.run("select.key", json!({})).ok();
     }
@@ -151,5 +165,22 @@ mod tests {
         let p = align_params(json!({"vertical": "top"}), AlignTo::Selection, 3);
         assert_eq!(p["to"], "selection");
         assert_eq!(align_params(json!({}), AlignTo::Key, 1)["to"], "key");
+    }
+
+    /// #541: while the selection has a key object Align aligns to it, whatever Align To says;
+    /// choosing Align to Selection lets the key go.
+    #[test]
+    fn a_key_object_makes_align_align_to_it() {
+        let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 200, "height": 200})).unwrap();
+        let a = app.run("shape.rectangle", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap()["id"].clone();
+        let b = app.run("shape.rectangle", json!({"x": 80, "y": 50, "width": 30, "height": 30})).unwrap()["id"].clone();
+        app.run("select.set", json!({"ids": [a, b]})).unwrap();
+        let ctx = egui::Context::default();
+        assert_eq!(align_to(&app, &ctx), AlignTo::Selection);
+        app.run("select.key", json!({"id": b})).unwrap();
+        assert_eq!(align_to(&app, &ctx), AlignTo::Key);
+        app.run("select.key", json!({})).unwrap();
+        assert_eq!(align_to(&app, &ctx), AlignTo::Selection, "no key: the choice again");
     }
 }

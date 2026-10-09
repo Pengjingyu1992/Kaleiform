@@ -301,8 +301,8 @@ fn raster_effects_parse_and_outset() {
         other => panic!("{other:?}"),
     }
     assert!(matches!(r[2], RasterFx::InnerGlow { center: true, .. }));
-    assert!(close(outset(&list), 10.0 + 9.0, 1e-9));
-    assert_eq!(outset(&[]), 0.0);
+    assert!(close(outset(&list, vectorcraft_geom::Rect::ZERO), 10.0 + 9.0, 1e-9));
+    assert_eq!(outset(&[], vectorcraft_geom::Rect::ZERO), 0.0);
 }
 
 #[test]

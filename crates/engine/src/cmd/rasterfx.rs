@@ -7,6 +7,10 @@
 //! effect: the image (with the object's own area knocked out) goes under the untouched vector
 //! object. Effects that change the object itself (inner glow, feather, Gaussian blur) replace it
 //! with the image. Expand Appearance makes its images with the same helpers.
+//!
+//! SVG has filters for shadows, glows, blurs and feathers but none for the Photoshop-style
+//! effects (Radial Blur, Unsharp Mask…): SVG export turns only the objects carrying one of those
+//! into images the same way ([`flatten_pixel_effects`]).
 
 use std::sync::Arc;
 
@@ -167,7 +171,7 @@ pub(crate) fn effect_image(out: &mut Document, whole: &Node, knockout: Option<&N
     // effects reach beyond that.
     let b = vectorcraft_render::painted_bounds(whole)?;
     let look = out.raster_effects.clone();
-    let reach = whole.appearance.items.iter().map(|i| effects::outset(i.effects())).fold(0.0, f64::max) + 2.0 + look.add_around;
+    let reach = whole.appearance.items.iter().map(|i| effects::outset(i.effects(), b)).fold(0.0, f64::max) + 2.0 + look.add_around;
     let b = b.inflate(reach, reach);
     // Whole pixels, and no larger than 64 Mpx.
     let scale = scale.min((64.0e6 / (b.width() * b.height()).max(1.0)).sqrt());
@@ -337,20 +341,39 @@ fn placed_symbol(d: &Document, n: &Node) -> Option<Node> {
     Some(Node { kind: NodeKind::Group { children: vec![Arc::new(art)], clip: false }, ..n.clone() })
 }
 
-/// Does `n` hold raster effects PDF export draws: its own, its fills' and strokes', its opacity
-/// mask's or (groups and layers) its members'? Hidden objects and template layers aren't drawn.
-fn needs(n: &Node) -> bool {
+/// Which objects' raster effects become images.
+#[derive(Clone, Copy, PartialEq)]
+enum Which {
+    /// Every raster effect (PDF).
+    All,
+    /// Objects with a Photoshop-style effect, which SVG can't draw (with all their raster effects).
+    Pixel,
+}
+
+/// Has `n` (its own, its fills' or strokes') raster effects `which` turns into an image?
+fn imaged(n: &Node, which: Which) -> bool {
+    let fx = raster_fx(n);
+    match which {
+        Which::All => !fx.is_empty(),
+        Which::Pixel => fx.iter().any(|f| matches!(f, RasterFx::Pixel(_))),
+    }
+}
+
+/// Does `n` hold raster effects that `which` turns into images: its own, its fills' and strokes',
+/// its opacity mask's or (groups and layers) its members'? Hidden objects and template layers
+/// aren't drawn.
+fn needs(n: &Node, which: Which) -> bool {
     n.visible
         && !matches!(n.kind, NodeKind::Layer { template: true, .. })
-        && (!raster_fx(n).is_empty()
-            || n.mask.as_ref().is_some_and(|m| needs(&m.art))
-            || (is_container(n) && n.children().is_some_and(|ch| ch.iter().any(|c| needs(c)))))
+        && (imaged(n, which)
+            || n.mask.as_ref().is_some_and(|m| needs(&m.art, which))
+            || (is_container(n) && n.children().is_some_and(|ch| ch.iter().any(|c| needs(c, which)))))
 }
 
 /// The art of `n`'s opacity mask with its raster effects as images.
-fn walk_mask(out: &mut Document, n: &mut Node) {
+fn walk_mask(out: &mut Document, n: &mut Node, which: Which) {
     if let Some(m) = n.mask.as_mut()
-        && let Some(art) = walk(out, &m.art)
+        && let Some(art) = walk(out, &m.art, which)
     {
         m.art = Arc::new(art);
     }
@@ -359,15 +382,15 @@ fn walk_mask(out: &mut Document, n: &mut Node) {
 /// `n` with its raster effects (and its members' and its opacity mask's) as images, `None` when it
 /// has none. An object whose effects all paint below it keeps its vector art over an image of
 /// them; one whose effects change it (blur, feather, inner glow) becomes the image.
-fn walk(out: &mut Document, n: &Node) -> Option<Node> {
-    if !needs(n) {
+fn walk(out: &mut Document, n: &Node, which: Which) -> Option<Node> {
+    if !needs(n, which) {
         return None;
     }
-    if raster_fx(n).is_empty() {
+    if !imaged(n, which) {
         let mut m = n.clone();
-        walk_mask(out, &mut m);
+        walk_mask(out, &mut m, which);
         if is_container(&m)
-            && let Some(ch) = walk_all(out, n.children()?)
+            && let Some(ch) = walk_all(out, n.children()?, which)
             && let Some(slot) = m.children_mut()
         {
             *slot = ch;
@@ -375,30 +398,30 @@ fn walk(out: &mut Document, n: &Node) -> Option<Node> {
         return Some(m);
     }
     if let Some(g) = placed_symbol(out, n) {
-        return Some(walk(out, &g).unwrap_or(g));
+        return Some(walk(out, &g, which).unwrap_or(g));
     }
     let below = below_only(n);
     if !below && let Some(g) = split_items(out, n) {
-        return Some(walk(out, &g).unwrap_or(g));
+        return Some(walk(out, &g, which).unwrap_or(g));
     }
     // An image that can't be made leaves the object as it is (the writer reports its effects).
     let image = raster_image(out, n, below, false)?;
     let mut v = n.clone();
     strip_raster(&mut v, false);
     let mut m = if below {
-        let mut m = walk(out, &v).unwrap_or(v);
+        let mut m = walk(out, &v, which).unwrap_or(v);
         put_below(out, &mut m, image);
         m
     } else {
         replace_with_image(v, image)
     };
-    walk_mask(out, &mut m);
+    walk_mask(out, &mut m, which);
     Some(m)
 }
 
 /// `nodes` with their raster effects as images, `None` when none has any.
-fn walk_all(out: &mut Document, nodes: &[Arc<Node>]) -> Option<Vec<Arc<Node>>> {
-    nodes.iter().any(|n| needs(n)).then(|| nodes.iter().map(|n| walk(out, n).map(Arc::new).unwrap_or_else(|| n.clone())).collect())
+fn walk_all(out: &mut Document, nodes: &[Arc<Node>], which: Which) -> Option<Vec<Arc<Node>>> {
+    nodes.iter().any(|n| needs(n, which)).then(|| nodes.iter().map(|n| walk(out, n, which).map(Arc::new).unwrap_or_else(|| n.clone())).collect())
 }
 
 /// A copy of `doc` with raster effects turned into images at the document's raster effects
@@ -406,26 +429,37 @@ fn walk_all(out: &mut Document, nodes: &[Arc<Node>]) -> Option<Vec<Arc<Node>>> {
 /// type, images, symbol instances, live objects) and on single fills and strokes, in the layers,
 /// opacity masks, symbol definitions and pattern tiles.
 pub fn flatten_raster_effects(doc: &Document) -> Option<Document> {
-    let any = |nodes: &[Arc<Node>]| nodes.iter().any(|n| needs(n));
-    if !any(&doc.layers) && !doc.symbols.iter().any(|s| needs(&s.art)) && !doc.patterns.iter().any(|p| any(&p.art)) {
+    flatten(doc, Which::All)
+}
+
+/// A copy of `doc` in which the objects with Photoshop-style raster effects (Radial Blur, Unsharp
+/// Mask…) are images as [`flatten_raster_effects`] makes them (SVG export: its filters draw the
+/// other raster effects live), or `None` when there are none.
+pub fn flatten_pixel_effects(doc: &Document) -> Option<Document> {
+    flatten(doc, Which::Pixel)
+}
+
+fn flatten(doc: &Document, which: Which) -> Option<Document> {
+    let any = |nodes: &[Arc<Node>]| nodes.iter().any(|n| needs(n, which));
+    if !any(&doc.layers) && !doc.symbols.iter().any(|s| needs(&s.art, which)) && !doc.patterns.iter().any(|p| any(&p.art)) {
         return None;
     }
     // Geometry effects first, so the vector objects kept above shadows are final.
     let baked = effects::bake_document(doc);
     let src = baked.as_ref().unwrap_or(doc);
     let mut out = src.clone();
-    if let Some(layers) = walk_all(&mut out, &src.layers) {
+    if let Some(layers) = walk_all(&mut out, &src.layers, which) {
         out.layers = layers;
     }
     for i in 0..out.symbols.len() {
-        if let Some(art) = out.symbols.get(i).map(|s| s.art.clone()).and_then(|a| walk(&mut out, &a))
+        if let Some(art) = out.symbols.get(i).map(|s| s.art.clone()).and_then(|a| walk(&mut out, &a, which))
             && let Some(s) = out.symbols.get_mut(i)
         {
             s.art = Arc::new(art);
         }
     }
     for i in 0..out.patterns.len() {
-        if let Some(art) = out.patterns.get(i).map(|p| p.art.clone()).and_then(|a| walk_all(&mut out, &a))
+        if let Some(art) = out.patterns.get(i).map(|p| p.art.clone()).and_then(|a| walk_all(&mut out, &a, which))
             && let Some(p) = out.patterns.get_mut(i)
         {
             p.art = art;

@@ -247,7 +247,7 @@ fn font_list(_: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-fn rescan(s: &mut Session, _: &Value) -> Result<Value> {
+pub(crate) fn rescan(s: &mut Session, _: &Value) -> Result<Value> {
     let db = vectorcraft_text::FontDb::global();
     #[cfg(not(target_arch = "wasm32"))]
     let faces = db.load_system_fonts();
@@ -282,6 +282,21 @@ fn rescan(s: &mut Session, _: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Type › Options › Additional Fonts Folder (#683) adds its folder to the system font scan,
+    /// trimmed; clearing it takes the folder out again.
+    #[test]
+    fn the_additional_fonts_folder_joins_the_font_scan() {
+        let mut s = Session::new();
+        let dir = std::env::temp_dir().join("vectorcraft-fonts-folder-pref");
+        s.execute("prefs.set", &json!({"key": "fontsFolder", "value": format!("  {}  ", dir.display())})).unwrap();
+        assert_eq!(vectorcraft_text::user_font_dirs(), std::slice::from_ref(&dir));
+        if !cfg!(target_arch = "wasm32") {
+            assert!(vectorcraft_text::system_font_dirs().contains(&dir));
+        }
+        s.execute("prefs.set", &json!({"key": "fontsFolder", "value": ""})).unwrap();
+        assert!(vectorcraft_text::user_font_dirs().is_empty() && !vectorcraft_text::system_font_dirs().contains(&dir));
+    }
 
     #[test]
     fn list_flag_missing_replace_and_select() {

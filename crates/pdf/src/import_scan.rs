@@ -21,8 +21,14 @@ use hayro_syntax::page::{Page, Resources};
 
 /// The interpreter's limit on nested form XObjects.
 const MAX_DEPTH: u32 = 50;
-/// The most content operators walked per page: past it the rest of the page isn't told apart.
-const MAX_OPS: usize = 2_000_000;
+/// The most content operators walked per page (a guard against forms drawn within each other
+/// many times over): the art past it can't be told apart by group. A drawing of a million paths
+/// takes a few million; the walk reads about 15 million a second, twice as fast as the
+/// interpreter draws them.
+const MAX_OPS: usize = 64_000_000;
+/// The most marked-content sequences noted per page (24 bytes each): past it the rest of the
+/// page isn't told apart either.
+const MAX_TAGS: usize = 4_000_000;
 /// The most groups read.
 const MAX_GROUPS: usize = 10_000;
 /// The deepest layers nest in the configuration's `/Order`.
@@ -206,10 +212,35 @@ pub(crate) fn text_string(b: &[u8]) -> String {
 /// One page as the interpreter walks it.
 #[derive(Default)]
 pub(crate) struct Scan {
-    /// Each marked-content sequence: its tag and the group (index into [`Ocgs::list`]) it marks.
-    pub tags: Vec<(Vec<u8>, Option<usize>)>,
+    /// Each marked-content sequence: its tag ([`tag_key`]) and the group (index into
+    /// [`Ocgs::list`]) it marks.
+    pub tags: Vec<(u64, Option<usize>)>,
     /// Each form transparency group: isolated, knockout.
     pub groups: Vec<(bool, bool)>,
+    /// The walk stopped at [`MAX_OPS`] or [`MAX_TAGS`]: the rest of the page isn't told apart.
+    pub cut: bool,
+}
+
+/// A marked-content tag as [`Scan::tags`] keeps it: its FNV-1a hash (the tags are only compared,
+/// and a page can have millions).
+pub(crate) fn tag_key(tag: &[u8]) -> u64 {
+    tag.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// [`MAX_OPS`], lowered by tests that need a page past it.
+#[cfg(not(test))]
+fn max_ops() -> usize {
+    MAX_OPS
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_MAX_OPS: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_OPS) };
+}
+
+#[cfg(test)]
+fn max_ops() -> usize {
+    TEST_MAX_OPS.with(std::cell::Cell::get)
 }
 
 struct Walker<'w, 'p> {
@@ -220,6 +251,7 @@ struct Walker<'w, 'p> {
     fonts: &'w mut HashMap<u128, String>,
     visible: Vec<bool>,
     ops: usize,
+    max_ops: usize,
     out: Scan,
     /// A form XObject hidden by its own optional content was met.
     hidden_form: bool,
@@ -273,7 +305,8 @@ impl Walker<'_, '_> {
         self.note_fonts(res);
         while let Some(op) = iter.next() {
             self.ops += 1;
-            if self.ops > MAX_OPS {
+            if self.ops > self.max_ops || self.out.tags.len() >= MAX_TAGS {
+                self.out.cut = true;
                 return;
             }
             match op {
@@ -296,11 +329,11 @@ impl Walker<'_, '_> {
                             None
                         }
                     };
-                    self.out.tags.push((bdc.0.to_vec(), group));
+                    self.out.tags.push((tag_key(bdc.0.as_ref()), group));
                 }
                 TypedInstruction::BeginMarkedContent(bmc) => {
                     self.begin(true);
-                    self.out.tags.push((bmc.0.to_vec(), None));
+                    self.out.tags.push((tag_key(bmc.0.as_ref()), None));
                 }
                 TypedInstruction::EndMarkedContent(_) => {
                     self.visible.pop();
@@ -347,7 +380,7 @@ pub(crate) fn scan_page(page: &Page<'_>, ocgs: &mut Ocgs, all_on: bool, fonts: &
 
 fn walk_page<'w, 'p>(page: &Page<'p>, ocgs: &'w mut Ocgs, all_on: bool, fonts: &'w mut HashMap<u128, String>) -> Walker<'w, 'p> {
     let off = if all_on { HashSet::new() } else { ocgs.off.clone() };
-    let mut w = Walker { ocgs, off, xref: page.xref(), fonts, visible: vec![], ops: 0, out: Scan::default(), hidden_form: false };
+    let mut w = Walker { ocgs, off, xref: page.xref(), fonts, visible: vec![], ops: 0, max_ops: max_ops(), out: Scan::default(), hidden_form: false };
     w.walk(page.typed_operations(), page.resources(), 0);
     w
 }

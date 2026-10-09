@@ -5,7 +5,8 @@
 //!
 //! - **Geometry effects** (Distort & Transform, Path, Convert to Shape, Round Corners, Scribble,
 //!   Warp) rewrite a path: [`apply_geometry`] evaluates them in stack order.
-//! - **Raster effects** (Drop Shadow, Inner/Outer Glow, Feather, Gaussian Blur) are described by
+//! - **Raster effects** (Drop Shadow, Inner/Outer Glow, Feather, Gaussian Blur, and the
+//!   Photoshop-style filters of [`pixel`]: Radial Blur, Smart Blur, Unsharp Mask) are described by
 //!   [`raster_effects`] and painted by the renderer; [`outset`] says how far they reach beyond
 //!   the geometry.
 //! - **Stroke geometry** ([`stroke`]): arrowheads, dash patterns and width profiles, shared by the
@@ -36,6 +37,7 @@ mod distort;
 mod group;
 mod live;
 mod marks;
+pub mod pixel;
 mod raster;
 mod reshape;
 pub mod stroke;
@@ -61,6 +63,7 @@ pub use group::{
 };
 pub use live::{expand_live, expand_live_deep, expanded_live_group, text_outliner};
 pub use marks::{CROP_MARKS, crop_marks_art, has_crop_marks};
+pub use pixel::{PIXEL_EFFECTS, PixelFx, PixelSpace};
 pub use raster::{RasterFx, outset, raster_effects};
 pub use reshape::{expand_outlined, needs_outline, outline_art, outline_text, reshape};
 pub use warp::{WarpStyle, warp_point};
@@ -118,7 +121,7 @@ fn lengths_of(id: &str) -> Lengths {
         "distort.transform" => always(&["moveH", "moveV"]),
         "path.offsetPath" => always(&["offset"]),
         "path.outlineStroke" => always(&["width"]),
-        "stylize.roundCorners" | "stylize.feather" | "blur.gaussian" => always(&["radius"]),
+        "stylize.roundCorners" | "stylize.feather" | "blur.gaussian" | "blur.smart" | "sharpen.unsharpMask" => always(&["radius"]),
         "stylize.scribble" => always(&["overlap", "strokeWidth", "spacing", "variation"]),
         "stylize.dropShadow" => always(&["x", "y", "blur"]),
         "stylize.innerGlow" | "stylize.outerGlow" => always(&["blur"]),
@@ -134,6 +137,7 @@ const SHAPE: &[&str] = &["Effect", "Convert to Shape"];
 const STYLIZE: &[&str] = &["Effect", "Stylize"];
 const WARP: &[&str] = &["Effect", "Warp"];
 const BLUR: &[&str] = &["Effect", "Blur"];
+const SHARPEN: &[&str] = &["Effect", "Sharpen"];
 const PATHFINDER: &[&str] = &["Effect", "Pathfinder"];
 const PLUGINS: &[&str] = &["Effect", "Plug-ins"];
 const ADJUST: &[&str] = &["Effect", "Color Adjustments"];
@@ -265,6 +269,27 @@ pub fn effect_catalog() -> Vec<EffectInfo> {
         ),
         r("stylize.feather", "Feather…", STYLIZE, "{radius: pt (5)}", json!({"radius": 5.0})),
         r("blur.gaussian", "Gaussian Blur…", BLUR, "{radius: pt (5)}", json!({"radius": 5.0})),
+        r(
+            "blur.radial",
+            "Radial Blur…",
+            BLUR,
+            "{amount: 1..100 (10; spin: an arc of `amount`°, zoom: the content scaled by up to about ±amount/2 %), method: \"spin\"|\"zoom\" (\"spin\"), quality: \"draft\"|\"good\"|\"best\" (\"good\"; 16, 64 or 256 samples)} blurs around the object's centre",
+            json!({"amount": 10.0, "method": "spin", "quality": "good"}),
+        ),
+        r(
+            "blur.smart",
+            "Smart Blur…",
+            BLUR,
+            "{radius: pt 0.1..100 (3), threshold: levels 0.1..100 (25; only colours closer than this blur together, so edges stay sharp), quality: \"low\"|\"medium\"|\"high\" (\"medium\"; 5, 7 or 9 samples across)} (Normal mode)",
+            json!({"radius": 3.0, "threshold": 25.0, "quality": "medium"}),
+        ),
+        r(
+            "sharpen.unsharpMask",
+            "Unsharp Mask…",
+            SHARPEN,
+            "{amount: % 1..500 (50), radius: pt 0.1..250 (1; σ of the blur edges are found against), threshold: levels 0..255 (0; smaller differences are left alone)}",
+            json!({"amount": 50.0, "radius": 1.0, "threshold": 0.0}),
+        ),
     ];
     v.extend([
         g(
@@ -428,6 +453,7 @@ pub fn scale_effect(e: &mut Effect, s: f64) {
 /// Is `id` a raster (painted) effect?
 pub fn is_raster(id: &str) -> bool {
     matches!(id, "stylize.dropShadow" | "stylize.innerGlow" | "stylize.outerGlow" | "stylize.feather" | "blur.gaussian")
+        || PIXEL_EFFECTS.contains(&id)
 }
 
 /// Does `id` change geometry? (Crop Marks adds art of its own instead, [`crop_marks_art`]; colour

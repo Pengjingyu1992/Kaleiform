@@ -21,9 +21,9 @@ use vectorcraft_geom::{FillRule, PathData};
 
 use crate::import_color::{Colors, Native};
 use crate::import_mask::{MaskSpec, contains, is_rectangle, luminance, mask_spec, white_cover};
-use crate::import_scan::{MAX_NESTING, Ocgs, Scan, all_on, hides_forms, scan_page};
+use crate::import_scan::{MAX_NESTING, Ocgs, Scan, all_on, hides_forms, scan_page, tag_key};
 use crate::import_shading::{clipped, extend_clip, fold_stop_opacity, mesh_shading, shading_gradient};
-use crate::import_text::{Families, Look, Placement, TextLine, Upright};
+use crate::import_text::{Families, LineFacts, Look, Placement, TextLine, Upright};
 use crate::{CropTo, ImportOptions, ImportReport, PdfError, TextAs};
 
 /// The name of the paths text imports as.
@@ -32,6 +32,9 @@ const TEXT_OUTLINES: &str = "<Text Outlines>";
 const MAX_NESTED: u32 = 8;
 /// A tiling pattern read this many times with the same art is taken to always draw it.
 const PATTERN_REUSE: u32 = 16;
+/// Stands for the group of art whose group couldn't be told (see [`Builder::unsure`]): it goes
+/// to a hidden, non-printing layer of its page.
+const UNSORTED: usize = usize::MAX;
 
 /// Import a PDF (or PDF-compatible `.ai`) with default options.
 pub fn import(bytes: &[u8]) -> Result<Document, PdfError> {
@@ -73,6 +76,33 @@ fn place_group(g: usize, ocgs: &Ocgs, slots: &mut Vec<Slot>, nesting: &mut Nesti
     slots.push(Slot::Group(child));
 }
 
+/// The top-level group that group `g` is listed under (`g` itself when it isn't a sublayer).
+fn top_group(g: usize, ocgs: &Ocgs) -> usize {
+    let mut top = g;
+    for _ in 0..=MAX_NESTING {
+        match ocgs.list.get(top).and_then(|o| o.parent) {
+            Some(parent) => top = parent,
+            None => break,
+        }
+    }
+    top
+}
+
+/// Merge the top-level groups a page marks (`page`, in the order it first marks each, its empty
+/// ones too) into the stacking order of the pages before (`order`, bottom first; `known`: its
+/// groups). A group new to it goes right below the first group the page marks after it that it
+/// has: a layer whose art starts on a later page keeps its place among the others (#508).
+fn merge_order(order: &mut Vec<usize>, known: &mut HashSet<usize>, page: &[usize]) {
+    let mut above = None;
+    for &g in page.iter().rev() {
+        if known.insert(g) {
+            let at = above.and_then(|a| order.iter().position(|&x| x == a)).unwrap_or(order.len());
+            order.insert(at, g);
+        }
+        above = Some(g);
+    }
+}
+
 /// The layer of group `g`, in `color`: its art and sublayers. `None` for a group that isn't read.
 fn group_layer(
     b: &mut Builder<'_>,
@@ -99,6 +129,11 @@ fn group_layer(
     }
     Some(l)
 }
+
+/// The note on a file carrying an editor's private data (#472): its PDF part, the one read, holds
+/// only the art on its artboards (art on the pasteboard is in the private data alone).
+pub const OFF_ARTBOARD_NOTE: &str =
+    "only the PDF-compatible part of this file was read: art outside its artboards is kept in the editor's private data alone, so it doesn't open";
 
 /// Import a PDF, returning the document plus warnings about content that was approximated or skipped.
 pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportReport, PdfError> {
@@ -146,6 +181,9 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
     doc.layers.clear();
     let taken: Vec<String> = doc.swatches_iter().map(|s| s.name.clone()).chain(doc.swatch_groups.iter().map(|g| g.name.clone())).collect();
     let mut b = Builder::new(doc.peek_next_id(), Colors::new(&pdf, taken.clone()), opts.text_as, route);
+    // The art of a group that is off (drawn as `all_on` turned it on) or doesn't print mustn't
+    // show or print on its page's layer.
+    b.unsure = route && ocgs.list.iter().any(|g| (all_on && !g.on) || !g.print);
     b.taken = taken;
     b.warnings = notes;
     let cache = InterpreterCache::new();
@@ -155,6 +193,8 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
     let mut slots: Vec<Slot> = vec![];
     let mut group_art: HashMap<usize, Vec<Arc<Node>>> = HashMap::new();
     let mut nesting = Nesting::new();
+    // The top-level groups in the order the pages mark them, bottom first.
+    let (mut order, mut known) = (vec![], HashSet::new());
     for (i, &number) in picked.iter().enumerate() {
         let Some(page) = pages.get(number) else { continue };
         // The chosen box sits at (x, 0); the page draws round it.
@@ -164,6 +204,11 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
         let mut ctx = Context::new(xf, ab, &cache, pdf.xref(), settings.clone());
         b.page = ab;
         let scan = scan_page(page, &mut ocgs, all_on, &mut b.fonts);
+        if route {
+            let mut seen = HashSet::new();
+            let marked: Vec<usize> = scan.tags.iter().filter_map(|(_, g)| g.map(|g| top_group(g, &ocgs))).filter(|g| seen.insert(*g)).collect();
+            merge_order(&mut order, &mut known, &marked);
+        }
         b.begin_page(scan);
         interpret_page(page, &mut ctx, &mut b);
         let mut parts = b.end_page();
@@ -171,6 +216,7 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
         let ai = crate::pages::has_private_data(page);
         if ai {
             drop_page_fill(&mut parts, xf.transform_rect_bbox(crate::pages::page_box(page, CropTo::Crop)));
+            b.warn(OFF_ARTBOARD_NOTE);
         }
         // A file with several artboards writes, on each page, the art of its neighbours that
         // reaches into the page's box: art lying wholly outside this page is theirs (each page
@@ -198,19 +244,22 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
             show_center_mark: false,
             show_cross_hairs: false,
         });
-        let page_layer = |b: &mut Builder<'_>, art: Vec<Arc<Node>>| {
-            let mut layer = Node::layer(b.id(), &format!("Page {}", number + 1), LayerColor::Preset((i % 27) as u8));
-            if let NodeKind::Layer { children: c, .. } = &mut layer.kind {
-                *c = art;
+        let page_layer = |b: &mut Builder<'_>, art: Vec<Arc<Node>>, shown: bool| {
+            let name = if shown { format!("Page {}", number + 1) } else { format!("Page {} (unsorted)", number + 1) };
+            let mut layer = Node::layer(b.id(), &name, LayerColor::Preset((i % 27) as u8));
+            layer.visible = shown;
+            if let NodeKind::Layer { children: c, printable, .. } = &mut layer.kind {
+                (*c, *printable) = (art, shown);
             }
             Slot::Page(Box::new(layer))
         };
         if parts.is_empty() {
-            slots.push(page_layer(&mut b, vec![]));
+            slots.push(page_layer(&mut b, vec![], true));
         }
         for (key, art) in parts {
             match key {
-                None => slots.push(page_layer(&mut b, art)),
+                None => slots.push(page_layer(&mut b, art, true)),
+                Some(UNSORTED) => slots.push(page_layer(&mut b, art, false)),
                 Some(g) => {
                     let into = group_art.entry(g).or_insert_with(|| {
                         place_group(g, &ocgs, &mut slots, &mut nesting);
@@ -224,8 +273,25 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
     if placeholder {
         return Err(PdfError::PlaceholderOnly);
     }
+    // A group the pages mark but draw nothing in is an empty layer, as the editor had it.
+    for &g in &order {
+        if !nesting.contains_key(&g) {
+            slots.push(Slot::Group(g));
+        }
+    }
+    // The groups' layers stack as the pages mark them (the art outside them stays where it was
+    // drawn): a group that first paints on a later page doesn't go on top of the others.
+    let rank: HashMap<usize, usize> = order.iter().enumerate().map(|(i, &g)| (g, i)).collect();
+    let at: Vec<usize> = slots.iter().enumerate().filter(|(_, s)| matches!(s, Slot::Group(_))).map(|(i, _)| i).collect();
+    let mut stacked: Vec<usize> = slots.iter().filter_map(|s| if let Slot::Group(g) = s { Some(*g) } else { None }).collect();
+    stacked.sort_by_key(|g| rank.get(g).copied().unwrap_or(usize::MAX));
+    for (i, g) in at.into_iter().zip(stacked) {
+        if let Some(s) = slots.get_mut(i) {
+            *s = Slot::Group(g);
+        }
+    }
     for (n, slot) in slots.into_iter().enumerate() {
-        let layer = match slot {
+        let mut layer = match slot {
             Slot::Page(l) => *l,
             // Sublayers take their top-level layer's colour.
             Slot::Group(g) => match group_layer(&mut b, g, &ocgs, &nesting, &mut group_art, LayerColor::Preset((n % 27) as u8)) {
@@ -233,6 +299,9 @@ pub fn import_with_report(bytes: &[u8], opts: &ImportOptions) -> Result<ImportRe
                 None => continue,
             },
         };
+        if let Some(art) = layer.children_mut() {
+            crate::import_lines::rebuild(art, &b.lines);
+        }
         doc.layers.push(Arc::new(layer));
     }
     for (k, blob) in b.images.drain() {
@@ -316,6 +385,33 @@ impl CidText {
         let cid = *self.cids.get(glyph as usize)?;
         self.table.lookup_bf_string(u32::from(cid))
     }
+}
+
+/// A ToUnicode value that names no character: U+FFFD alone (#708).
+fn replacement(u: &hayro_interpret::hayro_cmap::BfString) -> bool {
+    use hayro_interpret::hayro_cmap::BfString;
+    match u {
+        BfString::Char(c) => *c == char::REPLACEMENT_CHARACTER,
+        BfString::String(s) => !s.is_empty() && s.chars().all(|c| c == char::REPLACEMENT_CHARACTER),
+    }
+}
+
+/// The character of each glyph of an embedded TrueType or OpenType font program, from its own
+/// `cmap` (the first character mapped to each glyph); `None` for a bare CFF or a font without one.
+pub(crate) fn font_chars(data: &[u8]) -> Option<HashMap<u32, char>> {
+    use skrifa::MetadataProvider;
+    // As for CidText: whole fonts are some megabytes.
+    if data.len() > 64 << 20 {
+        return None;
+    }
+    let font = skrifa::FontRef::new(data).ok()?;
+    let mut chars = HashMap::new();
+    for (c, g) in font.charmap().mappings() {
+        if let Some(c) = char::from_u32(c).filter(|c| !c.is_control()) {
+            chars.entry(g.to_u32()).or_insert(c);
+        }
+    }
+    (!chars.is_empty()).then_some(chars)
 }
 
 /// The ideographs of the Kangxi radicals U+2F00–U+2FD5 (their NFKC forms): the CID → Unicode
@@ -468,12 +564,21 @@ struct Frame {
     children: Vec<Arc<Node>>,
     /// The first optional content group entered inside (where the frame's art goes).
     group: Option<usize>,
+    /// The group each child was drawn in, where the frame's art goes when the frame dissolves
+    /// into its parent (a layer's form drawing its sublayers' forms).
+    child_groups: Vec<Option<usize>>,
 }
 
 impl Frame {
     fn new(kind: FrameKind) -> Self {
-        Self { kind, children: vec![], group: None }
+        Self { kind, children: vec![], group: None, child_groups: vec![] }
     }
+}
+
+/// A dissolving frame's `children`, each with the group it was drawn in (`groups`, else the
+/// frame's `group`).
+fn grouped(children: Vec<Arc<Node>>, groups: Vec<Option<usize>>, group: Option<usize>) -> impl Iterator<Item = (Arc<Node>, Option<usize>)> {
+    children.into_iter().zip(groups.into_iter().map(move |g| g.or(group)).chain(std::iter::repeat(group)))
 }
 
 /// Glyphs drawn consecutively with the same paint, merged into one path.
@@ -514,6 +619,8 @@ struct Builder<'p> {
     image_keys: HashMap<u128, (String, u32, u32)>,
     /// The images kept with their CMYK samples ([`crate::import_image`]).
     cmyk_keys: HashSet<u128>,
+    /// Mask keys of CMYK images whose mask turned out to hide nothing.
+    opaque: HashSet<u128>,
     warnings: Vec<String>,
     /// Fonts by cache key → base font name (from [`scan_page`]).
     fonts: HashMap<u128, String>,
@@ -523,6 +630,9 @@ struct Builder<'p> {
     /// Font (cache key) → its characters by glyph, for CID-keyed fonts embedded without a
     /// ToUnicode map.
     cid_text: HashMap<u128, Option<Arc<CidText>>>,
+    /// Font (cache key) → the character of each glyph its embedded font program maps
+    /// ([`font_chars`]), for glyphs the file's ToUnicode map doesn't name (#708).
+    font_chars: HashMap<u128, Option<Arc<HashMap<u32, char>>>>,
     /// Font (cache key) → the installed face that draws its glyphs, decided from its first glyph
     /// that can be compared ([`matching_face`]); `None`: its glyphs differ, so it stays outlines.
     matched: HashMap<u128, Option<Arc<vectorcraft_text::FontFace>>>,
@@ -542,6 +652,9 @@ struct Builder<'p> {
     aligned: bool,
     /// Whether optional content groups become layers.
     route: bool,
+    /// Some groups are hidden or don't print: art in marked content whose group can't be told
+    /// (once the scan and the interpreter part) is [`UNSORTED`] rather than the page's.
+    unsure: bool,
     /// The marked-content sequences open: the group each marks.
     marked: Vec<Option<usize>>,
     /// A transparency group was just pushed: a form's (whose flags come next) or an image's.
@@ -549,6 +662,8 @@ struct Builder<'p> {
     nested: u32,
     /// The last filled path: its node and its outline (a stroke of the same outline joins it).
     last_fill: Option<(NodeId, BezPath)>,
+    /// What each line of type made tells beyond its text object ([`crate::import_lines`]).
+    lines: HashMap<NodeId, LineFacts>,
 }
 
 fn blend(b: hayro_interpret::BlendMode) -> BlendMode {
@@ -660,12 +775,14 @@ impl<'p> Builder<'p> {
             images: HashMap::new(),
             image_keys: HashMap::new(),
             cmyk_keys: HashSet::new(),
+            opaque: HashSet::new(),
             warnings: vec![],
             fonts: HashMap::new(),
             font_names: HashMap::new(),
             families: None,
             missing_fonts: vec![],
             cid_text: HashMap::new(),
+            font_chars: HashMap::new(),
             matched: HashMap::new(),
             mask: None,
             masked: vec![],
@@ -678,10 +795,12 @@ impl<'p> Builder<'p> {
             group_at: 0,
             aligned: true,
             route,
+            unsure: false,
             marked: vec![],
             pending: false,
             nested: 0,
             last_fill: None,
+            lines: HashMap::new(),
         }
     }
 
@@ -767,10 +886,14 @@ impl<'p> Builder<'p> {
         let current = self.current_group();
         let Some(f) = self.stack.last_mut() else { return };
         f.children.push(n);
+        // A frame's art goes where its first art was drawn (a clip can end in a later group).
         if root {
             self.root_groups.push(group.or(current));
-        } else if f.group.is_none() {
-            f.group = group;
+        } else {
+            f.child_groups.push(group.or(current));
+            if f.group.is_none() {
+                f.group = group.or(current);
+            }
         }
     }
 
@@ -848,7 +971,7 @@ impl<'p> Builder<'p> {
         let node = match f.kind {
             FrameKind::Root => None,
             FrameKind::Skip => {
-                f.children.into_iter().for_each(|c| self.emit(c, group));
+                grouped(f.children, f.child_groups, group).for_each(|(c, g)| self.emit(c, g));
                 None
             }
             FrameKind::Clip(clip) => {
@@ -857,7 +980,7 @@ impl<'p> Builder<'p> {
                     None
                 } else if noop.is_some_and(|r| bounds(&f.children).is_some_and(|b| contains(r, b))) {
                     // A rectangle around all of its art (a form's box) clips nothing.
-                    f.children.into_iter().for_each(|c| self.emit(c, group));
+                    grouped(f.children, f.child_groups, group).for_each(|(c, g)| self.emit(c, g));
                     None
                 } else {
                     let mut ch = vec![Arc::new(*clip)];
@@ -880,7 +1003,7 @@ impl<'p> Builder<'p> {
                 if children.is_empty() {
                     None
                 } else if plain {
-                    children.into_iter().for_each(|c| self.emit(c, group));
+                    grouped(children, f.child_groups, group).for_each(|(c, g)| self.emit(c, g));
                     None
                 } else if let [only] = children.as_slice()
                     && !only.is_container()
@@ -936,9 +1059,10 @@ impl<'p> Builder<'p> {
     }
 
     fn flush_text(&mut self) {
-        let Some((t, opacity)) = self.text.take().and_then(TextLine::finish) else { return };
+        let Some((t, opacity, facts)) = self.text.take().and_then(TextLine::finish) else { return };
         let mut n = Node::new(self.id(), NodeKind::Text(Box::new(t)));
         n.opacity = opacity;
+        self.lines.insert(n.id, facts);
         self.push_node(n);
     }
 
@@ -1056,6 +1180,40 @@ impl<'p> Builder<'p> {
     }
 
     fn add_image(&mut self, key: u128, make: impl FnOnce() -> Option<(ImageBlob, u32, u32)>, xf: Affine) {
+        self.add_image_masked(key, make, xf, None);
+    }
+
+    /// An image's alpha (its soft mask, stencil mask or colour key, at its own resolution) as a
+    /// greyscale image over the image's `w` × `h` pixels (`transform`): its opacity mask. `None`
+    /// when it masks nothing.
+    fn alpha_mask(&mut self, key: u128, r: &hayro_interpret::RasterImage<'_>, w: u32, h: u32, transform: Affine) -> Option<OpacityMask> {
+        let mkey = key ^ 0x5_3a5c;
+        if self.opaque.contains(&mkey) {
+            return None;
+        }
+        let (k, mw, mh) = if let Some(v) = self.image_keys.get(&mkey).cloned() {
+            v
+        } else {
+            let mut alpha = None;
+            r.with_rgba(|_, a| alpha = a, None);
+            let Some(a) = alpha.filter(|a| a.data.iter().any(|v| *v < 255)) else {
+                self.opaque.insert(mkey);
+                return None;
+            };
+            let mut png = Vec::new();
+            image::GrayImage::from_raw(a.width, a.height, a.data)?.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+            let blob = ImageBlob::new("image/png", png);
+            let k = blob.content_key();
+            self.images.insert(k.clone(), blob);
+            self.image_keys.insert(mkey, (k.clone(), a.width, a.height));
+            (k, a.width, a.height)
+        };
+        let xf = transform * Affine::scale_non_uniform(f64::from(w) / f64::from(mw.max(1)), f64::from(h) / f64::from(mh.max(1)));
+        let art = Node::new(self.id(), NodeKind::Image(ImageObject { key: k, width: mw, height: mh, xf, link: None, placement: Default::default() }));
+        Some(OpacityMask::new(art, true))
+    }
+
+    fn add_image_masked(&mut self, key: u128, make: impl FnOnce() -> Option<(ImageBlob, u32, u32)>, xf: Affine, mask: Option<OpacityMask>) {
         let (k, w, h) = if let Some(v) = self.image_keys.get(&key).cloned() {
             v
         } else {
@@ -1070,7 +1228,9 @@ impl<'p> Builder<'p> {
             (k, w, h)
         };
         let id = self.id();
-        self.push_node(Node::new(id, NodeKind::Image(ImageObject { key: k, width: w, height: h, xf, link: None, placement: Default::default() })));
+        let mut n = Node::new(id, NodeKind::Image(ImageObject { key: k, width: w, height: h, xf, link: None, placement: Default::default() }));
+        n.mask = mask.map(Box::new);
+        self.push_node(n);
     }
 
     /// Mesh shadings filling `region` (document space): gradient meshes, clipped to the region
@@ -1138,17 +1298,34 @@ impl<'p> Builder<'p> {
             return false;
         }
         let key = o.font_cache_key();
-        let (unicode, from_cid) = match o.as_unicode() {
+        let glyph = o.glyph_id().to_u32();
+        let (unicode, from_cid) = match o.as_unicode().filter(|u| !replacement(u)) {
             Some(u) => (Some(u), false),
+            // No mapping, or one to U+FFFD (#708): the font program may still name the character.
             None => {
                 let cid = self.cid_text.entry(key).or_insert_with(|| o.font_data().and_then(|d| CidText::of(d.data.as_ref().as_ref())).map(Arc::new));
-                (cid.as_ref().and_then(|c| c.unicode(o.glyph_id().to_u32())), true)
+                match cid.as_ref().and_then(|c| c.unicode(glyph)) {
+                    Some(u) => (Some(u), true),
+                    None => {
+                        let chars = self
+                            .font_chars
+                            .entry(key)
+                            .or_insert_with(|| o.font_data().and_then(|d| font_chars(d.data.as_ref().as_ref())).map(Arc::new));
+                        (chars.as_ref().and_then(|m| m.get(&glyph)).map(|c| BfString::Char(*c)), false)
+                    }
+                }
             }
         };
         let text: String = match unicode {
             Some(BfString::Char(c)) => c.to_string(),
             Some(BfString::String(s)) => s,
-            None => return false,
+            None => {
+                if o.as_unicode().is_some_and(|u| replacement(&u)) {
+                    let name = self.font_name(key, o).family;
+                    self.warn(&format!("text in {name} whose characters the file doesn't name (U+FFFD) was kept as outlines"));
+                }
+                return false;
+            }
         };
         // Adobe's CID tables map some ideographs to their look-alike Kangxi radicals.
         let text: String = if from_cid { text.chars().map(unify_radical).collect() } else { text };
@@ -1207,6 +1384,14 @@ impl<'p> Builder<'p> {
             let mut line = TextLine::new(at, opacity);
             place(&mut line);
             self.text = Some(line);
+        }
+        // Its ink: a stroke the file draws as outlines of the glyphs is told by it.
+        let mut ink = o.outline();
+        if let Some(line) = &mut self.text
+            && !ink.elements().is_empty()
+        {
+            ink.apply_affine(m);
+            line.ink.push(ink.bounding_box());
         }
         true
     }
@@ -1444,7 +1629,10 @@ impl<'a> Device<'a> for Builder<'_> {
                 };
                 if known || cmyk.is_some() {
                     self.cmyk_keys.insert(key);
-                    return self.add_image(key, || cmyk.map(|blob| (blob, w, h)), transform);
+                    // Its mask (read by the interpreter, whatever its kind) becomes an opacity
+                    // mask, so the inks stay as they are.
+                    let mask = if crate::import_image::has_mask(st) { self.alpha_mask(key, &r, w, h, transform) } else { None };
+                    return self.add_image_masked(key, || cmyk.map(|blob| (blob, w, h)), transform, mask);
                 }
                 // JPEG passthrough for plain DeviceRGB/DeviceGray DCT images.
                 let dict = st.dict();
@@ -1521,13 +1709,15 @@ impl<'a> Device<'a> for Builder<'_> {
         let at = self.tag_at;
         self.tag_at += 1;
         let group = match self.scan.tags.get(at) {
-            Some((t, g)) if self.aligned && t.as_slice() == tag => *g,
+            Some((t, g)) if self.aligned && *t == tag_key(tag) => *g,
             _ => {
                 if self.route && self.aligned {
                     self.aligned = false;
-                    self.warn("some art couldn't be told apart by layer and went to its page's layer");
+                    let why = if self.scan.cut { "a page draws more than can be read for its layers: " } else { "" };
+                    let went = if self.unsure { "a hidden, non-printing layer of its page" } else { "its page's layer" };
+                    self.warn(&format!("{why}some art couldn't be told apart by layer and went to {went}"));
                 }
-                None
+                self.unsure.then_some(UNSORTED)
             }
         }
         .filter(|_| self.route);
@@ -1549,8 +1739,10 @@ impl<'a> Device<'a> for Builder<'_> {
         if self.nested > 0 {
             return;
         }
-        if self.marked.pop().flatten().is_some() {
+        // The runs gathered within a layer's sequence are its art: finish them before it ends.
+        if self.marked.last().copied().flatten().is_some() {
             self.flush();
         }
+        self.marked.pop();
     }
 }

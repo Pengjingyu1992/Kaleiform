@@ -13,7 +13,8 @@ pub(super) fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(18)))
         .show(ctx, |ui| {
             // Tabs: About · Contributors · Models (the credits are compiled in, see `credits`).

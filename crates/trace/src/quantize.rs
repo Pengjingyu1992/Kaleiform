@@ -1,6 +1,6 @@
 //! Colour reduction and noise removal.
 
-use crate::{Mode, Raster, TraceParams};
+use crate::{Mode, Palette, Raster, TraceParams};
 
 /// Label of a transparent (untraced) pixel.
 pub const TRANSPARENT: u16 = u16::MAX;
@@ -55,7 +55,8 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
             });
             compact(labels, palette.collect())
         }
-        Mode::Color => {
+        // Logo mode traces without quantising; asked directly, it quantises like Color.
+        Mode::Color | Mode::Logo => {
             // 15-bit colour histogram with per-bin sums (exact bin means).
             let mut bins: Vec<Bin> = vec![Bin::default(); 1 << 15];
             for p in img.rgba.as_chunks::<4>().0 {
@@ -67,10 +68,8 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
                     b.sum[2] += p[2] as u64;
                 }
             }
-            let used: Vec<(usize, [f64; 3], f64)> =
-                bins.iter().enumerate().filter(|(_, b)| b.n > 0).map(|(i, b)| (i, b.mean(), b.n as f64)).collect();
-            let k = params.colors.clamp(2, 256) as usize;
-            let centers = kmeans_rgb(&used, k);
+            let used: Vec<Used> = bins.iter().enumerate().filter(|(_, b)| b.n > 0).map(|(i, b)| (i, b.mean(), b.n as f64)).collect();
+            let centers = color_palette(&used, params);
             let mut lut = vec![0u16; 1 << 15];
             for (i, c, _) in &used {
                 lut[*i] = nearest_rgb(&centers, *c) as u16;
@@ -187,12 +186,108 @@ fn nearest_rgb(centers: &[[f64; 3]], c: [f64; 3]) -> usize {
     best.1
 }
 
-/// Median cut for the initial palette, then weighted k-means refinement over histogram bins.
-fn kmeans_rgb(used: &[(usize, [f64; 3], f64)], k: usize) -> Vec<[f64; 3]> {
-    if used.is_empty() {
-        return vec![[255.0; 3]];
+/// The most colours Full Tone (and Automatic on continuous-tone images) makes.
+pub const FULL_TONE_MAX: usize = 256;
+
+/// A histogram bin in use: its index, mean colour and pixel count.
+type Used = (usize, [f64; 3], f64);
+
+/// Color mode's palette for the histogram bins `used`, as `params.palette` asks.
+fn color_palette(used: &[Used], params: &TraceParams) -> Vec<[f64; 3]> {
+    let k = params.colors.clamp(2, 256) as usize;
+    let detail = (params.color_detail / 100.0).clamp(0.0, 1.0);
+    // Full Tone: split until no colour box is wider than 96 (few colours) … 8 (many) levels per
+    // channel, which is one histogram bin.
+    let full_tone = || refine(used, centers(&median_cut(used, FULL_TONE_MAX, 96.0 - 88.0 * detail)));
+    match params.palette {
+        Palette::Limited => kmeans_rgb(used, k),
+        Palette::FullTone => full_tone(),
+        Palette::Automatic => match flat_colors(used, detail) {
+            Some(n) => kmeans_rgb(used, n),
+            None => full_tone(),
+        },
+        Palette::DocumentLibrary if !params.swatches.is_empty() => library_colors(used, &params.swatches, k),
+        // No library colours to use: as Limited.
+        Palette::DocumentLibrary => kmeans_rgb(used, k),
     }
-    // Median cut: repeatedly split the box with the largest weighted extent.
+}
+
+/// Automatic: how many colours flat art is made of, or `None` for continuous tone (photos,
+/// gradients). Flat art has most of its pixels in a few tight colours (anti-aliased edges and
+/// noise aside): the bins holding 90% of the pixels are few, and each colour's pixels sit mostly
+/// in one bin. `detail` (0–1) lets smaller colour areas count as colours of their own.
+fn flat_colors(used: &[Used], detail: f64) -> Option<usize> {
+    let total: f64 = used.iter().map(|u| u.2).sum();
+    if total <= 0.0 {
+        return Some(2);
+    }
+    let mut by_count: Vec<&Used> = used.iter().collect();
+    by_count.sort_by(|a, b| b.2.total_cmp(&a.2));
+    let mut covered = 0.0;
+    let main = by_count
+        .iter()
+        .take_while(|u| {
+            let before = covered;
+            covered += u.2;
+            before < 0.9 * total
+        })
+        .count();
+    if main > FLAT_BINS {
+        return None;
+    }
+    let boxes = median_cut(used, 64, 24.0);
+    let min_share = (0.04 - 0.035 * detail) * total;
+    let colours: Vec<&ColorBox> = boxes.iter().filter(|b| b.weight >= min_share).collect();
+    let weight: f64 = colours.iter().map(|b| b.weight).sum();
+    let peaks: f64 = colours.iter().map(|b| b.peak).sum();
+    (weight >= 0.9 * total && peaks >= 0.5 * weight && colours.len() <= 32).then_some(colours.len().max(2))
+}
+
+/// The most histogram bins flat art's main colours spread over (a few bins per colour).
+const FLAT_BINS: usize = 96;
+
+/// Document Library: the `k` swatches (at most) that the most pixels are nearest to.
+fn library_colors(used: &[Used], swatches: &[[u8; 3]], k: usize) -> Vec<[f64; 3]> {
+    let mut all: Vec<[f64; 3]> = vec![];
+    for s in swatches {
+        let c = s.map(f64::from);
+        if !all.contains(&c) {
+            all.push(c);
+        }
+    }
+    let mut weight = vec![0.0; all.len()];
+    for (_, c, n) in used {
+        if let Some(w) = weight.get_mut(nearest_rgb(&all, *c)) {
+            *w += n;
+        }
+    }
+    let mut order: Vec<usize> = (0..all.len()).collect();
+    order.sort_by(|a, b| weight[*b].total_cmp(&weight[*a]).then(a.cmp(b)));
+    order.into_iter().take(k.max(1)).filter_map(|i| all.get(i).copied()).collect()
+}
+
+/// A median-cut box: its weighted mean colour, pixel count and the pixel count of its heaviest bin.
+struct ColorBox {
+    mean: [f64; 3],
+    weight: f64,
+    peak: f64,
+}
+
+fn centers(boxes: &[ColorBox]) -> Vec<[f64; 3]> {
+    boxes.iter().map(|b| b.mean).collect()
+}
+
+/// Median cut to `k` colours, then weighted k-means refinement over histogram bins.
+fn kmeans_rgb(used: &[Used], k: usize) -> Vec<[f64; 3]> {
+    refine(used, centers(&median_cut(used, k, 0.0)))
+}
+
+/// Median cut: repeatedly split the box with the largest weighted extent, while there are fewer
+/// than `k` boxes and some box spans more than `spread` levels of a channel.
+fn median_cut(used: &[Used], k: usize, spread: f64) -> Vec<ColorBox> {
+    if used.is_empty() {
+        return vec![ColorBox { mean: [255.0; 3], weight: 0.0, peak: 0.0 }];
+    }
     let mut boxes: Vec<Vec<usize>> = vec![(0..used.len()).collect()];
     while boxes.len() < k {
         let mut best: Option<(f64, usize, usize)> = None;
@@ -210,7 +305,7 @@ fn kmeans_rgb(used: &[(usize, [f64; 3], f64)], k: usize) -> Vec<[f64; 3]> {
                 wsum += used[i].2;
             }
             let (ch, range) = (0..3).map(|c| (c, hi[c] - lo[c])).fold((0, -1.0), |a, b| if b.1 > a.1 { b } else { a });
-            if range <= 0.0 {
+            if range <= spread.max(0.0) {
                 continue;
             }
             let score = range * wsum.sqrt();
@@ -235,21 +330,25 @@ fn kmeans_rgb(used: &[(usize, [f64; 3], f64)], k: usize) -> Vec<[f64; 3]> {
         boxes.push(b);
         boxes.push(tail);
     }
-    let mut centers: Vec<[f64; 3]> = boxes
+    boxes
         .iter()
         .map(|b| {
             let mut s = [0.0; 3];
-            let mut w = 0.0;
+            let (mut w, mut peak) = (0.0, 0.0f64);
             for &i in b {
                 for (acc, v) in s.iter_mut().zip(used[i].1) {
                     *acc += v * used[i].2;
                 }
                 w += used[i].2;
+                peak = peak.max(used[i].2);
             }
-            [s[0] / w, s[1] / w, s[2] / w]
+            ColorBox { mean: [s[0] / w, s[1] / w, s[2] / w], weight: w, peak }
         })
-        .collect();
-    // Lloyd refinement.
+        .collect()
+}
+
+/// Lloyd refinement of `centers` over the bins `used`.
+fn refine(used: &[Used], mut centers: Vec<[f64; 3]>) -> Vec<[f64; 3]> {
     for _ in 0..12 {
         let mut sum = vec![[0.0; 3]; centers.len()];
         let mut cnt = vec![0.0; centers.len()];

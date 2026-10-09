@@ -45,10 +45,14 @@ struct Entry {
 /// The palette's entries in `lang`. They are built when the language, the installed plug-ins or
 /// the keyboard shortcuts (shown beside each entry) change, not on every frame while a query is
 /// typed.
+/// What the entries depend on: the language, the installed plug-ins and the shortcuts.
+fn cache_key(lang: crate::i18n::Lang) -> (&'static str, u64, u64) {
+    (lang.code(), menus::plugin_revision(), crate::shortcut_editor::GENERATION.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 fn entries(ctx: &egui::Context, lang: crate::i18n::Lang) -> Arc<Vec<Entry>> {
     type Cached = ((&'static str, u64, u64), Arc<Vec<Entry>>);
-    let shortcuts = crate::shortcut_editor::GENERATION.load(std::sync::atomic::Ordering::Relaxed);
-    let key = (lang.code(), menus::plugin_revision(), shortcuts);
+    let key = cache_key(lang);
     let id = egui::Id::new("palette-entries");
     if let Some((k, v)) = ctx.data(|d| d.get_temp::<Cached>(id))
         && k == key
@@ -121,8 +125,16 @@ mod tests {
     fn entries_are_built_once_per_language_and_match_english_shown_text_and_ids() {
         let ctx = egui::Context::default();
         let zh = Lang::from_code("zh-hant").unwrap();
-        let en = entries(&ctx, Lang::EN);
-        assert!(Arc::ptr_eq(&en, &entries(&ctx, Lang::EN)), "kept while the language stays");
+        // Tests running alongside edit shortcuts and install plug-ins, which rebuilds the entries:
+        // look twice until nothing changed in between.
+        let (en, again) = (0..100)
+            .find_map(|_| {
+                let key = cache_key(Lang::EN);
+                let pair = (entries(&ctx, Lang::EN), entries(&ctx, Lang::EN));
+                (cache_key(Lang::EN) == key).then_some(pair)
+            })
+            .unwrap();
+        assert!(Arc::ptr_eq(&en, &again), "kept while the language stays");
         let zh_entries = entries(&ctx, zh);
         assert!(!Arc::ptr_eq(&en, &zh_entries), "rebuilt for another language");
         // Editing a shortcut rebuilds them, so the palette shows the new one.

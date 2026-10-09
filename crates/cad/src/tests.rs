@@ -129,30 +129,42 @@ fn every_version_declares_its_acadver_and_is_well_formed() {
 fn lines_are_lwpolylines_curves_splines_and_fills_hatches() {
     let d = shapes_doc();
     let out = export(&d, &opts(&d)).unwrap();
-    assert_eq!(kinds(&out), ["HATCH", "LWPOLYLINE", "SPLINE"], "fill, then stroke, then the ellipse's stroke");
+    assert_eq!(
+        kinds(&out),
+        ["LWPOLYLINE", "HATCH", "LWPOLYLINE", "SPLINE"],
+        "the fill's outline and hatch, then the stroke, then the ellipse's stroke"
+    );
     let e = entities(&out);
     // The rectangle, y up from the artboard's bottom-left corner: 10..110 × 40..90.
-    let poly = &e[1];
-    assert_eq!(get(poly, 70), Some("1"), "closed");
-    let mut xs = all(poly, 10);
-    xs.sort_by(f64::total_cmp);
-    assert_eq!(xs, [10.0, 10.0, 110.0, 110.0]);
-    let mut ys = all(poly, 20);
-    ys.sort_by(f64::total_cmp);
-    assert_eq!(ys, [40.0, 40.0, 90.0, 90.0]);
-    let hatch = &e[0];
+    let corners = |poly: &Pairs| {
+        let mut xs = all(poly, 10);
+        xs.sort_by(f64::total_cmp);
+        let mut ys = all(poly, 20);
+        ys.sort_by(f64::total_cmp);
+        (xs, ys)
+    };
+    let rect = (vec![10.0, 10.0, 110.0, 110.0], vec![40.0, 40.0, 90.0, 90.0]);
+    for poly in [&e[0], &e[2]] {
+        assert_eq!(get(poly, 70), Some("1"), "closed");
+        assert_eq!(corners(poly), rect);
+    }
+    // Laser and cutter software skips hatches: the fill's outline comes first, without a lineweight.
+    assert_eq!((get(&e[0], 370), get(&e[2], 370)), (None, Some("35")));
+    let hatch = &e[1];
     assert_eq!((get(hatch, 2), get(hatch, 70), get(hatch, 91), get(hatch, 93)), (Some("SOLID"), Some("1"), Some("1"), Some("4")));
     // The ellipse: four cubics through clamped knots.
-    let spline = &e[2];
+    let spline = &e[3];
     assert_eq!((get(spline, 71), get(spline, 73)), (Some("3"), Some("13")));
     assert_eq!(all(spline, 40), [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0]);
     // R14 has lightweight polylines but no lineweights: the stroke is a polyline width.
     let r14 = export(&d, &DxfOptions { version: DxfVersion::R14, ..opts(&d) }).unwrap();
-    assert_eq!(get(&entities(&r14)[1], 43), Some("1"));
-    assert_eq!(get(&entities(&r14)[1], 370), None);
+    assert_eq!(get(&entities(&r14)[2], 43), Some("1"));
+    assert_eq!(get(&entities(&r14)[2], 370), None);
+    assert_eq!(get(&entities(&r14)[0], 43), None, "a fill's outline has no width");
     // R13 has splines and hatches, and polylines of vertices.
     let r13 = export(&d, &DxfOptions { version: DxfVersion::R13, ..opts(&d) }).unwrap();
-    assert_eq!(kinds(&r13), ["HATCH", "POLYLINE", "VERTEX", "VERTEX", "VERTEX", "VERTEX", "SEQEND", "SPLINE"]);
+    let poly = ["POLYLINE", "VERTEX", "VERTEX", "VERTEX", "VERTEX", "SEQEND"];
+    assert_eq!(kinds(&r13), [&poly[..], &["HATCH"], &poly, &["SPLINE"]].concat());
     // R12: polylines only; the fill is its outline, the ellipse flattened.
     let r12 = export(&d, &DxfOptions { version: DxfVersion::R12, ..opts(&d) }).unwrap();
     let k = kinds(&r12);
@@ -171,8 +183,9 @@ fn colours_map_to_the_index_palette_or_true_colour() {
     };
     let out = export(&d, &opts(&d)).unwrap();
     assert_eq!(style(&out, 0), (Some("1".into()), Some("16711680".into())), "red: index 1, true colour 0xFF0000");
-    assert_eq!(style(&out, 1), (Some("7".into()), Some("0".into())), "black is index 7");
-    assert_eq!(style(&out, 2), (Some("5".into()), Some("255".into())));
+    assert_eq!(style(&out, 1), style(&out, 0), "the fill's outline has the fill's colour");
+    assert_eq!(style(&out, 2), (Some("7".into()), Some("0".into())), "black is index 7");
+    assert_eq!(style(&out, 3), (Some("5".into()), Some("255".into())));
     for depth in [ColorDepth::Aci8, ColorDepth::Aci16, ColorDepth::Aci256] {
         let o = export(&d, &DxfOptions { colors: depth, ..opts(&d) }).unwrap();
         assert_eq!(style(&o, 0), (Some("1".into()), None), "{depth:?}");
@@ -196,7 +209,7 @@ fn colours_map_to_the_index_palette_or_true_colour() {
 fn units_scale_coordinates_and_set_insunits() {
     let d = shapes_doc();
     let insunits = |o: &DxfOutput| header(&pairs(&o.bytes), "$INSUNITS");
-    let max_x = |o: &DxfOutput| all(&entities(o)[1], 10).into_iter().fold(f64::MIN, f64::max);
+    let max_x = |o: &DxfOutput| all(&entities(o)[2], 10).into_iter().fold(f64::MIN, f64::max);
     let mm = export(&d, &DxfOptions { unit: Unit::Millimeters, ..opts(&d) }).unwrap();
     assert_eq!(insunits(&mm).as_deref(), Some("4"));
     assert!((max_x(&mm) - 110.0 * 25.4 / 72.0).abs() < 1e-5);
@@ -208,9 +221,9 @@ fn units_scale_coordinates_and_set_insunits() {
     assert_eq!(insunits(&scaled).as_deref(), Some("0"));
     assert!((max_x(&scaled) - 110.0 / 72.0 * 10.0).abs() < 1e-5);
     // Lineweights: 1 pt is 0.35 mm, scaled with the drawing only when asked.
-    assert_eq!(get(&entities(&scaled)[1], 370), Some("35"));
+    assert_eq!(get(&entities(&scaled)[2], 370), Some("35"));
     let heavy = export(&d, &DxfOptions { unit: Unit::Inches, scale: 2.0, scale_lineweights: true, ..opts(&d) }).unwrap();
-    assert_eq!(get(&entities(&heavy)[1], 370), Some("70"));
+    assert_eq!(get(&entities(&heavy)[2], 370), Some("70"));
     assert!(export(&d, &DxfOptions { scale: 0.0, ..opts(&d) }).is_err());
     assert!(export(&d, &DxfOptions { scale: f64::NAN, ..opts(&d) }).is_err());
 }
@@ -238,7 +251,7 @@ fn layers_become_dxf_layers() {
     assert_eq!(names, ["0", "Layer 1", "Dims_ _top_", "Notes"], "the template layer is left out");
     assert!(layers[3].1.starts_with('-'), "a hidden layer is switched off");
     let on: Vec<String> = entities(&out).iter().map(|e| get(e, 8).unwrap().to_string()).collect();
-    assert_eq!(on, ["Layer 1", "Layer 1", "Layer 1", "Dims_ _top_", "Notes"]);
+    assert_eq!(on, ["Layer 1", "Layer 1", "Layer 1", "Layer 1", "Dims_ _top_", "Dims_ _top_", "Notes", "Notes"]);
     // Before 2000: capitals, letters, digits and $-_ only.
     let r12 = export(&d, &DxfOptions { version: DxfVersion::R12, ..opts(&d) }).unwrap();
     let names: Vec<String> = table(&r12, "LAYER").iter().map(|o| get(o, 2).unwrap().to_string()).collect();
@@ -270,18 +283,21 @@ fn dashes_become_linetypes_and_opacity_transparency() {
 fn alter_paths_writes_strokes_as_filled_outlines() {
     let d = shapes_doc();
     let out = export(&d, &DxfOptions { alter_paths: true, ..opts(&d) }).unwrap();
-    assert_eq!(kinds(&out), ["HATCH", "HATCH", "HATCH"]);
+    // Each fill and stroke: its outlines, then its hatch.
+    let fill = ["LWPOLYLINE", "HATCH"];
+    let rect_stroke = ["LWPOLYLINE", "LWPOLYLINE", "HATCH"];
+    assert_eq!(kinds(&out), [&fill[..], &rect_stroke, &["SPLINE", "SPLINE", "HATCH"]].concat());
     // The rectangle's stroke: an outer and an inner boundary.
-    assert_eq!(get(&entities(&out)[1], 91), Some("2"));
+    assert_eq!(get(&entities(&out)[4], 91), Some("2"));
     // Preserve Appearance outlines only the strokes a line can't draw.
     let mut d = shapes_doc();
     let rect = d.layers[0].children().and_then(|c| c.first()).map(|n| n.id).unwrap();
     if let Some(st) = d.node_mut(rect).and_then(|n| n.appearance.stroke_mut()) {
         st.align = vectorcraft_doc::StrokeAlign::Outside;
     }
-    assert_eq!(kinds(&export(&d, &opts(&d)).unwrap()), ["HATCH", "HATCH", "SPLINE"]);
+    assert_eq!(kinds(&export(&d, &opts(&d)).unwrap()), [&fill[..], &rect_stroke, &["SPLINE"]].concat());
     let editable = export(&d, &DxfOptions { preserve: Preserve::Editability, ..opts(&d) }).unwrap();
-    assert_eq!(kinds(&editable), ["HATCH", "LWPOLYLINE", "SPLINE"]);
+    assert_eq!(kinds(&editable), ["LWPOLYLINE", "HATCH", "LWPOLYLINE", "SPLINE"]);
     assert!(editable.warnings.iter().any(|w| w.contains("stroke alignment")));
 }
 
@@ -308,7 +324,9 @@ fn type_is_text_or_outlines() {
     // Outline Text, and Preserve Appearance: the glyphs as filled outlines.
     for o in [DxfOptions { preserve: Preserve::Editability, outline_text: true, ..opts(&d) }, opts(&d)] {
         let k = kinds(&export(&d, &o).unwrap());
-        assert!(!k.is_empty() && k.iter().all(|k| k == "HATCH"), "{k:?}");
+        assert!(k.iter().any(|k| k == "HATCH"), "{k:?}");
+        assert!(k.iter().all(|k| matches!(k.as_str(), "HATCH" | "LWPOLYLINE" | "SPLINE")), "{k:?}");
+        assert_eq!(k.first().map(String::as_str), Some("SPLINE"), "a glyph's outline before its hatch");
     }
 }
 
@@ -367,5 +385,5 @@ fn crop_leaves_out_art_outside_the_region() {
     // Only the ellipse (120..180) reaches into 115..200.
     let o = DxfOptions { region: Rect::new(115.0, 0.0, 200.0, 100.0), crop: true, ..opts(&d) };
     assert_eq!(kinds(&export(&d, &o).unwrap()), ["SPLINE"]);
-    assert_eq!(kinds(&export(&d, &DxfOptions { crop: false, ..o }).unwrap()).len(), 3);
+    assert_eq!(kinds(&export(&d, &DxfOptions { crop: false, ..o }).unwrap()).len(), 4);
 }

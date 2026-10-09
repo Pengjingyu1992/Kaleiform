@@ -105,6 +105,12 @@ pub fn leaf_shapes<'a>(n: &'a Node, out: &mut Vec<&'a Node>) {
     if !n.visible {
         return;
     }
+    if n.shaper.is_some() {
+        for c in n.children().into_iter().flatten().skip(1) {
+            leaf_shapes(c, out);
+        }
+        return;
+    }
     match &n.kind {
         NodeKind::Path { guide: true, .. } | NodeKind::Path { clipping: true, .. } => {}
         NodeKind::Path { .. } | NodeKind::Compound { .. } => out.push(n),
@@ -162,12 +168,7 @@ fn shape_builder_shapes<'a>(doc: &'a Document, roots: &[NodeId]) -> (Vec<po::Sha
             continue;
         }
         for sp in s.path.subpaths.iter_mut().filter(|sp| !sp.closed) {
-            let mut closed = sp.clone();
-            closed.closed = true;
-            let mut bp = BezPath::new();
-            closed.to_bezpath_into(&mut bp);
-            let size = bp.bounding_box().size();
-            sp.closed = bp.area().abs() > 1e-9 * (size.width * size.width + size.height * size.height);
+            sp.closed = po::encloses_area(sp);
         }
     }
     (shapes, leaves)
@@ -195,6 +196,9 @@ pub struct BuilderMap {
     pub regions: Vec<Face>,
     /// Pieces of the unfilled open paths, keyed by input index, with their bounds.
     pub lines: Vec<(po::Shape, Rect)>,
+    /// Pieces of the other inputs' outlines (cut wherever paths meet), keyed by input index, with
+    /// their bounds: the edges erasing deletes. Only in a map made `with_edges`.
+    pub edges: Vec<(po::Shape, Rect)>,
 }
 
 /// What a Shape Builder gesture touches at a point.
@@ -202,18 +206,43 @@ pub struct BuilderMap {
 pub enum Hit {
     Region(usize),
     Line(usize),
+    Edge(usize),
+}
+
+/// The piece of `pieces` nearest `p` within `tol`, with its distance.
+fn piece_near(pieces: &[(po::Shape, Rect)], p: Point, tol: f64) -> Option<(f64, usize)> {
+    let mut best: Option<(f64, usize)> = None;
+    for (i, (l, b)) in pieces.iter().enumerate() {
+        if b.inflate(tol, tol).contains(p)
+            && let Some((.., d)) = l.path.nearest(p)
+            && d <= tol
+            && best.is_none_or(|b| d < b.0)
+        {
+            best = Some((d, i));
+        }
+    }
+    best
 }
 
 impl BuilderMap {
-    /// The map of `roots` (sorted back → front), with the leaves the inputs came from.
-    pub fn new<'a>(doc: &'a Document, roots: &[NodeId]) -> (Self, Vec<&'a Node>) {
+    /// The map of `roots` (sorted back → front), with the leaves the inputs came from; the outline
+    /// edges only `with_edges` (they cost a planar map of their own when no open path is in).
+    pub fn new<'a>(doc: &'a Document, roots: &[NodeId], with_edges: bool) -> (Self, Vec<&'a Node>) {
         let (shapes, leaves) = shape_builder_shapes(doc, roots);
         if shapes.is_empty() {
             return (Self::default(), leaves);
         }
-        let (regions, lines) = po::shape_builder(&shapes);
-        let lines = lines.into_iter().filter_map(|l| Some((l.path.bounds()?, l))).map(|(b, l)| (l, b)).collect();
-        (Self { shapes, regions: faces_of(regions), lines }, leaves)
+        let arr = po::shape_builder(&shapes, with_edges);
+        let bounded = |pieces: Vec<po::Shape>| {
+            pieces
+                .into_iter()
+                .filter_map(|l| {
+                    let b = l.path.bounds()?;
+                    Some((l, b))
+                })
+                .collect()
+        };
+        (Self { shapes, regions: faces_of(arr.regions), lines: bounded(arr.lines), edges: bounded(arr.edges) }, leaves)
     }
 
     /// The region containing `p`.
@@ -221,53 +250,56 @@ impl BuilderMap {
         self.regions.iter().position(|(_, bp, b)| b.contains(p) && bp.winding(p) != 0)
     }
 
-    /// The line piece nearest `p`, within `tol`.
-    pub fn line_near(&self, p: Point, tol: f64) -> Option<usize> {
-        let mut best: Option<(f64, usize)> = None;
-        for (i, (l, b)) in self.lines.iter().enumerate() {
-            if b.inflate(tol, tol).contains(p)
-                && let Some((.., d)) = l.path.nearest(p)
-                && d <= tol
-                && best.is_none_or(|b| d < b.0)
-            {
-                best = Some((d, i));
-            }
-        }
-        best.map(|b| b.1)
+    /// What a gesture at `p` touches: with `piece_tol` (erasing), the line piece or edge that
+    /// close, else the region under it.
+    pub fn hit(&self, p: Point, piece_tol: Option<f64>) -> Option<Hit> {
+        let piece = piece_tol.and_then(|t| match (piece_near(&self.lines, p, t), piece_near(&self.edges, p, t)) {
+            (Some(l), Some(e)) if e.0 < l.0 => Some(Hit::Edge(e.1)),
+            (Some(l), _) => Some(Hit::Line(l.1)),
+            (None, e) => e.map(|e| Hit::Edge(e.1)),
+        });
+        piece.or_else(|| self.region_at(p).map(Hit::Region))
     }
 
-    /// What a gesture at `p` touches: with `line_tol` (erasing), a line piece that close, else the
-    /// region under it.
-    pub fn hit(&self, p: Point, line_tol: Option<f64>) -> Option<Hit> {
-        line_tol.and_then(|t| self.line_near(p, t)).map(Hit::Line).or_else(|| self.region_at(p).map(Hit::Region))
-    }
-
-    /// Does line piece `i` run between two of `regions` (an edge that merging or deleting them
-    /// removes)?
-    pub fn line_between(&self, i: usize, regions: &[usize]) -> bool {
-        let Some(sp) = self.lines.get(i).and_then(|(l, _)| l.path.subpaths.first()) else { return false };
+    /// The regions just either side of the middle of `piece` (None: outside every region).
+    pub fn sides(&self, piece: &po::Shape) -> [Option<usize>; 2] {
+        let Some(sp) = piece.path.subpaths.first() else { return [None; 2] };
         let n = sp.segment_count();
         if n == 0 {
-            return false;
+            return [None; 2];
         }
         let c = sp.segment(n / 2);
         use kurbo::{ParamCurve as _, ParamCurveDeriv as _};
         let (m, d) = (c.eval(0.5), c.deriv().eval(0.5).to_vec2());
         let len = d.hypot();
         if !(len.is_finite() && len > 0.0) {
-            return false;
+            return [None; 2];
         }
         // A little to each side: inside the faces next to it, which share it exactly.
         let off = d.turn_90() * (0.05f64.min(0.05 * c.p0.distance(c.p3)).max(1e-6) / len);
-        [m + off, m - off].into_iter().all(|q| self.region_at(q).is_some_and(|r| regions.contains(&r)))
+        [m + off, m - off].map(|q| self.region_at(q))
+    }
+
+    /// Does line piece `i` run between two of `regions` (an edge that merging or deleting them
+    /// removes)?
+    pub fn line_between(&self, i: usize, regions: &[usize]) -> bool {
+        self.lines.get(i).is_some_and(|(l, _)| self.sides(l).iter().all(|r| r.is_some_and(|r| regions.contains(&r))))
+    }
+
+    /// The edges `touched` deletes: those that bound none of its regions (deleting a region takes
+    /// its edges with it, so an erase drag that crosses an edge into a region deletes the region).
+    pub fn erased_edges(&self, touched: &Touched) -> Vec<usize> {
+        let bounds_one = |(e, _): &(po::Shape, Rect)| self.sides(e).iter().any(|r| r.is_some_and(|r| touched.regions.contains(&r)));
+        touched.edges.iter().copied().filter(|&k| self.edges.get(k).is_some_and(|e| !bounds_one(e))).collect()
     }
 }
 
-/// The regions and line pieces a Shape Builder gesture has touched, in the order touched.
+/// The regions, line pieces and edges a Shape Builder gesture has touched, in the order touched.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Touched {
     pub regions: Vec<usize>,
     pub lines: Vec<usize>,
+    pub edges: Vec<usize>,
 }
 
 impl Touched {
@@ -275,6 +307,7 @@ impl Touched {
         let (list, i) = match hit {
             Some(Hit::Region(i)) => (&mut self.regions, i),
             Some(Hit::Line(i)) => (&mut self.lines, i),
+            Some(Hit::Edge(i)) => (&mut self.edges, i),
             None => return,
         };
         if !list.contains(&i) {
@@ -283,7 +316,7 @@ impl Touched {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.regions.is_empty() && self.lines.is_empty()
+        self.regions.is_empty() && self.lines.is_empty() && self.edges.is_empty()
     }
 }
 
@@ -381,36 +414,42 @@ struct RegionCache {
     map: BuilderMap,
     /// Live Paint faces (every path an edge, filled or not) rather than Shape Builder regions.
     live: bool,
+    /// The map has the Shape Builder's outline edges.
+    edges: bool,
 }
 
 impl RegionCache {
     fn live_paint() -> Self {
         Self { live: true, ..Default::default() }
     }
-    fn get(&mut self, cx: &ToolContext) -> &BuilderMap {
+    /// The map, with the outline edges when `edges` (built the first time they're wanted).
+    fn get(&mut self, cx: &ToolContext, edges: bool) -> &BuilderMap {
         let key = (cx.doc as *const Document as usize, cx.selection.objects.clone());
-        if self.key.as_ref() != Some(&key) {
+        if self.key.as_ref() != Some(&key) || (edges && !self.edges) {
             let roots = sorted_roots(cx.doc, &cx.selection.objects);
             self.map = if self.live {
                 let (shapes, _) = shapes_for(cx.doc, &roots);
                 let regions = if shapes.is_empty() { vec![] } else { faces_of(po::live_paint(&shapes).0) };
                 BuilderMap { regions, ..Default::default() }
             } else {
-                BuilderMap::new(cx.doc, &roots).0
+                BuilderMap::new(cx.doc, &roots, edges).0
             };
             self.key = Some(key);
+            self.edges = edges;
         }
         &self.map
     }
     fn at(&mut self, cx: &ToolContext, p: Point) -> Option<usize> {
-        self.get(cx).region_at(p)
+        self.get(cx, false).region_at(p)
     }
 }
 
 // ---------- Shape Builder ----------
 
-/// Shape Builder tool: drag across regions to merge them, Alt-drag to delete them (and the pieces
-/// of open paths it passes over).
+/// Shape Builder tool: drag across regions to merge them. Holding Alt (Option) switches to erase
+/// mode while it is held: the pointer shows a minus, what a click or drag would delete highlights in
+/// red, and the gesture deletes the regions it touches, the pieces of open paths and the edges
+/// (outline pieces between the points where paths meet) it passes over.
 #[derive(Default)]
 pub struct ShapeBuilderTool {
     cache: RegionCache,
@@ -418,10 +457,11 @@ pub struct ShapeBuilderTool {
     points: Vec<Point>,
     touched: Touched,
     dragging: bool,
+    /// Erase mode: Alt held while hovering, or when the drag started.
     alt: bool,
 }
 
-/// How close (screen px) the pointer must come to a line piece to delete it.
+/// How close (screen px) the pointer must come to a line piece or an edge to delete it.
 const LINE_TOL_PX: f64 = 4.0;
 
 impl ShapeBuilderTool {
@@ -435,9 +475,9 @@ impl ShapeBuilderTool {
             None => vec![to],
         };
         let tol = Self::line_tol(cx, self.alt);
+        let map = self.cache.get(cx, self.alt);
         for p in pts {
-            let hit = self.cache.get(cx).hit(p, tol);
-            self.touched.add(hit);
+            self.touched.add(map.hit(p, tol));
         }
     }
 }
@@ -451,7 +491,8 @@ impl Tool for ShapeBuilderTool {
         let p = ev.pos;
         match ev.kind {
             PointerKind::Move => {
-                self.hover = self.cache.get(cx).hit(p, Self::line_tol(cx, ev.mods.alt));
+                self.alt = ev.mods.alt;
+                self.hover = self.cache.get(cx, self.alt).hit(p, Self::line_tol(cx, self.alt));
                 vec![]
             }
             PointerKind::Down => {
@@ -487,7 +528,8 @@ impl Tool for ShapeBuilderTool {
                 self.cache.key = None;
                 let roots = sorted_roots(cx.doc, &cx.selection.objects);
                 let pts: Vec<Value> = points.iter().map(|q| json!([q.x, q.y])).collect();
-                let erase = self.alt || ev.mods.alt;
+                // The mode the drag started in, which its highlight showed.
+                let erase = self.alt;
                 let mut params = json!({ "ids": json_ids(&roots), "points": pts, "erase": erase });
                 if let Some(t) = Self::line_tol(cx, erase) {
                     params["tolerance"] = json!(t);
@@ -501,9 +543,11 @@ impl Tool for ShapeBuilderTool {
     fn overlays(&self, cx: &ToolContext) -> Vec<Overlay> {
         let mut out = vec![];
         let map = &self.cache.map;
-        let color = if self.dragging && self.alt { HIGHLIGHT_RED } else { HATCH };
+        let color = if self.alt { HIGHLIGHT_RED } else { HATCH };
         let show: Vec<Hit> = if self.dragging {
-            self.touched.regions.iter().map(|&i| Hit::Region(i)).chain(self.touched.lines.iter().map(|&i| Hit::Line(i))).collect()
+            let t = &self.touched;
+            let regions = t.regions.iter().map(|&i| Hit::Region(i));
+            regions.chain(t.lines.iter().map(|&i| Hit::Line(i))).chain(map.erased_edges(t).into_iter().map(Hit::Edge)).collect()
         } else {
             self.hover.into_iter().collect()
         };
@@ -515,8 +559,9 @@ impl Tool for ShapeBuilderTool {
                         out.push(Overlay::Path { path: bp.clone(), color, width: 1.0, dashed: false });
                     }
                 }
-                Hit::Line(i) => {
-                    if let Some((l, _)) = map.lines.get(i) {
+                Hit::Line(i) | Hit::Edge(i) => {
+                    let pieces = if matches!(hit, Hit::Line(_)) { &map.lines } else { &map.edges };
+                    if let Some((l, _)) = pieces.get(i) {
                         out.push(Overlay::Path { path: l.path.to_bezpath(), color: HIGHLIGHT_RED, width: 3.0, dashed: false });
                     }
                 }
@@ -533,8 +578,10 @@ impl Tool for ShapeBuilderTool {
         out
     }
 
-    fn cursor(&self, _cx: &ToolContext, _p: Point, _m: Mods) -> Cursor {
-        Cursor::Crosshair
+    fn cursor(&self, _cx: &ToolContext, _p: Point, m: Mods) -> Cursor {
+        // A drag keeps the mode it started in; hovering follows the key.
+        let erase = if self.dragging { self.alt } else { m.alt };
+        if erase { Cursor::ShapeBuilderErase } else { Cursor::ShapeBuilder }
     }
 
     fn busy(&self) -> bool {
@@ -801,6 +848,90 @@ mod tests {
         assert_eq!(v["erase"], true);
         t.pointer(&cx, &ev(PointerKind::Down, 300.0, 300.0));
         assert!(t.pointer(&cx, &ev(PointerKind::Up, 300.0, 300.0)).is_empty());
+    }
+
+    /// Squares A (0..100) and B (50..150 both ways), overlapping at a corner, selected.
+    fn corner_rects() -> (Document, Selection) {
+        let mut d = Document::new(500.0, 500.0);
+        let l = d.layers[0].id;
+        let mut s = Selection::default();
+        for (k, r) in [Rect::new(0.0, 0.0, 100.0, 100.0), Rect::new(50.0, 50.0, 150.0, 150.0)].into_iter().enumerate() {
+            let id = d.alloc_id();
+            d.insert(Some(l), k, Node::path(id, shapes::rectangle(r), Appearance::default_art())).unwrap();
+            s.add(id);
+        }
+        (d, s)
+    }
+
+    fn colors(ov: &[Overlay]) -> Vec<[u8; 3]> {
+        ov.iter().map(|o| if let Overlay::Path { color, .. } = o { *color } else { panic!("{o:?}") }).collect()
+    }
+
+    #[test]
+    fn shape_builder_alt_switches_to_erase_mode_while_held() {
+        let (d, s) = corner_rects();
+        let p = paint();
+        let cx = cx(&d, &s, &p);
+        let mut t = ShapeBuilderTool::default();
+        let alt = Mods { alt: true, ..Default::default() };
+        let at = Point::new(75.0, 75.0);
+        // Merge mode: a grey mesh and the plus pointer.
+        t.pointer(&cx, &ev(PointerKind::Move, at.x, at.y));
+        assert_eq!(colors(&t.overlays(&cx)), [HATCH; 2]);
+        assert_eq!(t.cursor(&cx, at, Mods::default()), Cursor::ShapeBuilder);
+        // Alt held: what would go highlights red, and the pointer shows a minus.
+        t.pointer(&cx, &ev(PointerKind::Move, at.x, at.y).with_mods(alt));
+        assert_eq!(colors(&t.overlays(&cx)), [HIGHLIGHT_RED; 2]);
+        assert_eq!(t.cursor(&cx, at, alt), Cursor::ShapeBuilderErase);
+        // Released: merge mode again.
+        t.pointer(&cx, &ev(PointerKind::Move, at.x, at.y));
+        assert_eq!(colors(&t.overlays(&cx)), [HATCH; 2]);
+        assert_eq!(t.cursor(&cx, at, Mods::default()), Cursor::ShapeBuilder);
+        // A drag keeps the mode it started in.
+        t.pointer(&cx, &ev(PointerKind::Down, at.x, at.y).with_mods(alt));
+        assert_eq!(t.cursor(&cx, at, Mods::default()), Cursor::ShapeBuilderErase);
+        let acts = t.pointer(&cx, &ev(PointerKind::Up, at.x, at.y));
+        let Action::Exec(_, v) = &acts[0] else { panic!("{acts:?}") };
+        assert_eq!(v["erase"], true);
+    }
+
+    #[test]
+    fn shape_builder_alt_on_an_edge_highlights_and_deletes_it() {
+        let (d, s) = corner_rects();
+        let p = paint();
+        let cx = cx(&d, &s, &p);
+        let mut t = ShapeBuilderTool::default();
+        let alt = Mods { alt: true, ..Default::default() };
+        // A's side inside B, between the points where B's outline crosses it.
+        t.pointer(&cx, &ev(PointerKind::Move, 101.0, 75.0).with_mods(alt));
+        assert!(matches!(t.hover, Some(Hit::Edge(_))), "{:?}", t.hover);
+        let ov = t.overlays(&cx);
+        let [Overlay::Path { path, color: HIGHLIGHT_RED, width: 3.0, .. }] = ov.as_slice() else { panic!("{ov:?}") };
+        assert_eq!(path.bounding_box(), Rect::new(50.0, 50.0, 100.0, 100.0));
+        // Without Alt it's the region under the pointer.
+        t.pointer(&cx, &ev(PointerKind::Move, 101.0, 75.0));
+        assert!(matches!(t.hover, Some(Hit::Region(_))));
+        t.pointer(&cx, &ev(PointerKind::Down, 101.0, 75.0).with_mods(alt));
+        assert_eq!(t.touched.edges.len(), 1);
+        let acts = t.pointer(&cx, &ev(PointerKind::Up, 101.0, 75.0).with_mods(alt));
+        let Action::Exec(id, v) = &acts[0] else { panic!("{acts:?}") };
+        assert_eq!((id.as_str(), &v["erase"], &v["tolerance"]), ("shapeBuilder.merge", &json!(true), &json!(4.0)));
+    }
+
+    #[test]
+    fn shape_builder_erase_drag_into_regions_shows_the_regions_not_the_edges_it_crosses() {
+        let (d, s) = corner_rects();
+        let p = paint();
+        let cx = cx(&d, &s, &p);
+        let mut t = ShapeBuilderTool::default();
+        let alt = Mods { alt: true, ..Default::default() };
+        t.pointer(&cx, &ev(PointerKind::Down, 25.0, 25.0).with_mods(alt));
+        t.pointer(&cx, &ev(PointerKind::Drag, 75.0, 75.0).with_mods(alt));
+        assert_eq!(t.touched.regions.len(), 2);
+        assert!(!t.touched.edges.is_empty(), "the drag crossed B's outline");
+        assert!(t.cache.map.erased_edges(&t.touched).is_empty(), "which goes with the regions");
+        // Two regions (mesh + outline each) and the drag's trail, all red.
+        assert_eq!(colors(&t.overlays(&cx)), [HIGHLIGHT_RED; 5]);
     }
 
     #[test]

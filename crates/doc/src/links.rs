@@ -137,7 +137,7 @@ impl Document {
         }
     }
 
-    /// The keys of image blobs only linked images show: what a save writes as their preview.
+    /// The keys of image blobs only linked images (or placed documents, always linked) show: what a save writes as their preview.
     pub fn linked_only_images(&self) -> BTreeSet<String> {
         if self.images.values().all(|b| b.proxy.is_none()) {
             return BTreeSet::new();
@@ -152,6 +152,8 @@ impl Document {
                 u.1 = true;
             }
         });
+        // A placed document saves its file's preview the same way.
+        self.visit_placed(|_, p| uses.entry(p.key.as_str()).or_default().0 = true);
         uses.into_iter().filter(|(_, (linked, embedded))| *linked && !embedded).map(|(k, _)| k.to_string()).collect()
     }
 }

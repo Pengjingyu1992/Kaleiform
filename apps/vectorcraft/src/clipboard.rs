@@ -2,9 +2,11 @@
 //! (`Services::system_clipboard`).
 //!
 //! - Windows: text, SVG, PDF, PNG and an opaque bitmap (for apps that don't read PNG) in one go;
-//!   Paste reads each of them.
+//!   Paste reads each of them, a bitmap as PNG, else as the device-independent bitmap that
+//!   screenshots and most apps copy (`CF_DIBV5`, `CF_DIB`; the system makes them of a `CF_BITMAP`).
 //! - macOS and Linux: one format at a time, the text (a type-only copy's text or the SVG markup),
-//!   else the PNG as a bitmap; Paste reads text and bitmaps. On Wayland, arboard's data-control
+//!   else the PNG as a bitmap; Paste reads text and bitmaps (on macOS the pasteboard's PNG or TIFF
+//!   as they are, as screenshots copy them). On Wayland, arboard's data-control
 //!   backend reads the compositor's clipboard (X11 through XWayland only sees what X11 apps
 //!   copied), falling back to X11 where the compositor lacks the protocol.
 //! - Everywhere: files copied in a file manager paste as the first one that is art (SVG, PDF, a
@@ -30,8 +32,77 @@ fn text_of(flavours: &[Flavour]) -> Option<String> {
     flavours.iter().find(|f| f.mime == TEXT).map(|f| String::from_utf8_lossy(&f.data).into_owned())
 }
 
+/// Most pixels a side of a bitmap another app put on the clipboard (untrusted data).
+const MAX_SIDE: u32 = 32_768;
+
 fn decode_png(png: &[u8]) -> Option<image::RgbaImage> {
     Some(image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?.to_rgba8())
+}
+
+/// `img` as a PNG flavour.
+fn png_flavour(img: &image::RgbaImage) -> Option<Flavour> {
+    let mut data = vec![];
+    img.write_to(&mut Cursor::new(&mut data), image::ImageFormat::Png).ok()?;
+    Some(Flavour { mime: PNG, data })
+}
+
+/// A Windows device-independent bitmap (`CF_DIB`, `CF_DIBV5`: a BITMAPINFO header, the colour
+/// masks of a BITMAPINFOHEADER, the colour table, then the pixels) as a BMP file, whose header
+/// says where the pixels start. `None` when the header is cut short or out of range.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn dib_file(dib: &[u8]) -> Option<Vec<u8>> {
+    const BI_BITFIELDS: u32 = 3;
+    const BI_ALPHABITFIELDS: u32 = 6;
+    let u16_at = |i: usize| Some(u16::from_le_bytes(dib.get(i..i + 2)?.try_into().ok()?));
+    let u32_at = |i: usize| Some(u32::from_le_bytes(dib.get(i..i + 4)?.try_into().ok()?));
+    let header = u32_at(0)?;
+    // BITMAPCOREHEADER has 16-bit fields and 3-byte colours; the others 32-bit fields, 4-byte
+    // colours and a count of them (0: all a palette of the depth has), the 40-byte one its masks
+    // after it.
+    let (bits, used, entry, masks) = match header {
+        12 => (u16_at(10)?, 0, 3, 0),
+        _ => {
+            let masks = match (header, u32_at(16)?) {
+                (40, BI_BITFIELDS) => 12,
+                (40, BI_ALPHABITFIELDS) => 16,
+                _ => 0,
+            };
+            (u16_at(14)?, u32_at(32)?, 4, masks)
+        }
+    };
+    let colours = match used {
+        0 if bits <= 8 => 1 << bits,
+        n if n <= 256 => n,
+        _ => return None,
+    };
+    let offset = [header, masks, colours * entry].into_iter().try_fold(14u32, u32::checked_add)?;
+    let size = u32::try_from(dib.len()).ok()?.checked_add(14)?;
+    if offset > size {
+        return None;
+    }
+    let mut bmp = Vec::with_capacity(dib.len() + 14);
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&size.to_le_bytes());
+    bmp.extend_from_slice(&[0; 4]);
+    bmp.extend_from_slice(&offset.to_le_bytes());
+    bmp.extend_from_slice(dib);
+    Some(bmp)
+}
+
+/// A device-independent bitmap as an image, at most [`MAX_SIDE`] pixels a side. It is opaque when
+/// its alpha is zero throughout: screenshots and most apps leave the fourth byte of a 32-bit pixel
+/// at zero, even under an alpha mask.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn dib_image(dib: &[u8]) -> Option<image::RgbaImage> {
+    let mut reader = image::ImageReader::with_format(Cursor::new(dib_file(dib)?), image::ImageFormat::Bmp);
+    let mut limits = image::Limits::default();
+    (limits.max_image_width, limits.max_image_height) = (Some(MAX_SIDE), Some(MAX_SIDE));
+    reader.limits(limits);
+    let mut img = reader.decode().ok()?.into_rgba8();
+    if img.pixels().all(|p| p.0[3] == 0) {
+        img.pixels_mut().for_each(|p| p.0[3] = u8::MAX);
+    }
+    Some(img)
 }
 
 /// The first of `paths` (files copied in a file manager) that pastes as one of `mimes`, read
@@ -70,6 +141,10 @@ mod win {
             _ => &[],
         }
     }
+
+    /// The device-independent bitmaps, the one that carries alpha first. Each is there whenever the
+    /// other or a `CF_BITMAP` is: the system converts between them.
+    const DIBS: [u32; 2] = [formats::CF_DIBV5, formats::CF_DIB];
 
     fn formats_of(mime: &str) -> impl Iterator<Item = u32> {
         names(mime).iter().filter_map(|n| raw::register_format(n)).map(NonZeroU32::get)
@@ -162,7 +237,7 @@ mod win {
             raw::is_format_avail(formats::CF_HDROP)
                 || mimes.iter().any(|m| match *m {
                     TEXT => raw::is_format_avail(formats::CF_UNICODETEXT),
-                    BITMAP => raw::is_format_avail(formats::CF_BITMAP) || formats_of(PNG).any(raw::is_format_avail),
+                    BITMAP => DIBS.into_iter().chain(formats_of(PNG)).any(raw::is_format_avail),
                     m => formats_of(m).any(raw::is_format_avail),
                 })
         }
@@ -182,9 +257,11 @@ mod win {
         let mime = match mime {
             BITMAP if read_registered(PNG, &mut data) => PNG,
             BITMAP => {
-                data.clear();
-                raw::get_bitmap(&mut data).ok()?;
-                "image/bmp"
+                return DIBS.into_iter().find_map(|id| {
+                    data.clear();
+                    raw::get_vec(id, &mut data).ok()?;
+                    png_flavour(&dib_image(&data)?)
+                });
             }
             TEXT => {
                 raw::get_string(&mut data).ok()?;
@@ -209,13 +286,6 @@ mod portable {
     use std::borrow::Cow;
 
     use super::*;
-
-    /// `img` as PNG bytes.
-    fn encode_png(img: &image::RgbaImage) -> Option<Vec<u8>> {
-        let mut out = vec![];
-        img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
-        Some(out)
-    }
 
     /// What our last write put on the clipboard.
     enum Ours {
@@ -283,18 +353,62 @@ mod portable {
             mimes.iter().find_map(|m| match *m {
                 TEXT => cb.get_text().ok().filter(|t| !t.is_empty()).map(|t| Flavour { mime: TEXT, data: t.into_bytes() }),
                 BITMAP => {
+                    #[cfg(target_os = "macos")]
+                    if let Some(f) = super::mac::bitmap() {
+                        return Some(f);
+                    }
                     let img = cb.get_image().ok()?;
                     let rgba = image::RgbaImage::from_raw(u32::try_from(img.width).ok()?, u32::try_from(img.height).ok()?, img.bytes.into_owned())?;
-                    encode_png(&rgba).map(|data| Flavour { mime: PNG, data })
+                    png_flavour(&rgba)
                 }
                 _ => None,
             })
         }
 
-        /// Text only: reading a bitmap costs as much as pasting it.
+        /// Text, and on macOS a bitmap (by the pasteboard's types). Linux has no cheap way to ask
+        /// for a bitmap (reading one costs as much as pasting it): the paste keys take it, the
+        /// menu item waits for text.
         fn has(&mut self, mimes: &[&'static str]) -> bool {
+            #[cfg(target_os = "macos")]
+            if mimes.contains(&BITMAP) && super::mac::has_bitmap() {
+                return true;
+            }
             mimes.contains(&TEXT) && self.cb().is_ok_and(|cb| cb.get_text().is_ok_and(|t| !t.is_empty()))
         }
+    }
+}
+
+/// The macOS pasteboard's bitmaps as they are (arboard reads TIFF only, and decodes it).
+#[cfg(target_os = "macos")]
+mod mac {
+    use objc2::rc::autoreleasepool;
+    use objc2_app_kit::NSPasteboard;
+    use objc2_foundation::{NSArray, NSString};
+
+    use super::*;
+
+    /// The bitmap types Paste reads, best first (the values of `NSPasteboardTypePNG` and
+    /// `NSPasteboardTypeTIFF`), with their MIME types.
+    const TYPES: [(&str, &str); 2] = [("public.png", PNG), ("public.tiff", "image/tiff")];
+
+    /// Does the pasteboard hold a bitmap? Asks for its types only.
+    pub fn has_bitmap() -> bool {
+        autoreleasepool(|_| {
+            let types = TYPES.map(|(t, _)| NSString::from_str(t));
+            let types: Vec<&NSString> = types.iter().map(|t| &**t).collect();
+            NSPasteboard::generalPasteboard().availableTypeFromArray(&NSArray::from_slice(&types)).is_some()
+        })
+    }
+
+    /// The pasteboard's bitmap, PNG before TIFF.
+    pub fn bitmap() -> Option<Flavour> {
+        autoreleasepool(|_| {
+            let pasteboard = NSPasteboard::generalPasteboard();
+            TYPES.into_iter().find_map(|(t, mime)| {
+                let data = pasteboard.dataForType(&NSString::from_str(t))?.to_vec();
+                (!data.is_empty()).then_some(Flavour { mime, data })
+            })
+        })
     }
 }
 
@@ -340,5 +454,96 @@ mod tests {
         std::fs::write(&red, png(2, 2)).unwrap();
         let with_cr = PathBuf::from(format!("{}\r", red.display()));
         assert_eq!(copied_file(vec![with_cr], &PASTE_ORDER).map(|f| f.mime), Some(PNG));
+    }
+
+    /// A DIB of `w`×`h` pixels (top row first when `h` is negative): a `header`-byte header (40,
+    /// or 124 for a BITMAPV5HEADER with BGRA masks), `extra` (the masks after a 40-byte header, a
+    /// colour table), then `rows`, each padded to 4 bytes.
+    fn dib(header: u32, w: i32, h: i32, bits: u16, compression: u32, extra: &[u8], rows: &[u8]) -> Vec<u8> {
+        let mut d = vec![];
+        d.extend(header.to_le_bytes());
+        d.extend(w.to_le_bytes());
+        d.extend(h.to_le_bytes());
+        d.extend(1u16.to_le_bytes());
+        d.extend(bits.to_le_bytes());
+        d.extend(compression.to_le_bytes());
+        d.extend((rows.len() as u32).to_le_bytes());
+        // 96 ppi, every colour of the table used.
+        d.extend([3780u32, 3780, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+        if header == 124 {
+            d.extend([0x00FF_0000u32, 0xFF00, 0xFF, 0xFF00_0000, 0x7352_4742].iter().flat_map(|v| v.to_le_bytes()));
+            d.resize(124, 0);
+        }
+        d.extend_from_slice(extra);
+        d.extend_from_slice(rows);
+        d
+    }
+
+    /// 32-bit BGRA rows of `px` (top row first).
+    fn bgra(px: &[[u8; 4]]) -> Vec<u8> {
+        px.iter().flat_map(|[r, g, b, a]| [*b, *g, *r, *a]).collect()
+    }
+
+    const RED: [u8; 4] = [255, 0, 0, 255];
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    fn pixels(img: &image::RgbaImage) -> Vec<[u8; 4]> {
+        img.pixels().map(|p| p.0).collect()
+    }
+
+    #[test]
+    fn a_screenshot_dib_pastes_opaque_and_upright() {
+        // CF_DIB as screenshots copy it: 32-bit BI_RGB, bottom row first, the fourth byte zero.
+        let rows = bgra(&[[0, 0, 255, 0], [0, 0, 255, 0], [255, 0, 0, 0], [255, 0, 0, 0]]);
+        let img = dib_image(&dib(40, 2, 2, 32, 0, &[], &rows)).unwrap();
+        assert_eq!(pixels(&img), [RED, RED, BLUE, BLUE]);
+        // The same bitmap with an alpha mask (CF_DIBV5), alpha still zero throughout: opaque too.
+        let img = dib_image(&dib(124, 2, -2, 32, 3, &[], &bgra(&[[255, 0, 0, 0]; 4]))).unwrap();
+        assert_eq!(pixels(&img), [RED; 4]);
+    }
+
+    #[test]
+    fn a_dibv5_keeps_its_alpha_top_down() {
+        // A negative height: top row first.
+        let rows = bgra(&[[255, 0, 0, 128], [255, 0, 0, 128], [0, 0, 255, 0], [0, 0, 255, 255]]);
+        let img = dib_image(&dib(124, 2, -2, 32, 3, &[], &rows)).unwrap();
+        assert_eq!(pixels(&img), [[255, 0, 0, 128], [255, 0, 0, 128], [0, 0, 255, 0], BLUE]);
+    }
+
+    #[test]
+    fn masks_and_colour_tables_come_before_the_pixels() {
+        // BI_BITFIELDS after a 40-byte header: three masks between it and the pixels.
+        let masks: Vec<u8> = [0x00FF_0000u32, 0xFF00, 0xFF].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let img = dib_image(&dib(40, 1, 1, 32, 3, &masks, &bgra(&[[0, 0, 255, 0]]))).unwrap();
+        assert_eq!(pixels(&img), [BLUE]);
+        // 8-bit, two colours used, rows padded to 4 bytes, bottom row first.
+        let mut table = bgra(&[RED, BLUE]);
+        table[3] = 0;
+        let mut d = dib(40, 3, 2, 8, 0, &table, &[1, 1, 1, 0, 0, 1, 0, 0]);
+        d[32..36].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(pixels(&dib_image(&d).unwrap()), [RED, BLUE, RED, BLUE, BLUE, BLUE]);
+        // 24-bit, rows padded.
+        let img = dib_image(&dib(40, 1, 2, 24, 0, &[], &[255, 0, 0, 0, 0, 0, 255, 0])).unwrap();
+        assert_eq!(pixels(&img), [RED, BLUE]);
+    }
+
+    #[test]
+    fn untrusted_dibs_are_refused_not_trusted() {
+        let one = bgra(&[RED]);
+        // Too large a side (the pixels aren't even there), cut short, a header or a colour count
+        // out of range, no pixels.
+        assert!(dib_image(&dib(40, MAX_SIDE as i32 + 1, 1, 32, 0, &[], &one)).is_none());
+        assert!(dib_image(&dib(40, 1, -(MAX_SIDE as i32) - 1, 32, 0, &[], &one)).is_none());
+        assert!(dib_image(&dib(40, 4096, 4096, 32, 0, &[], &one)).is_none());
+        assert!(dib_image(&[40, 0, 0]).is_none());
+        assert!(dib_image(&[]).is_none());
+        let mut d = dib(40, 1, 1, 32, 0, &[], &one);
+        d[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(dib_image(&d).is_none());
+        let mut d = dib(40, 1, 1, 8, 0, &[], &[0; 4]);
+        d[32..36].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(dib_file(&d).is_none());
+        assert!(dib_image(&dib(40, 1, 1, 32, 0, &[], &[])).is_none());
+        assert!(dib_image(&dib(40, 0, 0, 32, 0, &[], &[])).is_none());
     }
 }

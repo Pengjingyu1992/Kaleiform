@@ -17,16 +17,20 @@ pub(super) fn field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str) {
 
 /// [`field`] `width` points wide.
 pub(super) fn field_w(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str, width: f32) {
-    let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+    row_label(ui, label);
     text(ui, d, key, width);
     ui.end_row();
 }
 
-/// A labelled [`length`] field (one grid row).
-pub(super) fn length_field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str, unit: Unit) {
+/// The label cell of a grid row.
+fn row_label(ui: &mut egui::Ui, label: &str) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+}
+
+/// A labelled [`length`] field (one grid row).
+pub(super) fn length_field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str, unit: Unit) {
+    row_label(ui, label);
     length(ui, d, key, unit, FIELD_W);
     ui.end_row();
 }
@@ -54,6 +58,30 @@ fn lengths(kind: &str) -> &'static [&'static str] {
         "simplify" => &["tolerance"],
         "splitIntoGrid" => &["gutter"],
         _ => &[],
+    }
+}
+
+/// The fields of the form dialogs ([`grid`]) that come first, in this order (the others follow by
+/// name).
+fn order(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "offsetPath" => &["offset", "joins", "miterLimit"],
+        "splitIntoGrid" => &["rows", "columns", "gutter"],
+        _ => &[],
+    }
+}
+
+/// The choices of a form dialog's ([`grid`]) dropdown field, as (value, label in the UI
+/// language); empty for a field typed as text.
+fn choices(kind: &str, key: &str) -> Vec<(&'static str, &'static str)> {
+    // The axes in the "axis" context: some languages read the plain Horizontal and Vertical as
+    // type orientations.
+    let axis = |value, label| (value, crate::i18n::tr_ctx(crate::i18n::current(), "axis", label));
+    match (kind, key) {
+        ("offsetPath", "joins") => vec![("miter", tl!("Miter")), ("round", tl!("Round")), ("bevel", tl!("Bevel"))],
+        ("average", "axis") => vec![axis("horizontal", "Horizontal"), axis("vertical", "Vertical"), axis("both", "Both")],
+        ("reflect" | "shear", "axis") => vec![axis("horizontal", "Horizontal"), axis("vertical", "Vertical")],
+        _ => vec![],
     }
 }
 
@@ -111,30 +139,49 @@ pub(super) fn check(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str) {
 /// A dropdown row bound to the string `d.fields[key]`: `label` in a column `widths.0` wide, the
 /// dropdown `widths.1` wide; `options` are (value, label).
 pub(super) fn choice(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str, widths: (f32, f32), options: &[(&str, &str)]) {
+    crate::widgets::label_row(ui, label, widths.0, |ui| dropdown(ui, d, key, widths.1, options, false));
+}
+
+/// A dropdown `width` wide bound to the string `d.fields[key]`; `options` are (value, label), the
+/// labels shown as they are when `translated` (else the dropdown translates them). A value that
+/// isn't among them shows as it is.
+fn dropdown(ui: &mut egui::Ui, d: &mut Dialog, key: &str, width: f32, options: &[(&str, &str)], translated: bool) {
     let cur = d.str(key);
     let shown = options.iter().find(|(v, _)| v.eq_ignore_ascii_case(&cur)).map_or(cur.as_str(), |(_, l)| l);
     let labels: Vec<&str> = options.iter().map(|(_, l)| *l).collect();
-    crate::widgets::label_row(ui, label, widths.0, |ui| {
-        if let Some((value, _)) = crate::widgets::dropdown(ui, key, shown, &labels, widths.1).and_then(|i| options.get(i)) {
-            d.fields.insert(key.into(), json!(value));
-        }
-    });
+    let chosen = if translated {
+        crate::widgets::dropdown_names(ui, key, shown, &labels, width)
+    } else {
+        crate::widgets::dropdown(ui, key, shown, &labels, width)
+    };
+    if let Some((value, _)) = chosen.and_then(|i| options.get(i)) {
+        d.fields.insert(key.into(), json!(value));
+    }
 }
 
-/// The generic dialog body: a field per non-boolean value (positions and indices hidden), the
-/// distances in `unit`.
+/// The generic dialog body: a field per non-boolean value (positions, indices and UI-only keys
+/// hidden) in the kind's [`order`], the distances in `unit`, the [`choices`] as dropdowns.
 pub(super) fn grid(ui: &mut egui::Ui, d: &mut Dialog, unit: Unit) {
-    let lengths = lengths(&d.kind);
+    let (lengths, first) = (lengths(&d.kind), order(&d.kind));
+    let mut keys: Vec<String> = d
+        .fields
+        .iter()
+        .filter(|(k, v)| !matches!(k.as_str(), "x" | "y" | "origin" | "index") && !k.starts_with("__") && !v.is_boolean())
+        .map(|(k, _)| k.clone())
+        .collect();
+    // Stable: the fields `order` doesn't name keep their order after the ones it does.
+    keys.sort_by_key(|k| first.iter().position(|f| f == k).unwrap_or(first.len()));
     egui::Grid::new("dlg").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
-        let keys: Vec<(String, Value)> = d.fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        for (k, v) in keys {
-            if k == "x" || k == "y" || k == "origin" || k == "index" || v.is_boolean() {
-                continue;
-            }
+        for k in keys {
+            let options = choices(&d.kind, &k);
             if lengths.contains(&k.as_str()) {
                 length_field(ui, d, &k, &humanized(&k), unit);
-            } else {
+            } else if options.is_empty() {
                 field(ui, d, &k, &humanized(&k));
+            } else {
+                row_label(ui, &humanized(&k));
+                dropdown(ui, d, &k, FIELD_W, &options, true);
+                ui.end_row();
             }
         }
     });
@@ -145,15 +192,27 @@ pub(super) fn params(d: &Dialog) -> Value {
     Value::Object(d.fields.iter().filter(|(k, _)| !k.starts_with("__") && k.as_str() != "preview").map(|(k, v)| (k.clone(), v.clone())).collect())
 }
 
+/// The (label, value) choices of a parameter that picks one of some values.
+pub(super) type Choices = &'static [(&'static str, &'static str)];
+
 /// Generic editor for command/effect parameters: numbers, booleans, strings and colours; the
-/// parameters `is_length` names are distances shown and typed in `unit`. Returns true when a
-/// value changed.
-pub(super) fn param_fields(ui: &mut egui::Ui, d: &mut Dialog, is_length: &dyn Fn(&str) -> bool, unit: Unit) -> bool {
+/// parameters `is_length` names are distances shown and typed in `unit`, those `choices` gives
+/// choices for are dropdowns. Fields come in `rank` order (by name among equals). Returns true when
+/// a value changed.
+pub(super) fn param_fields(
+    ui: &mut egui::Ui,
+    d: &mut Dialog,
+    is_length: &dyn Fn(&str) -> bool,
+    choices: &dyn Fn(&str) -> Option<Choices>,
+    rank: &dyn Fn(&str) -> usize,
+    unit: Unit,
+) -> bool {
     let t = Tokens::get(ui.ctx());
     let mut changed = false;
     egui::Grid::new("fxgrid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        let keys: Vec<(String, Value)> =
+        let mut keys: Vec<(String, Value)> =
             d.fields.iter().filter(|(k, _)| !k.starts_with("__") && k.as_str() != "preview").map(|(k, v)| (k.clone(), v.clone())).collect();
+        keys.sort_by_key(|(k, _)| rank(k));
         for (k, v) in keys {
             ui.label(egui::RichText::new(humanized(&k)).color(t.text));
             if let Some(cur) = crate::widgets::blend_param(&k, &v) {
@@ -169,11 +228,20 @@ pub(super) fn param_fields(ui: &mut egui::Ui, d: &mut Dialog, is_length: &dyn Fn
                 ui.end_row();
                 continue;
             }
+            if let Some(options) = choices(&k) {
+                let cur = v.as_str().unwrap_or_default();
+                let label = options.iter().find(|(_, value)| *value == cur).map_or(cur, |(l, _)| *l);
+                let labels: Vec<&str> = options.iter().map(|(l, _)| *l).collect();
+                if let Some((_, value)) = crate::widgets::dropdown(ui, ("fx-choice", &k), label, &labels, 140.0).and_then(|i| options.get(i)) {
+                    d.fields.insert(k, json!(value));
+                    changed = true;
+                }
+                ui.end_row();
+                continue;
+            }
             match v {
                 Value::Number(n) => {
-                    let mut x = n.as_f64().unwrap_or(0.0);
-                    let speed = if x.abs() > 20.0 { 1.0 } else { 0.1 };
-                    if ui.add(egui::DragValue::new(&mut x).speed(speed).max_decimals(2)).changed() {
+                    if let Some(x) = crate::widgets::plain_field(ui, ("fx-num", &k), n.as_f64().unwrap_or(0.0), "", 3, 140.0) {
                         d.fields.insert(k, json!(x));
                         changed = true;
                     }
@@ -221,13 +289,12 @@ pub(super) fn schema_fields(ui: &mut egui::Ui, d: &mut Dialog, specs: &[(String,
             let cur = d.fields.get(k).cloned().unwrap_or_else(|| spec.default_value());
             let new = match spec {
                 ParamSpec::Number { min, max, .. } => {
-                    let mut x = cur.as_f64().unwrap_or(*min).clamp(*min, *max);
-                    let speed = ((max - min) / 200.0).clamp(0.01, 10.0);
-                    ui.add(egui::DragValue::new(&mut x).range(*min..=*max).speed(speed).max_decimals(2)).changed().then(|| json!(x))
+                    let x = cur.as_f64().unwrap_or(*min);
+                    crate::widgets::range_field(ui, ("plugin-num", k), x, *min..=*max, "", 2, 100.0).map(|x| json!(x))
                 }
                 ParamSpec::Int { min, max, .. } => {
-                    let mut x = cur.as_i64().unwrap_or(*min).clamp(*min, *max);
-                    ui.add(egui::DragValue::new(&mut x).range(*min..=*max).speed(0.2)).changed().then(|| json!(x))
+                    let x = cur.as_i64().unwrap_or(*min) as f64;
+                    crate::widgets::range_field(ui, ("plugin-int", k), x, *min as f64..=*max as f64, "", 0, 100.0).map(|x| json!(x as i64))
                 }
                 ParamSpec::Bool { .. } => {
                     let mut b = cur.as_bool().unwrap_or(false);
@@ -271,6 +338,7 @@ pub(super) fn humanize(k: &str) -> String {
         "Radius1" => "Radius 1".into(),
         "Radius2" => "Radius 2".into(),
         "Include Cmy Blacks" => "Include Blacks with CMY:".into(),
+        "Align To Path" => "Align to Path:".into(),
         _ => format!("{s}:"),
     }
 }

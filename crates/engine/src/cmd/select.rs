@@ -27,10 +27,34 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("select.nextBelow", "Next Object Below", ["Select"], Some("Cmd+Alt+["), "{}", has_selection, |s, _| step(s, -1)),
         cmd!("select.set", "Select Objects", [], None, "{ids: [id…]}", has_doc, set),
         cmd!("select.add", "Add to Selection", [], None, "{ids: [id…]}", has_doc, add),
-        cmd!("select.toggle", "Toggle Selection", [], None, "{id}", has_doc, toggle),
-        cmd!("select.key", "Set Key Object", [], None, "{id?} (none clears)", has_doc, key),
+        cmd!(
+            "select.toggle",
+            "Toggle Selection",
+            [],
+            None,
+            "{id} or {ids: [id…]}: each selected one leaves the selection, the others join it",
+            has_doc,
+            toggle
+        ),
+        cmd!(
+            "select.key",
+            "Set Key Object",
+            [],
+            None,
+            "{id?: a selected object (the Selection tool: a click on one object of a selection of several; on the key again: none)} the key object Align aligns to and Distribute Spacing spaces from; none clears it",
+            has_doc,
+            key
+        ),
         cmd!("select.anchors", "Select Anchors", [], None, "{id, anchors: [[subpath, anchor]…], mode: \"set\"|\"add\"|\"toggle\"}", has_doc, anchors),
-        cmd!("select.anchorsMany", "Select Anchors", [], None, "{items: [{id, anchors}], add?: bool}", has_doc, anchors_many),
+        cmd!(
+            "select.anchorsMany",
+            "Select Anchors",
+            [],
+            None,
+            "{items: [{id, anchors}], mode?: \"set\"|\"add\"|\"toggle\"|\"subtract\" (set by default; add: true is mode add)}: toggle selects the anchors not selected and deselects the others, subtract deselects them; a path left with none leaves the selection",
+            has_doc,
+            anchors_many
+        ),
         cmd!(
             "select.same.fillColor",
             "Fill Color",
@@ -217,8 +241,12 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn toggle(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = id_param(p, "id").ok_or_else(|| bad("select.toggle", "missing id"))?;
-    s.select(|_, sel| sel.toggle(id))?;
+    let ids = ids_param(p, "ids").or_else(|| id_param(p, "id").map(|id| vec![id])).ok_or_else(|| bad("select.toggle", "missing id or ids"))?;
+    s.select(|_, sel| {
+        for id in ids {
+            sel.toggle(id);
+        }
+    })?;
     ok()
 }
 
@@ -262,16 +290,48 @@ fn anchors_many(s: &mut Session, p: &Value) -> Result<Value> {
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(|it| Some((NodeId(it.get("id")?.as_u64()?), parse_refs(it.get("anchors")).into_iter().collect()))).collect())
         .unwrap_or_default();
-    let add = bool_or(p, "add", false);
+    // `add: true` is the older spelling of mode add.
+    let mode = match str_param(p, "mode") {
+        Some(m @ ("set" | "add" | "toggle" | "subtract")) => m,
+        Some(m) => return Err(bad("select.anchorsMany", format!("unknown mode {m:?}"))),
+        None if bool_or(p, "add", false) => "add",
+        None => "set",
+    };
     s.select(|d, sel| {
-        if !add {
+        if mode == "set" {
             sel.clear();
         }
         for (id, refs) in items {
-            let total = d.node(id).and_then(|n| n.path_data()).map(|p| p.anchor_count()).unwrap_or(0);
+            let all: BTreeSet<(usize, usize)> =
+                d.node(id).and_then(|n| n.path_data()).map(|p| p.anchors().map(|(s, i, _)| (s, i)).collect()).unwrap_or_default();
+            // Anything but a path is selected, toggled or deselected as a whole.
+            if all.is_empty() {
+                match mode {
+                    "toggle" => sel.toggle(id),
+                    "subtract" => sel.remove(id),
+                    _ => sel.add(id),
+                }
+                continue;
+            }
+            // From the anchors selected now (all of them for a path selected as a whole).
+            let now = match sel.partial(id) {
+                Some(a) => a.clone(),
+                None if sel.contains(id) => all.clone(),
+                None => BTreeSet::new(),
+            };
+            let refs: BTreeSet<(usize, usize)> = refs.intersection(&all).copied().collect();
+            let next: BTreeSet<(usize, usize)> = match mode {
+                "toggle" => now.symmetric_difference(&refs).copied().collect(),
+                "subtract" => now.difference(&refs).copied().collect(),
+                _ => now.union(&refs).copied().collect(),
+            };
+            if next.is_empty() {
+                sel.remove(id);
+                continue;
+            }
             sel.add(id);
-            if refs.len() < total {
-                sel.anchors.entry(id).or_default().extend(refs);
+            if next.len() < all.len() {
+                sel.anchors.insert(id, next);
             } else {
                 sel.anchors.remove(&id);
             }

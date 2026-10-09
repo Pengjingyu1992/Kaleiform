@@ -103,6 +103,31 @@ fn toggle(ui: &mut egui::Ui, d: &mut Dialog, key: &str, text: &str, enabled: boo
     changed
 }
 
+/// The size of the colour chip before each name in the Color list.
+const CHIP: egui::Vec2 = egui::vec2(16.0, 10.0);
+
+/// The Color list: each preset's name after a chip of its colour, then Custom (no chip, its
+/// name aligned with the others). Returns the chosen row; Custom is `LAYER_COLORS.len()`.
+fn color_dropdown(ui: &mut egui::Ui, shown: &str) -> Option<usize> {
+    let border = crate::theme::Tokens::get(ui.ctx()).input_border;
+    let rows = LAYER_COLORS.iter().map(|(n, c)| (*n, Some(*c))).chain([("Custom", None)]);
+    widgets::combo(ui, "layer-color", tl!(shown), 140.0, false, |ui| {
+        let mut chosen = None;
+        for (i, (name, rgb)) in rows.enumerate() {
+            let chip = ui.id().with(("layer-color-chip", i));
+            let r = egui::Button::selectable(name == shown, (egui::Atom::custom(chip, CHIP), tl!(name))).atom_ui(ui);
+            if let (Some(rect), Some([cr, cg, cb])) = (r.rect(chip), rgb) {
+                ui.painter().rect_filled(rect, 1.0, egui::Color32::from_rgb(cr, cg, cb));
+                ui.painter().rect_stroke(rect, 1.0, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
+            }
+            if r.response.clicked() {
+                chosen = Some(i);
+            }
+        }
+        chosen
+    })
+}
+
 fn body(_: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     let layer = d.bool("layer");
     let many = d.fields.get("ids").and_then(Value::as_array).is_some_and(|a| a.len() > 1);
@@ -116,9 +141,8 @@ fn body(_: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
             label(ui, tl!("Color:"));
             ui.horizontal(|ui| {
                 let cur = d.str("color");
-                let names: Vec<&str> = LAYER_COLORS.iter().map(|(n, _)| *n).chain(["Custom"]).collect();
-                let shown = if LAYER_COLORS.iter().any(|(n, _)| n.eq_ignore_ascii_case(&cur)) { cur.clone() } else { "Custom".into() };
-                if let Some((n, _)) = widgets::dropdown(ui, "layer-color", &shown, &names, 140.0).and_then(|i| LAYER_COLORS.get(i)) {
+                let shown = LAYER_COLORS.iter().map(|(n, _)| *n).find(|n| n.eq_ignore_ascii_case(&cur)).unwrap_or("Custom");
+                if let Some((n, _)) = color_dropdown(ui, shown).and_then(|i| LAYER_COLORS.get(i)) {
                     d.fields.insert("color".into(), json!(n));
                 }
                 let [r, g, b] = LAYER_COLORS
@@ -154,9 +178,10 @@ fn body(_: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
                 toggle(ui, d, "preview", tl!("Preview"), true);
                 ui.horizontal(|ui| {
                     toggle(ui, d, "dimImages", tl!("Dim Images to:"), true);
-                    let mut v = d.f64("dimPercent", 50.0);
-                    if ui.add_enabled(d.bool("dimImages"), egui::DragValue::new(&mut v).range(0.0..=100.0).suffix("%")).changed() {
-                        d.fields.insert("dimPercent".into(), json!(v.round()));
+                    let v = d.f64("dimPercent", 50.0);
+                    let dim = d.bool("dimImages");
+                    if let Some(v) = ui.add_enabled_ui(dim, |ui| crate::widgets::range_field(ui, "dimPercent", v, 0.0..=100.0, "%", 0, 52.0)).inner {
+                        d.fields.insert("dimPercent".into(), json!(v));
                     }
                 });
             });

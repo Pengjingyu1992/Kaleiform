@@ -132,6 +132,31 @@ fn plain_fields_do_math_with_their_suffix() {
     assert_eq!(f.frame(vec![enter()], &draw), Some(90.0));
 }
 
+/// Preferences › Units › Numbers Without Units Are Points (#394): on (the default), a number typed
+/// with no unit into a field in picas is read in points; a typed unit still wins (`2p6`, `1in`);
+/// off, it is in picas. A field in any other unit reads it in its unit either way.
+#[test]
+fn bare_numbers_in_picas_fields_are_points_when_the_preference_says_so() {
+    let mut f = Field::new();
+    let typed = |f: &mut Field, u: Unit, text: &str| {
+        let pt = Cell::new(u.to_pt(4.0));
+        let draw = |ui: &mut egui::Ui| widgets::num_field(ui, "f", Some(pt.get()), u, 80.0).inspect(|&v| pt.set(v));
+        f.frame(vec![], &draw);
+        f.frame(f.click(1), &draw);
+        f.frame(vec![Event::Text(text.into())], &draw);
+        f.frame(vec![enter()], &draw)
+    };
+    let (pc, mm) = (Unit::Picas, Unit::Millimeters);
+    assert_eq!(typed(&mut f, pc, "12"), Some(12.0), "on by default: points in a picas field");
+    assert_eq!(typed(&mut f, pc, "2p6"), Some(30.0), "picas and points as typed");
+    assert_eq!(typed(&mut f, pc, "1in"), Some(72.0), "a typed unit wins");
+    assert_eq!(typed(&mut f, pc, "10+5"), Some(15.0), "arithmetic in points too");
+    assert_eq!(typed(&mut f, mm, "12"), Some(mm.to_pt(12.0)), "a millimetre field keeps millimetres");
+    widgets::set_bare_numbers_are_points(&f.ctx, false);
+    assert_eq!(typed(&mut f, pc, "12"), Some(pc.to_pt(12.0)), "off: picas");
+    assert_eq!(typed(&mut f, mm, "12"), Some(mm.to_pt(12.0)));
+}
+
 /// ↑/↓ step a focused numeric field by one of its unit (Shift: ten, Ctrl/Cmd: a tenth) and apply it
 /// at once, the new value selected so typing replaces it; an unfocused field leaves the arrows to
 /// the canvas (nudge).
@@ -179,4 +204,91 @@ fn arrow_keys_step_plain_fields() {
     f.frame(vec![], &count);
     assert_eq!(f.frame(vec![key(Key::ArrowUp, Modifiers::COMMAND)], &count), None);
     assert_eq!(f.frame(vec![key(Key::ArrowUp, Modifiers::NONE)], &count), Some(4.0));
+}
+
+/// A wheel turn of `dy` (`unit`s, up positive) with `modifiers`, the pointer at `at`.
+fn wheel(at: Pos2, unit: egui::MouseWheelUnit, dy: f32, modifiers: Modifiers) -> Vec<Event> {
+    vec![Event::PointerMoved(at), Event::MouseWheel { unit, delta: vec2(0.0, dy), phase: egui::TouchPhase::Move, modifiers }]
+}
+
+/// The mouse wheel over a focused numeric field steps it as ↑/↓ do (#485): a notch a step, Shift
+/// ten, Ctrl/Cmd a tenth; a trackpad's points add up to notches. Unfocused, or with the pointer
+/// elsewhere, the wheel isn't the field's.
+#[test]
+fn the_wheel_steps_a_focused_field_under_the_pointer() {
+    use egui::MouseWheelUnit::{Line, Point};
+    let mut f = Field::new();
+    let u = Unit::Millimeters;
+    let mm = Cell::new(4.0);
+    let draw = |ui: &mut egui::Ui| widgets::num_field(ui, "f", Some(u.to_pt(mm.get())), u, 80.0).inspect(|&v| mm.set(u.from_pt(v)));
+    f.frame(vec![], &draw);
+    let at = f.rect.get().center();
+    assert_eq!(f.frame(wheel(at, Line, 1.0, Modifiers::NONE), &draw), None, "unfocused");
+    f.frame(f.click(1), &draw);
+    f.frame(vec![], &draw);
+    for (dy, mods, want) in
+        [(1.0, Modifiers::NONE, 5.0), (2.0, Modifiers::SHIFT, 25.0), (-1.0, Modifiers::COMMAND, 24.9), (-1.0, Modifiers::NONE, 23.9)]
+    {
+        assert!(f.frame(wheel(at, Line, dy, mods), &draw).is_some(), "{dy} {mods:?}");
+        assert!((mm.get() - want).abs() < 1e-6, "{dy} {mods:?}: {}", mm.get());
+    }
+    assert_eq!(f.selection(), Some((0, "23.9 mm".len())), "the new value is selected");
+    // Points: a step for each line's worth, what is left carried to the next turn.
+    let line = f.ctx.options(|o| o.input_options.line_scroll_speed);
+    assert_eq!(f.frame(wheel(at, Point, line * 0.6, Modifiers::NONE), &draw), None);
+    assert!(f.frame(wheel(at, Point, line * 0.6, Modifiers::NONE), &draw).is_some());
+    assert!((mm.get() - 24.9).abs() < 1e-6, "{}", mm.get());
+    assert_eq!(f.frame(wheel(Pos2::new(390.0, 190.0), Line, 1.0, Modifiers::NONE), &draw), None, "the pointer elsewhere");
+    // Plain fields (degrees, percent, counts) too.
+    let mut f = Field::new();
+    let count = |ui: &mut egui::Ui| widgets::plain_field(ui, "f", 3.0, "", 0, 80.0);
+    f.frame(vec![], &count);
+    f.frame(f.click(1), &count);
+    f.frame(vec![], &count);
+    assert_eq!(f.frame(wheel(f.rect.get().center(), Line, -1.0, Modifiers::NONE), &count), Some(2.0));
+}
+
+/// The wheel over a focused field steps it and leaves the panel where it is; over an unfocused one
+/// it scrolls the panel as before.
+#[test]
+fn the_wheel_scrolls_the_panel_unless_over_the_focused_field() {
+    for focus in [false, true] {
+        let mut f = Field::new();
+        let offset = Cell::new(0.0);
+        let draw = |ui: &mut egui::Ui| {
+            let out = egui::ScrollArea::vertical().max_height(60.0).show(ui, |ui| {
+                let v = widgets::plain_field(ui, "f", 10.0, "", 0, 80.0);
+                ui.add_space(600.0);
+                v
+            });
+            offset.set(out.state.offset.y);
+            out.inner
+        };
+        f.frame(vec![], &draw);
+        let at = Pos2::new(20.0, 12.0);
+        if focus {
+            f.frame(
+                f.click(1)
+                    .into_iter()
+                    .map(|e| {
+                        if let Event::PointerButton { button, pressed, modifiers, .. } = e {
+                            Event::PointerButton { pos: at, button, pressed, modifiers }
+                        } else {
+                            Event::PointerMoved(at)
+                        }
+                    })
+                    .collect(),
+                &draw,
+            );
+        }
+        let stepped = f.frame(wheel(at, egui::MouseWheelUnit::Line, -2.0, Modifiers::NONE), &draw);
+        for _ in 0..20 {
+            f.frame(vec![], &draw);
+        }
+        if focus {
+            assert_eq!((stepped, offset.get()), (Some(8.0), 0.0));
+        } else {
+            assert!(stepped.is_none() && offset.get() > 0.0, "{stepped:?} {}", offset.get());
+        }
+    }
 }

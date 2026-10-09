@@ -133,6 +133,49 @@ pub(crate) fn fit_loop(l: &Loop, o: &FitOptions) -> Option<SubPath> {
     Some(sp)
 }
 
+/// Fit a centre line through `pts` (pixel-centre points in order) into a Bézier subpath: the
+/// points within `polygon_tol` of it are dropped (Douglas–Peucker), then curves are fitted. A
+/// `closed` line runs back to its first point.
+pub(crate) fn fit_polyline(pts: &[Point], closed: bool, o: &FitOptions) -> Option<SubPath> {
+    let n = pts.len();
+    let first = *pts.first()?;
+    if n < 2 {
+        return None;
+    }
+    let mut ext = pts.to_vec();
+    let mut keep = vec![false; n + 1];
+    keep[0] = true;
+    if closed {
+        // Split the ring at its first point and the point farthest from it.
+        ext.push(first);
+        let far = (1..n).max_by(|&i, &j| pts[i].distance_squared(first).total_cmp(&pts[j].distance_squared(first))).unwrap_or(n / 2);
+        keep[far] = true;
+        rdp(&ext, 0, far, o.polygon_tol, &mut keep);
+        rdp(&ext, far, n, o.polygon_tol, &mut keep);
+    } else {
+        keep[n - 1] = true;
+        rdp(&ext, 0, n - 1, o.polygon_tol, &mut keep);
+    }
+    let mut poly: Vec<Point> = (0..n).filter(|&i| keep[i]).map(|i| pts[i]).collect();
+    if closed && poly.len() < 3 {
+        poly = pts.to_vec();
+    }
+    if poly.len() < if closed { 3 } else { 2 } {
+        return None;
+    }
+    let sp = SubPath::polyline(&poly, closed);
+    let fitted =
+        simplify_with(&PathData::single(sp), &SimplifyOptions { tolerance: o.fit_tol, corner_angle_deg: o.corner_angle, straight_lines: false });
+    let mut sp = fitted.subpaths.into_iter().next()?;
+    if sp.anchors.len() < 2 {
+        return None;
+    }
+    if o.snap_lines {
+        snap_to_lines(&mut sp, (o.fit_tol * 2.0).max(1.5));
+    }
+    Some(sp)
+}
+
 /// Retract the handles of curves that stay within `tol` of their chord.
 fn snap_to_lines(sp: &mut SubPath, tol: f64) {
     let n = sp.anchors.len();

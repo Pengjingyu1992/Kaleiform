@@ -70,6 +70,49 @@ fn load_average() -> Option<f64> {
     text.split_whitespace().map(|t| t.trim_matches(|c| c == '{' || c == '}')).find_map(|t| t.parse().ok())
 }
 
+/// Milliseconds per pointer move of a Direct Selection drag of a handle, then of a segment, of a
+/// 5,000-anchor wave of smooth anchors added on top of the synthetic `n`-path document.
+fn edit_drags(n: usize) -> Result<(f64, f64), String> {
+    use vectorcraft_engine::tools::{Mods, PointerEvent, PointerKind};
+    use vectorcraft_geom::{Anchor, PathData, SubPath, Vec2};
+    let mut doc = synthetic(n)?;
+    let l = doc.layers.first().map(|l| l.id);
+    let id = doc.alloc_id();
+    // Anchors 2 pt apart, up and down by 20 pt, their handles 0.6 pt long.
+    let anchor = |i: usize| {
+        let p = Point::new(i as f64 * 2.0, if i.is_multiple_of(2) { 500.0 } else { 520.0 });
+        Anchor::smooth(p, p + Vec2::new(0.6, 0.0))
+    };
+    let path = PathData::single(SubPath::new((0..5000).map(anchor).collect(), false));
+    doc.insert(l, usize::MAX, Node::path(id, path, Appearance::default_art())).map_err(|e| e.to_string())?;
+    let mut s = vectorcraft_engine::Session::new();
+    s.add_document(doc, None);
+    let view = vectorcraft_engine::ViewInfo { zoom: 8.0, ..Default::default() };
+    let err = |e: vectorcraft_engine::EngineError| e.to_string();
+    let mut drag = |down: Point| -> Result<f64, String> {
+        let ev = |kind, y: f64| PointerEvent { kind, pos: down + Vec2::new(0.0, y), mods: Mods::default(), pressure: 1.0 };
+        s.execute("select.anchors", &json!({"id": id.0, "anchors": [[0, 400]]})).map_err(err)?;
+        s.select_tool("directSelection", view).map_err(err)?;
+        let undo = s.doc().map_err(err)?.history.undo.len();
+        s.pointer(&ev(PointerKind::Down, 0.0), view).map_err(err)?;
+        let mut y = 0.0;
+        let ms = median_ms(9, || {
+            y += 3.0;
+            // A failed move shows as the missing undo step below.
+            let _ = s.pointer(&ev(PointerKind::Drag, y), view);
+        });
+        s.pointer(&ev(PointerKind::Up, y), view).map_err(err)?;
+        if s.doc().map_err(err)?.history.undo.len() != undo + 1 {
+            return Err(format!("the drag from {down:?} made no undo step"));
+        }
+        Ok(ms)
+    };
+    // Anchor 400 is at (800, 500): its outgoing handle's end, then its segment to anchor 401.
+    let handle = drag(Point::new(800.6, 500.0))?;
+    let segment = drag(Point::new(801.0, 510.0))?;
+    Ok((handle, segment))
+}
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut n = 50_000usize;
     let mut it = args.iter();
@@ -145,6 +188,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     });
     rows.push(("Pathfinder Unite, 1,000 paths", unite, 150.0));
+
+    // Path editing: one pointer move of a Direct Selection drag (the tool event and the preview it
+    // applies), on a 5,000-anchor path among the synthetic paths.
+    let (handle, segment) = edit_drags(n).unwrap_or_else(|e| {
+        failed = Some(e);
+        (0.0, 0.0)
+    });
+    rows.push(("handle drag, 5,000-anchor path (per move)", handle, 8.0));
+    rows.push(("segment drag, 5,000-anchor path (per move)", segment, 8.0));
     if let Some(e) = failed {
         return Err(e);
     }

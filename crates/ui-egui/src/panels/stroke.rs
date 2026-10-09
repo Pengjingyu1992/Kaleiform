@@ -4,7 +4,7 @@
 use egui::{Color32, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::{Value, json};
 use vectorcraft_color::{Color, Paint};
-use vectorcraft_doc::{Appearance, ArrowAlign, Arrowhead, Dash, Document, LineCap, LineJoin, Node, StrokeAlign, StrokeLayer, WidthProfile};
+use vectorcraft_doc::{Appearance, ArrowAlign, Arrowhead, Dash, Document, LineCap, LineJoin, Node, StrokeAlign, StrokeLayer, Unit, WidthProfile};
 use vectorcraft_engine::inspect::StrokeMixed;
 
 use super::{character, current_stroke, pstate, set_pstate, stroke_mixed};
@@ -12,8 +12,34 @@ use crate::theme::Tokens;
 use crate::widgets::{self, menu_item};
 use crate::{VectorcraftApp, icons};
 
-pub const WEIGHT_PRESETS: [f64; 22] =
+/// Stroke weight dropdown presets in points, from the ladder of `unit` (Units > Stroke): each
+/// unit has its own ladder of round values in that unit, so the dropdown reads `0.25 mm`, not the
+/// `0.088 mm` a converted pt ladder gives. Feet, yards and meters, which no stroke is measured
+/// in, keep the pt ladder.
+pub fn weight_presets(unit: Unit) -> [f64; 22] {
+    let native = match unit {
+        Unit::Millimeters => MM_PRESETS,
+        Unit::Centimeters => CM_PRESETS,
+        Unit::Inches => IN_PRESETS,
+        Unit::Pixels => PX_PRESETS,
+        Unit::Picas => return PC_PRESETS,
+        Unit::Points | Unit::FeetInches | Unit::Feet | Unit::Meters | Unit::Yards => return PT_PRESETS,
+    };
+    native.map(|v| unit.to_pt(v))
+}
+
+const PT_PRESETS: [f64; 22] =
     [0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0];
+const MM_PRESETS: [f64; 22] = [0.1, 0.25, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 15.0, 20.0, 25.0, 30.0];
+const CM_PRESETS: [f64; 22] = [0.01, 0.02, 0.03, 0.05, 0.06, 0.07, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0];
+const IN_PRESETS: [f64; 22] =
+    [0.0078, 0.0156, 0.0313, 0.0625, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
+const PX_PRESETS: [f64; 22] =
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 30.0, 40.0];
+/// The pica ladder (0p1 … 5p) in points, so every entry is an exact pt weight. The dropdown shows
+/// them as decimal picas (`0.083 p`) until [`Unit::number`] writes `0p1` notation.
+const PC_PRESETS: [f64; 22] =
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0, 33.0, 36.0, 48.0, 60.0];
 
 /// A profile's points as its silhouette: none (the plain bar) for the uniform stroke.
 fn silhouette(points: &[(f64, f64, f64)]) -> Option<&[(f64, f64, f64)]> {
@@ -87,15 +113,18 @@ pub(crate) fn shown_weight(app: &VectorcraftApp, st: Option<&StrokeLayer>, mixed
 
 /// The weight spinner (Stroke panel, Control bar): Units > Stroke, presets, blank when mixed.
 pub(crate) fn weight_field(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, weight: Option<f64>, width: f32) {
-    if let Some(w) = widgets::spin_field(ui, id, weight, app.session.stroke_unit(), width, 1.0, 0.0, &WEIGHT_PRESETS) {
+    let unit = app.session.stroke_unit();
+    if let Some(w) = widgets::spin_field(ui, id, weight, unit, width, 1.0, 0.0, &weight_presets(unit)) {
         set(app, json!({"weight": w}));
     }
 }
 
-/// The Stroke panel in a popover anchored to `resp` (the Control bar's and the Properties
-/// panel's Stroke links), which a click on it toggles.
-pub(crate) fn popover(app: &mut VectorcraftApp, resp: &egui::Response) {
-    egui::Popup::menu(resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+/// The underlined Stroke link (`label`: the Control bar's "Stroke:", the Properties panel's
+/// "Stroke"): a click toggles the Stroke panel in a popover under it.
+pub(crate) fn link(app: &mut VectorcraftApp, ui: &mut Ui, label: &str) {
+    let t = Tokens::get(ui.ctx());
+    let resp = ui.link(egui::RichText::new(label).size(12.0).color(t.text).underline()).on_hover_text(tl!("Stroke options"));
+    widgets::popover(&resp, resp.clicked(), |ui| {
         ui.set_width(260.0);
         show(app, ui);
     });
@@ -110,7 +139,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let hidden: bool = pstate(ui.ctx(), "stroke-hide-options");
     let label_w = 64.0;
     let row_label = |ui: &mut Ui, s: &str| {
-        ui.add_sized(vec2(label_w, 24.0), egui::Label::new(egui::RichText::new(s).size(12.5).color(t.text)).halign(egui::Align::RIGHT));
+        let l = ui.add_sized(vec2(label_w, 24.0), egui::Label::new(egui::RichText::new(s).size(12.5).color(t.text)).halign(egui::Align::RIGHT));
+        crate::scrub::note_label(ui, l.rect);
     };
     ui.horizontal(|ui| {
         row_label(ui, tl!("Weight:"));

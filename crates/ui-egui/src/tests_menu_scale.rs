@@ -49,8 +49,9 @@ fn menu_state_for_a_large_path_selection() {
         }
         timings.push((t.elapsed(), id));
     }
-    assert_eq!(menus::checked(&app, "type.orientation.vertical", &serde_json::Value::Null), None);
-    assert_eq!(menus::checked(&app, "type.pathOptions", &serde_json::json!({"effect": "rainbow"})), None);
+    // Native menus keep the toggle kind stable even when no text is selected.
+    assert_eq!(menus::checked(&app, "type.orientation.vertical", &serde_json::Value::Null), Some(false));
+    assert_eq!(menus::checked(&app, "type.pathOptions", &serde_json::json!({"effect": "rainbow"})), Some(false));
     eprintln!("large selection ({count} paths) menu sweep: {:?}", start.elapsed());
     timings.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
     eprintln!("slowest predicates: {:?}", &timings[..10]);
@@ -59,7 +60,7 @@ fn menu_state_for_a_large_path_selection() {
         "object.envelope.release",
         "object.repeat.release",
         "effect.expandAppearance",
-        "object.cropImage",
+        "ui.cropImage",
         "object.createObjectMosaic",
         "object.slice.options",
         "links.editOriginal",

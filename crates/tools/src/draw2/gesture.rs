@@ -3,14 +3,17 @@
 //!
 //! Pencil and Paintbrush preview the fitted path live (`path.freehand` re-applied on the snapshot)
 //! and commit on release; Alt on release (or ending near the start) closes the path, and starting
-//! near an end of a selected open path continues it. The other tools collect the drag polyline
-//! (shown as an overlay) and run one command on release.
+//! near an end of a selected open path continues it. The Pencil's new path starts and ends on
+//! Smart Guides ([`DrawSnap`]: an anchor, a path, in line with the art), hovering too; the points
+//! between follow the hand. The other tools collect the drag polyline (shown as an overlay) and run
+//! one command on release.
 
 use serde_json::{Value, json};
 use vectorcraft_doc::NodeId;
 use vectorcraft_geom::Point;
 
 use super::{FEEDBACK, points_json, polyline};
+use crate::guides::DrawSnap;
 use crate::{Action, Cursor, Mods, Overlay, PointerEvent, PointerKind, Tool, ToolContext, ToolKey};
 
 pub struct GestureTool {
@@ -30,6 +33,8 @@ pub struct GestureTool {
     pub edit_within: f64,
     /// "Close paths when ends are within N pixels".
     pub close_within: f64,
+    /// Smart Guides for the Pencil's ends.
+    snap: DrawSnap,
 }
 
 impl GestureTool {
@@ -56,7 +61,13 @@ impl GestureTool {
             fill: false,
             edit_within: 12.0,
             close_within: 15.0,
+            snap: DrawSnap::default(),
         }
+    }
+
+    /// Do the ends of its strokes snap (the Pencil)?
+    fn snaps(&self) -> bool {
+        self.id == "pencil"
     }
 
     fn draws_path(&self) -> bool {
@@ -147,16 +158,26 @@ impl Tool for GestureTool {
     fn pointer(&mut self, cx: &ToolContext, ev: &PointerEvent) -> Vec<Action> {
         let p = ev.pos;
         match ev.kind {
+            PointerKind::Move if self.snaps() => {
+                self.snap.hover(cx, p, &[], None);
+                vec![]
+            }
             PointerKind::Down => {
-                self.points = vec![p];
                 self.active = true;
                 self.began = false;
                 self.extend = if self.draws_path() { self.find_extend(cx, p) } else { None };
+                // A path continued starts at its end; a new one where it snaps.
+                let start = if self.snaps() && self.extend.is_none() { self.snap.press(cx, p, &[], None) } else { p };
+                self.points = vec![start];
                 vec![]
             }
             PointerKind::Drag => {
                 if !self.active {
                     return vec![];
+                }
+                if self.snaps() {
+                    // Where the stroke would end: shown, taken on release.
+                    self.snap.drag(cx, p, None);
                 }
                 if self.points.last().is_some_and(|l| l.distance(p) < cx.tol(1.0)) {
                     return vec![];
@@ -177,8 +198,16 @@ impl Tool for GestureTool {
                 if !self.active {
                     return vec![];
                 }
+                let end = if self.snaps() { self.snap.drag(cx, p, None) } else { p };
+                self.snap.clear();
                 if self.points.last().is_some_and(|l| l.distance(p) >= cx.tol(1.0)) {
-                    self.points.push(p);
+                    self.points.push(end);
+                } else if self.snaps()
+                    && self.points.len() > 1
+                    && let Some(last) = self.points.last_mut()
+                {
+                    // The last step was where the button went up: it moves where that snaps.
+                    *last = end;
                 }
                 let out = self.finish(cx, ev.mods);
                 self.active = false;
@@ -194,6 +223,7 @@ impl Tool for GestureTool {
         match key {
             ToolKey::Escape if self.active => {
                 let began = self.began;
+                self.snap.clear();
                 self.active = false;
                 self.began = false;
                 self.points.clear();
@@ -212,21 +242,24 @@ impl Tool for GestureTool {
     }
     fn deactivate(&mut self, _cx: &ToolContext) -> Vec<Action> {
         let began = self.began;
+        self.snap.clear();
         self.active = false;
         self.began = false;
         self.points.clear();
         if began { vec![Action::Commit] } else { vec![] }
     }
     fn overlays(&self, cx: &ToolContext) -> Vec<Overlay> {
+        let mut o = self.snap.guides().to_vec();
         if !self.active || self.points.len() < 2 || self.began {
-            return vec![];
+            return o;
         }
         let width = match self.id {
             "blobBrush" | "eraser" => (self.size * cx.zoom) as f32,
             _ => 1.0,
         };
         let color = if self.id == "eraser" { [0x80, 0x80, 0x80] } else { FEEDBACK };
-        vec![Overlay::Path { path: polyline(&self.points), color, width, dashed: self.id == "knife" }]
+        o.push(Overlay::Path { path: polyline(&self.points), color, width, dashed: self.id == "knife" });
+        o
     }
     fn cursor(&self, _cx: &ToolContext, _p: Point, _m: Mods) -> Cursor {
         Cursor::Crosshair
@@ -267,6 +300,25 @@ mod tests {
         let l = pts[pts.len() - 1];
         v.push(t.pointer(cx, &PointerEvent::new(PointerKind::Up, l.0, l.1).with_mods(m)));
         v
+    }
+
+    /// The Pencil's new path starts and ends on Smart Guides (#506), the points between where
+    /// the hand went.
+    #[test]
+    fn pencil_ends_snap_to_smart_guides() {
+        let (d, _) = doc_with_rect();
+        let s = Selection::default();
+        let p = paint();
+        let cx = cx(&d, &s, &p);
+        let mut t = GestureTool::new("pencil");
+        let acts = drag(&mut t, &cx, &[(102.0, 98.0), (151.0, 300.0), (250.0, 320.0), (198.0, 203.0)], Mods::default());
+        let Some(Action::Preview(_, v)) = acts.last().and_then(|a| a.first()) else { panic!("{acts:?}") };
+        assert_eq!(v["points"], json!([[100.0, 100.0], [151.0, 300.0], [250.0, 320.0], [200.0, 200.0]]));
+        // The Paintbrush follows the hand all the way.
+        let mut t = GestureTool::new("paintbrush");
+        let acts = drag(&mut t, &cx, &[(102.0, 98.0), (151.0, 300.0)], Mods::default());
+        let Some(Action::Preview(_, v)) = acts.last().and_then(|a| a.first()) else { panic!("{acts:?}") };
+        assert_eq!(v["points"][0], json!([102.0, 98.0]));
     }
 
     #[test]

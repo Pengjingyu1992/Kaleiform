@@ -98,16 +98,55 @@ pub fn stamp_save_dates(st: &mut DocState, at: i64) {
     d.metadata.modified = Some(at);
 }
 
-/// The Templates folder: the `templatesFolder` preference, else the existing legacy folder or
-/// `Documents/Kaleiform Templates` in the user's home.
+/// The Templates folder: a preference, an existing legacy folder, or Kaleiform Templates in
+/// the user's platform-specific documents folder.
 pub fn templates_folder(prefs: &Prefs) -> Option<String> {
     if !prefs.templates_folder.is_empty() {
         return Some(prefs.templates_folder.clone());
     }
-    let documents = std::path::Path::new(&home_folder()?).join("Documents");
+    let documents = documents_folder()?;
     let legacy = documents.join("VectorCraft Templates");
     let folder = if legacy.is_dir() { legacy } else { documents.join("Kaleiform Templates") };
-    Some(folder.to_string_lossy().to_string())
+    Some(folder.to_string_lossy().into_owned())
+}
+
+/// The Templates folder for a file dialog to start in (#703): made when it's missing; where it
+/// can't be, the nearest folder above it that exists, else the home folder. A dialog asked to
+/// start in a folder that isn't there shows an error on some desktops.
+pub fn templates_dialog_folder(prefs: &Prefs) -> Option<String> {
+    let folder = std::path::PathBuf::from(templates_folder(prefs)?);
+    if !folder.is_dir() {
+        // Best effort: a folder that can't be made leaves the nearest one that exists.
+        let _ = std::fs::create_dir_all(&folder);
+    }
+    folder.ancestors().find(|a| a.is_dir()).map(|a| a.to_string_lossy().into_owned()).or_else(home_folder)
+}
+
+/// The user's documents folder: on Linux and the BSDs the one the desktop names
+/// (`XDG_DOCUMENTS_DIR` in `user-dirs.dirs`: `~/Documenti`, `~/Dokumente`…), elsewhere `Documents`
+/// in the home folder.
+fn documents_folder() -> Option<std::path::PathBuf> {
+    let home = std::path::PathBuf::from(home_folder()?);
+    if cfg!(all(unix, not(target_os = "macos"))) {
+        let config =
+            std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).filter(|p| p.is_absolute()).unwrap_or_else(|| home.join(".config"));
+        if let Some(dir) = std::fs::read_to_string(config.join("user-dirs.dirs")).ok().and_then(|t| xdg_documents(&t, &home)) {
+            return Some(dir);
+        }
+    }
+    Some(home.join("Documents"))
+}
+
+/// `XDG_DOCUMENTS_DIR` in a `user-dirs.dirs` file's `text`, `$HOME` being `home`. None when it isn't
+/// set, is relative, or is the home folder itself (the spec's way of turning it off).
+fn xdg_documents(text: &str, home: &std::path::Path) -> Option<std::path::PathBuf> {
+    let line = text.lines().map(str::trim).find(|l| l.starts_with("XDG_DOCUMENTS_DIR="))?;
+    let value = line.split_once('=')?.1.trim().trim_matches('"');
+    let dir = match value.strip_prefix("$HOME") {
+        Some(rest) => home.join(rest.trim_start_matches('/')),
+        None => std::path::PathBuf::from(value),
+    };
+    (dir.has_root() && dir != home).then_some(dir)
 }
 
 /// The user's home folder (`HOME`, else `USERPROFILE` on Windows; none on the web).
@@ -192,10 +231,13 @@ pub fn save_plan(s: &Session, mode: SaveMode, p: &Value) -> Result<SavePlan> {
         SaveMode::Save | SaveMode::SaveAs => format!("{stem}.{ext}"),
     };
     let folder = match mode {
-        SaveMode::Template => templates_folder(&s.prefs),
+        SaveMode::Template => templates_dialog_folder(&s.prefs),
         _ => st.path.as_deref().and_then(parent_folder),
     };
     let modified = date_param(p, "modified", cmd)?;
+    if let Some(path) = &path {
+        super::check_not_lossy_overwrite(st, path, p, cmd)?;
+    }
     Ok(SavePlan { mode, path, format, options, name, folder, modified })
 }
 
@@ -219,15 +261,20 @@ fn is_svg(f: &Format) -> bool {
     matches!(f.id, "svg" | "svgz")
 }
 
-/// The document as written: native files carry the view to reopen at.
+/// The document as written: native files carry the view to reopen at and the Layers panel's open
+/// rows.
 fn doc_to_save(st: &DocState, f: &Format) -> Arc<Document> {
-    if is_native(f) && st.doc.last_view != st.view {
-        let mut d = (*st.doc).clone();
-        d.last_view = st.view.clone();
-        Arc::new(d)
-    } else {
-        st.doc.clone()
+    if !is_native(f) {
+        return st.doc.clone();
     }
+    let open = st.layers_open.saved(&st.doc);
+    if st.doc.last_view == st.view && st.doc.layers_open == open {
+        return st.doc.clone();
+    }
+    let mut d = (*st.doc).clone();
+    d.last_view = st.view.clone();
+    d.layers_open = open;
+    Arc::new(d)
 }
 
 /// What a format loses against a native file (reported whenever a save writes it).
@@ -277,6 +324,7 @@ fn artboard_doc(doc: &Document, i: usize) -> Document {
     d.artboards = vec![a.clone()];
     // It opens fitted to its artboard, not at the master file's view.
     d.last_view = None;
+    d.layers_open = None;
     for layer in &mut d.layers {
         keep_on(layer, r);
     }
@@ -307,6 +355,40 @@ fn blank_pages(doc: &Document) -> Document {
 
 /// Why a `.ai` file saved without PDF content looks empty elsewhere.
 const NOT_PDF_COMPATIBLE: &str = "saved without PDF content: Kaleiform opens it as before, other apps show empty pages";
+
+/// The encoder's params for a `.ai` file, from a save's or an export's: a PDF of every artboard
+/// with the PDF options, always carrying the native document, its layers and sublayers PDF layers
+/// (hidden ones off) unless asked otherwise; Use Compression compresses the PDF's content.
+pub(super) fn ai_params(params: &mut Value) {
+    let Some(o) = params.as_object_mut() else { return };
+    o.extend([("preserveEditing".into(), json!(true)), ("range".into(), json!("all"))]);
+    // Apps that read the PDF part (not the native document) then find the layers, the hidden ones
+    // with their art (#372); a PDF standard decides for itself.
+    if o.get("standard").is_none_or(Value::is_null) {
+        o.entry("createLayers").or_insert(json!(true));
+    }
+    if let Some(c) = o.get("compress").and_then(Value::as_bool) {
+        let compression = o.entry("compression").or_insert_with(|| json!({}));
+        if let Some(m) = compression.as_object_mut() {
+            m.insert("compressText".into(), json!(c));
+        }
+    }
+}
+
+/// Encode `doc` as a PDF-compatible `.ai` file (`params` as [`ai_params`] makes them) for command
+/// `cmd`: its pages (blank with `pdfCompatible: false`, which it then notes), carrying the native
+/// document. File › Save As writes it, and so do the exports (`document.export`, the CLI).
+pub(super) fn encode_ai(cmd: &str, f: &Format, doc: &Document, params: &Value) -> Result<Encoded> {
+    let compatible = bool_or(params, "pdfCompatible", true);
+    let pages = doc.without_edit_modes();
+    let pages = if compatible { pages } else { std::borrow::Cow::Owned(blank_pages(&pages)) };
+    let native = || super::native::ai_native(cmd, f, doc, params);
+    let (bytes, mut warnings) = super::pdf::encode_carrying(cmd, &pages, params, native)?;
+    if !compatible {
+        warnings.insert(0, NOT_PDF_COMPATIBLE.to_string());
+    }
+    Ok(Encoded { warnings, ..Encoded::one(bytes) })
+}
 
 /// Snapshot the active document for `plan` (stamping File Info's dates when the file becomes the
 /// document's own). Bad options fail here, before anything is encoded.
@@ -342,16 +424,8 @@ pub(crate) fn job_for(s: &Session, st: &DocState, plan: SavePlan) -> Result<Save
     }
     let boards = separate_boards(cmd, plan.format, &doc, &params)?;
     let mut params = super::pdf::expand_preset(s, cmd, &params)?.into_owned();
-    if let (Some(o), "ai") = (params.as_object_mut(), plan.format.id) {
-        // A PDF of every artboard with the PDF options, always carrying the native document.
-        o.extend([("preserveEditing".into(), json!(true)), ("range".into(), json!("all"))]);
-        // Use Compression compresses the PDF's content.
-        if let Some(c) = o.get("compress").and_then(Value::as_bool) {
-            let compression = o.entry("compression").or_insert_with(|| json!({}));
-            if let Some(m) = compression.as_object_mut() {
-                m.insert("compressText".into(), json!(c));
-            }
-        }
+    if plan.format.id == "ai" {
+        ai_params(&mut params);
     }
     Ok(SaveJob { plan, doc, params, snapshot: st.doc.clone(), boards })
 }
@@ -375,25 +449,14 @@ impl SaveJob {
             let one = self.encode_one(&artboard_doc(&self.doc, b))?;
             enc.files.extend(one.files.into_iter().map(|(_, bytes)| (Some(b), bytes)));
         }
-        let pdf_less = self.plan.format.id == "ai" && !bool_or(&self.params, "pdfCompatible", true);
-        let notes = fidelity_warning(self.plan.format).into_iter().chain(pdf_less.then(|| NOT_PDF_COMPATIBLE.to_string()));
-        enc.warnings.splice(0..0, notes);
+        enc.warnings.splice(0..0, fidelity_warning(self.plan.format));
         Ok(enc)
     }
 
     /// Encode one file of `doc` in the job's format.
     fn encode_one(&self, doc: &Document) -> Result<Encoded> {
         let (cmd, f) = (self.plan.mode.command(), self.plan.format);
-        let enc = if f.id == "ai" {
-            // The pages (blank without PDF content), carrying the native document.
-            let pages = doc.without_edit_modes();
-            let pages = if bool_or(&self.params, "pdfCompatible", true) { pages } else { std::borrow::Cow::Owned(blank_pages(&pages)) };
-            let native = || super::native::ai_native(cmd, f, doc, &self.params);
-            let (bytes, warnings) = super::pdf::encode_carrying(cmd, &pages, &self.params, native)?;
-            Encoded { warnings, ..Encoded::one(bytes) }
-        } else {
-            encode_all(doc, f.id, &self.params)?
-        };
+        let enc = if f.id == "ai" { encode_ai(cmd, f, doc, &self.params)? } else { encode_all(doc, f.id, &self.params)? };
         if enc.files.len() != 1 {
             return Err(bad(cmd, "Save writes one artboard: name one, or export several with document.export"));
         }
@@ -453,11 +516,16 @@ impl SaveJob {
     /// its own also ends its Data Recovery copy.
     pub fn complete(self, s: &mut Session, uid: u64) {
         let saved = self.plan.retargets() && self.plan.path.is_some();
+        // The other open documents that place this one show the new version.
+        let written = self.plan.path.clone().filter(|_| matches!(self.plan.format.id, "vectorcraft" | "template"));
         if let Some(st) = s.document_mut(uid) {
             self.finish(st);
         }
         if saved {
             crate::cmd::recovery::forget(s, uid);
+        }
+        if let Some(path) = written {
+            crate::cmd::links::refresh_placed(s, uid, &path);
         }
     }
 }
@@ -590,4 +658,41 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             format_options
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests_folders {
+    use std::path::{Path, PathBuf};
+
+    /// #703: the documents folder a desktop names in `user-dirs.dirs`, not an English `Documents`.
+    #[test]
+    fn the_desktops_documents_folder_is_read_from_user_dirs() {
+        let home = Path::new("/home/david");
+        let file = "# comment\nXDG_DESKTOP_DIR=\"$HOME/Scrivania\"\nXDG_DOCUMENTS_DIR=\"$HOME/Documenti\"\n";
+        assert_eq!(super::xdg_documents(file, home), Some(PathBuf::from("/home/david/Documenti")));
+        assert_eq!(super::xdg_documents("XDG_DOCUMENTS_DIR=\"/data/docs\"", home), Some(PathBuf::from("/data/docs")));
+        // "$HOME/" turns it off; a relative or missing one isn't used.
+        assert_eq!(super::xdg_documents("XDG_DOCUMENTS_DIR=\"$HOME/\"", home), None);
+        assert_eq!(super::xdg_documents("XDG_DOCUMENTS_DIR=\"docs\"", home), None);
+        assert_eq!(super::xdg_documents("XDG_MUSIC_DIR=\"$HOME/Musica\"", home), None);
+    }
+
+    /// #703: the Templates folder a dialog starts in exists: made when missing, else the nearest
+    /// folder above it.
+    #[test]
+    fn the_templates_dialog_folder_exists() {
+        let base = std::env::temp_dir().join(format!("vc-templates-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let mut prefs = crate::Prefs::default();
+        let wanted = base.join("Modelli").join("VectorCraft Templates");
+        prefs.templates_folder = wanted.to_string_lossy().into_owned();
+        assert_eq!(super::templates_dialog_folder(&prefs).map(PathBuf::from), Some(wanted.clone()));
+        assert!(wanted.is_dir(), "made");
+        // A file in the way: the nearest folder that exists.
+        std::fs::write(base.join("blocked"), b"x").unwrap();
+        prefs.templates_folder = base.join("blocked").join("Templates").to_string_lossy().into_owned();
+        assert_eq!(super::templates_dialog_folder(&prefs).map(PathBuf::from), Some(base.clone()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

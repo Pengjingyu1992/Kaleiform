@@ -1,6 +1,6 @@
 //! Resizing area type (#252): a bounding-box handle drag and Area Type Options size the type area
 //! and the text reflows at its size; Direct Selection reshapes the frame by a corner or an edge.
-//! Point type still scales.
+//! Point type still scales. The type widget converts point type to area type and back.
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{NodeKind, TextKind, TextObject};
@@ -266,4 +266,111 @@ fn reshape_area_is_a_registered_command() {
     assert!(spec.params.contains("anchors") && spec.params.contains("dx"));
     assert!(cmd::find_command("object.transform").unwrap().params.contains("typeAreas"));
     assert!(session().commands().iter().any(|c| c.id == "text.reshapeArea" && c.enabled));
+}
+
+/// The Discord report: type in a frame dragged with the Type tool, then the Selection tool. Its
+/// bounding box resizes the type area (the text reflows at its size), it doesn't scale the type.
+#[test]
+fn type_in_a_dragged_frame_resizes_with_the_selection_tool() {
+    let mut s = session();
+    drag(&mut s, "type", Point::new(40.0, 40.0), Point::new(160.0, 80.0));
+    let v = ViewInfo::default();
+    s.tool_text(STORY, v).unwrap();
+    s.select_tool("selection", v).unwrap();
+    let id = s.doc().unwrap().selection.objects[0];
+    assert_eq!(frame(&s, id), Rect::new(0.0, 0.0, 120.0, 40.0));
+    let lines = layout(&s, id).lines.len();
+    drag(&mut s, "selection", Point::new(160.0, 80.0), Point::new(200.0, 140.0));
+    assert_eq!(last_step(&s), "Resize Type Area");
+    assert_eq!(frame(&s, id), Rect::new(0.0, 0.0, 160.0, 100.0));
+    assert_eq!(text(&s, id).xf, Affine::translate((40.0, 40.0)), "the type isn't scaled");
+    assert!(layout(&s, id).lines.len() > lines, "the text reflows into the larger area");
+}
+
+/// The type widget beside the selected type's bounding box (as the Selection tool shows it at
+/// the default view).
+fn widget(s: &Session) -> vectorcraft_tools::typewidget::TypeWidget {
+    let st = s.doc().unwrap();
+    let bx = s.transform_box(&st.selection.objects).unwrap();
+    vectorcraft_tools::typewidget::TypeWidget::of(&st.doc, &st.selection, &bx, ViewInfo::default().zoom).unwrap()
+}
+
+fn double_click(s: &mut Session, p: Point) {
+    let v = ViewInfo::default();
+    s.select_tool("selection", v).unwrap();
+    for kind in [PointerKind::Down, PointerKind::Up, PointerKind::Down, PointerKind::Up, PointerKind::DoubleClick] {
+        s.pointer(&PointerEvent::new(kind, p.x, p.y).with_mods(Mods::default()), v).unwrap();
+    }
+}
+
+/// Double-clicking the type widget converts point type to area type and back, each one undo
+/// step, keeping the text, its styles and where it stands; the selection stays.
+#[test]
+fn the_type_widget_converts_point_and_area_type() {
+    let mut s = session();
+    let id = id_of(&s.execute("text.create", &json!({"x": 40, "y": 100, "size": 18, "text": "Two words"})).unwrap());
+    s.execute("text.setRangeStyle", &json!({"id": id.0, "start": 4, "end": 9, "size": 24})).unwrap();
+    sel(&mut s, &[id]);
+    let before = text(&s, id);
+    let glyph = |t: &TextObject| t.xf * vectorcraft_text::layout(vectorcraft_text::FontDb::global(), t).glyphs[0].origin;
+    let w = widget(&s);
+    assert!(!w.area);
+    let n = undo_len(&s);
+    double_click(&mut s, w.at);
+    assert_eq!(undo_len(&s), n + 1, "one step");
+    assert_eq!(last_step(&s), "Convert To Area Type");
+    let t = text(&s, id);
+    assert!(matches!(t.kind, TextKind::Area { .. }));
+    assert_eq!((t.plain_text(), &t.runs), (before.plain_text(), &before.runs), "the text and its styles stay");
+    assert!(glyph(&t).distance(glyph(&before)) < 0.01, "the type stays where it was");
+    assert!(!layout(&s, id).overflow);
+    assert_eq!(s.doc().unwrap().selection.objects, vec![id]);
+    // Now area type: a filled widget, and a double-click turns it back into point type.
+    let w = widget(&s);
+    assert!(w.area);
+    double_click(&mut s, w.at);
+    assert_eq!(undo_len(&s), n + 2);
+    assert_eq!(last_step(&s), "Convert To Point Type");
+    let t = text(&s, id);
+    assert!(matches!(t.kind, TextKind::Point));
+    assert_eq!(t.runs, before.runs);
+    assert!(glyph(&t).distance(glyph(&before)) < 0.01);
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(text(&s, id), before);
+}
+
+#[test]
+fn area_type_options_align_the_lines_vertically() {
+    use vectorcraft_doc::VerticalAlign;
+    let mut s = session();
+    let id = area(&mut s, 40.0, 40.0, 200.0, 300.0, "Short story");
+    sel(&mut s, &[id]);
+    assert_eq!(s.execute("text.areaOptions", &json!({})).unwrap()["verticalAlign"], "top");
+    let top = layout(&s, id).lines[0].baseline;
+    let before = text(&s, id).cached_bounds;
+    let n = undo_len(&s);
+    let r = s.execute("text.areaOptions", &json!({"verticalAlign": "bottom"})).unwrap();
+    assert_eq!(r["verticalAlign"], "bottom");
+    assert_eq!(text(&s, id).area.vertical_align, VerticalAlign::Bottom);
+    let l = layout(&s, id);
+    let last = l.lines.last().unwrap();
+    assert!((last.baseline + last.descent - 300.0).abs() < 1e-6);
+    assert!(l.lines[0].baseline > top + 200.0);
+    assert_ne!(text(&s, id).cached_bounds, before, "the cached bounds follow the text");
+    assert_eq!((undo_len(&s), last_step(&s).as_str()), (n + 1, "Area Type Options"));
+    s.execute("text.areaOptions", &json!({"verticalAlign": "center"})).unwrap();
+    assert_eq!(text(&s, id).area.vertical_align, VerticalAlign::Center);
+    // Unknown values are refused and change nothing.
+    for bad in [json!({"verticalAlign": "middle"}), json!({"verticalAlign": 3}), json!({"verticalAlign": null})] {
+        assert!(s.execute("text.areaOptions", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(undo_len(&s), n + 2);
+    assert_eq!(text(&s, id).area.vertical_align, VerticalAlign::Center);
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(text(&s, id).area.vertical_align, VerticalAlign::Top);
+    assert_eq!(layout(&s, id).lines[0].baseline, top);
+    assert_eq!(text(&s, id).cached_bounds, before);
+    assert!(cmd::find_command("text.areaOptions").unwrap().params.contains("verticalAlign?: top|center|bottom|justify"));
 }

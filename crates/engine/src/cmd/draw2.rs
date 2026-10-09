@@ -670,34 +670,13 @@ fn convert_anchor(s: &mut Session, p: &Value) -> Result<Value> {
     s.edit("Convert Anchor Point", |d, _| {
         let path = path_mut(d, id)?;
         let sp = path.subpaths.get_mut(si).ok_or_else(|| EngineError::Other("no such subpath".into()))?;
-        let n = sp.anchors.len();
-        if ai >= n {
-            return Err(EngineError::Other("no such anchor".into()));
-        }
-        let prev = if ai > 0 || sp.closed { Some(sp.anchors[(ai + n - 1) % n].p) } else { None };
-        let next = if ai + 1 < n || sp.closed { Some(sp.anchors[(ai + 1) % n].p) } else { None };
-        let a = &mut sp.anchors[ai];
-        if !smooth {
-            a.retract();
-            return Ok(());
-        }
+        let a = sp.anchors.get_mut(ai).ok_or_else(|| EngineError::Other("no such anchor".into()))?;
         match target {
-            Some(t) if t.distance(a.p) > 1e-9 => {
-                a.h_out = t;
-                a.h_in = a.p - (t - a.p);
-                a.kind = AnchorKind::Smooth;
-            }
+            _ if !smooth => a.retract(),
+            Some(t) if t.distance(a.p) > 1e-9 => *a = Anchor::smooth(a.p, t),
             Some(_) => a.retract(),
             None => {
-                let (pp, nn) = (prev.unwrap_or(a.p), next.unwrap_or(a.p));
-                let dir = nn - pp;
-                let l = dir.hypot();
-                if l > 1e-9 {
-                    let u = dir / l;
-                    a.h_in = a.p - u * (a.p.distance(pp) / 3.0);
-                    a.h_out = a.p + u * (a.p.distance(nn) / 3.0);
-                    a.kind = AnchorKind::Smooth;
-                }
+                sp.smooth_anchor(ai);
             }
         }
         Ok(())
@@ -722,13 +701,16 @@ fn reshape_segment(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(EngineError::Other("no such segment".into()));
         }
         let n = sp.anchors.len();
-        // Moving both inner control points by v moves B(t) by 3t(1-t)·v.
+        // Moving both inner control points by v moves B(t) by 3t(1-t)·v. A smooth anchor stays
+        // smooth: its other handle turns with the moved one.
         let v = dv / (3.0 * t * (1.0 - t));
         let (i0, i1) = (seg % n, (seg + 1) % n);
-        let a = sp.anchors[i0];
-        sp.anchors[i0] = Anchor::with_handles(a.p, a.h_in, a.h_out + v);
-        let b = sp.anchors[i1];
-        sp.anchors[i1] = Anchor::with_handles(b.p, b.h_in + v, b.h_out);
+        if let Some(a) = sp.anchors.get_mut(i0) {
+            a.set_handle(true, a.h_out + v, false);
+        }
+        if let Some(b) = sp.anchors.get_mut(i1) {
+            b.set_handle(false, b.h_in + v, false);
+        }
         Ok(())
     })?;
     ok()
@@ -767,30 +749,13 @@ fn split(s: &mut Session, p: &Value) -> Result<Value> {
             }
             _ => return Err(EngineError::Other("no such segment".into())),
         };
+        let mut pieces = sp.cut_at(&std::collections::BTreeSet::from([k]));
         if sp.closed {
-            sp.anchors.rotate_left(k);
-            let mut last = sp.anchors[0];
-            last.h_out = last.p;
-            sp.anchors[0].h_in = sp.anchors[0].p;
-            last.kind = AnchorKind::Corner;
-            sp.anchors[0].kind = AnchorKind::Corner;
-            sp.anchors.push(last);
-            sp.closed = false;
-            path.subpaths[si] = sp;
+            path.subpaths[si] = pieces.pop().ok_or_else(|| EngineError::Other("no such anchor".into()))?;
             sel.set([id]);
             return Ok(vec![id]);
         }
-        let n = sp.anchors.len();
-        if k == 0 || k + 1 >= n {
-            return Err(EngineError::Other("cannot split an open path at its end point".into()));
-        }
-        let mut left = SubPath::new(sp.anchors[..=k].to_vec(), false);
-        let mut right = SubPath::new(sp.anchors[k..].to_vec(), false);
-        let lp = left.anchors[k].p;
-        left.anchors[k].h_out = lp;
-        left.anchors[k].kind = AnchorKind::Corner;
-        right.anchors[0].h_in = lp;
-        right.anchors[0].kind = AnchorKind::Corner;
+        let [left, right] = <[SubPath; 2]>::try_from(pieces).map_err(|_| EngineError::Other("cannot split an open path at its end point".into()))?;
         if path.subpaths.len() == 1 {
             path.subpaths[0] = left;
             let node = sibling_with(d, id, PathData::single(right))?;

@@ -9,9 +9,10 @@
 
 use std::collections::HashMap;
 
-use kurbo::{Affine, BezPath, Point, Vec2};
+use kurbo::{Affine, BezPath, Point, Rect, Vec2};
 use vectorcraft_color::Paint;
 use vectorcraft_doc::{CharStyle, ParaDirection, TextKind, TextObject, TextRun};
+use vectorcraft_text::TextLayout;
 
 /// One glyph's placement: its baseline origin, advance direction, size and horizontal scale.
 #[derive(Clone, Copy, Debug)]
@@ -23,6 +24,9 @@ pub(crate) struct Placement {
     pub size: f64,
     /// Width of the em ÷ its height, in percent.
     pub h_scale: f64,
+    /// How far the em leans along the baseline per unit of its height (a text matrix with a
+    /// shear: faux italic, or type slanted as a whole); 0 when it stands square on the baseline.
+    pub slant: f64,
 }
 
 impl Placement {
@@ -32,14 +36,23 @@ impl Placement {
         let origin = m * Point::ORIGIN;
         let ex = m * Point::new(1000.0, 0.0) - origin;
         let ey = m * Point::new(0.0, 1000.0) - origin;
-        let (w, size) = (ex.hypot(), ey.hypot());
+        let w = ex.hypot();
         // Upright in y-down document space: x to the right of up.
         let upright = ex.cross(ey) < 0.0;
-        (origin.is_finite() && w.is_finite() && size.is_finite() && w > 0.01 && size > 0.01 && size < 1e5 && upright).then(|| Self {
+        if !(w.is_finite() && w > 0.01) {
+            return None;
+        }
+        let dir = ex / w;
+        // The em's height is across the baseline; what's left of `ey` along it is a slant.
+        let up = Vec2::new(dir.y, -dir.x);
+        let size = ey.dot(up);
+        let slant = ey.dot(dir) / size;
+        (origin.is_finite() && size.is_finite() && slant.is_finite() && size > 0.01 && size < 1e5 && upright).then(|| Self {
             origin,
-            dir: ex / w,
+            dir,
             size,
             h_scale: w / size * 100.0,
+            slant,
         })
     }
 
@@ -103,6 +116,8 @@ pub(crate) struct TextLine {
     next: Point,
     /// The last glyph's origin.
     last: Point,
+    /// Where the last glyph that isn't a space ends.
+    visible: Point,
     /// The last glyph's baseline direction.
     last_dir: Vec2,
     /// Each glyph's baseline origin, then where the last one ends.
@@ -112,6 +127,24 @@ pub(crate) struct TextLine {
     upright: Option<Upright>,
     /// The glyphs make a column (vertical type), each below the last.
     column: bool,
+    /// Each glyph's ink box as drawn (document space), in drawing order; glyphs without ink are
+    /// left out.
+    pub ink: Vec<Rect>,
+    /// The spaces read from gaps between glyphs: their byte offset in the text, and the gap from
+    /// the end of the glyph before to the start of the next (points).
+    gaps: Vec<(usize, f64)>,
+}
+
+/// What a finished line of type tells beyond its text object (see [`crate::import_lines`]).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LineFacts {
+    /// [`TextLine::ink`].
+    pub ink: Vec<Rect>,
+    /// Horizontal point type: it ended in a space (as a line an editor wrapped in a frame does).
+    pub wraps: bool,
+    /// Horizontal point type: how long the file set it, from its first glyph's origin to the end
+    /// of its last glyph that isn't a space (points, along the baseline).
+    pub length: f64,
 }
 
 /// The most a glyph on a curve turns from the one before it (about 20°).
@@ -119,7 +152,20 @@ const CURVE_TURN_COS: f64 = 0.94;
 
 impl TextLine {
     pub fn new(at: Placement, opacity: f32) -> Self {
-        Self { at, opacity, next: at.origin, last: at.origin, last_dir: at.dir, baseline: vec![], runs: vec![], upright: None, column: false }
+        Self {
+            at,
+            opacity,
+            next: at.origin,
+            last: at.origin,
+            visible: at.origin,
+            last_dir: at.dir,
+            baseline: vec![],
+            runs: vec![],
+            upright: None,
+            column: false,
+            ink: vec![],
+            gaps: vec![],
+        }
     }
 
     /// Add glyph `text` set vertically (`upright`) if it continues this column (or makes this
@@ -171,11 +217,13 @@ impl TextLine {
         if self.column || self.upright.is_some() {
             return false;
         }
+        let bytes: usize = self.runs.iter().map(|(_, t)| t.len()).sum();
         if let Some((last, run)) = self.runs.last_mut() {
             let size = self.at.size.max(at.size);
             let gap = (at.origin - self.next).dot(self.last_dir);
             let on_line = opacity == self.opacity
                 && at.dir.dot(self.at.dir) > 0.9995
+                && (at.slant - self.at.slant).abs() < 1e-3
                 && (at.origin - self.at.origin).dot(self.at.up()).abs() < size * 0.15
                 && gap > -size * 0.3
                 && gap < size * 3.0;
@@ -183,6 +231,7 @@ impl TextLine {
             // that one ends.
             let on_curve = !on_line
                 && opacity == self.opacity
+                && (at.slant - self.at.slant).abs() < 1e-3
                 && at.dir.dot(self.last_dir) > CURVE_TURN_COS
                 && at.dir.dot(self.last_dir) < 0.99999
                 && (at.origin - self.next).hypot() < size * 0.6;
@@ -192,6 +241,9 @@ impl TextLine {
             // A gap wider than a fifth of an em reads as a space.
             if gap > size * 0.2 && !run.ends_with(' ') && !text.starts_with(' ') {
                 run.push(' ');
+                if on_line {
+                    self.gaps.push((bytes, gap));
+                }
             }
             if last.takes(look) {
                 run.push_str(text);
@@ -202,6 +254,9 @@ impl TextLine {
             self.runs.push((look.clone(), text.to_string()));
         }
         self.next = at.origin + at.dir * advance;
+        if !text.trim().is_empty() {
+            self.visible = self.next;
+        }
         self.last = at.origin;
         self.last_dir = at.dir;
         self.baseline.push(at.origin);
@@ -247,10 +302,12 @@ impl TextLine {
         true
     }
 
-    /// The point type object and its opacity.
-    pub fn finish(mut self) -> Option<(TextObject, f32)> {
+    /// The point type object, its opacity and what else the line tells.
+    pub fn finish(mut self) -> Option<(TextObject, f32, LineFacts)> {
+        let mut facts = LineFacts { ink: std::mem::take(&mut self.ink), ..LineFacts::default() };
         // Turned along a curve: type on a path through the glyphs.
         let path = if self.curved() { self.baseline_path() } else { None };
+        facts.wraps = path.is_none() && self.upright.is_none() && self.runs.last().is_some_and(|(_, t)| t.ends_with(' '));
         if let Some((_, last)) = self.runs.last_mut() {
             last.truncate(last.trim_end().len());
         }
@@ -258,7 +315,7 @@ impl TextLine {
         if self.runs.iter().all(|(_, t)| t.trim().is_empty()) {
             return None;
         }
-        let mut runs = self.runs.into_iter().map(|(look, text)| TextRun { text, style: look.style() });
+        let mut runs = self.runs.into_iter().map(|(look, text)| TextRun { text, style: look.style(), inline: None });
         let first = runs.next()?;
         let mut t = TextObject::point(Point::ORIGIN, &first.text, first.style);
         t.runs.extend(runs);
@@ -266,13 +323,14 @@ impl TextLine {
             to_logical(&mut t);
         }
         let angle = self.at.dir.atan2();
-        t.xf = Affine::translate(self.at.origin.to_vec2()) * Affine::rotate(angle);
+        // The glyphs' tops lean along the baseline (+x), up being -y in the type's own space.
+        t.xf = Affine::translate(self.at.origin.to_vec2()) * Affine::rotate(angle) * Affine::skew(-self.at.slant, 0.0);
         let db = vectorcraft_text::FontDb::global();
         if let Some(path) = path {
-            t.kind = TextKind::OnPath { path: vectorcraft_geom::PathData::from_bezpath(&path), start: 0.0 };
+            t.kind = TextKind::OnPath { path: vectorcraft_geom::PathData::from_bezpath(&path), start: 0.0, end: None };
             t.xf = Affine::IDENTITY;
             t.cached_bounds = Some(vectorcraft_text::layout(db, &t).bounds);
-            return Some((t, self.opacity));
+            return Some((t, self.opacity, facts));
         }
         let (start, along) = match self.upright {
             // Vertical point type (a column, or a single upright glyph) is anchored at the top
@@ -286,24 +344,85 @@ impl TextLine {
         };
         // Tracking that makes the line as long as in the file: the PDF placed each glyph, the
         // layout sets them by their advances. Spread over the gaps between characters (tracking
-        // follows each character, the last one's past the end of the line).
-        let length = (self.next - start).dot(along);
+        // follows each character, the last one's past the end of the line). A horizontal line is
+        // measured to its last glyph that isn't a space: the spaces after it were dropped.
+        let length = (if t.vertical { self.next } else { self.visible } - start).dot(along);
+        if !t.vertical {
+            facts.length = length;
+        }
         let laid = vectorcraft_text::layout(db, &t);
         let natural: f64 = laid.glyphs.iter().map(|g| g.advance).sum();
         let chars: usize = t.runs.iter().map(|r| r.text.chars().count()).sum();
         let size = self.at.size;
         let mut bounds = laid.bounds;
         if chars > 1 && length.is_finite() && (length - natural).abs() > size * 0.01 {
-            let tracking = ((length - natural) / (chars - 1) as f64 / size * 1000.0).clamp(-1000.0, 1000.0).round();
-            for r in &mut t.runs {
-                r.style.tracking = tracking;
-            }
+            // The spaces read from gaps keep their own place only in text left in the file's order.
+            let total: usize = t.runs.iter().map(|r| r.text.len()).sum();
+            let gaps: Vec<(usize, f64)> =
+                if t.para.direction.is_none() { self.gaps.into_iter().filter(|(b, _)| *b < total).collect() } else { vec![] };
+            let (tracking, spaces) = spacing(&laid, &gaps, length - natural, chars, size);
+            t.runs = tracked(std::mem::take(&mut t.runs), tracking, &spaces);
             // Tracked: laid out again for its bounds.
             bounds = vectorcraft_text::layout(db, &t).bounds;
         }
         t.cached_bounds = Some(bounds);
-        Some((t, self.opacity))
+        Some((t, self.opacity, facts))
     }
+}
+
+/// The tracking (thousandths of an em) that sets a line of `chars` characters, laid out untracked
+/// as `laid`, `extra` points longer, as the file set it: the same after every character, except
+/// the spaces read from gaps (`gaps`: byte offset, gap in points) where that would put the glyphs
+/// after them more than a tenth of an em off (a barcode's digits, set in groups apart). Those take
+/// their own tracking, given with their byte offsets.
+fn spacing(laid: &TextLayout, gaps: &[(usize, f64)], extra: f64, chars: usize, size: f64) -> (f64, Vec<(usize, f64)>) {
+    let pairs = chars.saturating_sub(1).max(1) as f64;
+    // The space and the character before it take `need` (the gap less the space) between them;
+    // tracking gives them twice its share.
+    let space = |b: usize| laid.glyphs.iter().find(|g| g.byte == b).map(|g| g.advance);
+    let needs: Vec<(usize, f64)> = gaps.iter().filter_map(|&(b, gap)| Some((b, gap - space(b)?))).collect();
+    let mut own: Vec<(usize, f64)> = vec![];
+    let mut tracking = extra / pairs;
+    // Each space taken apart changes the others' share: until no more are.
+    loop {
+        let more: Vec<(usize, f64)> =
+            needs.iter().filter(|(b, need)| !own.iter().any(|(o, _)| o == b) && (need - 2.0 * tracking).abs() > size * 0.1).copied().collect();
+        if more.is_empty() {
+            break;
+        }
+        own.extend(more);
+        let rest = pairs - 2.0 * own.len() as f64;
+        tracking = if rest >= 1.0 { (extra - own.iter().map(|(_, need)| need).sum::<f64>()) / rest } else { 0.0 };
+    }
+    own.sort_by_key(|(b, _)| *b);
+    let em = |pts: f64| (pts / size * 1000.0).clamp(-1000.0, 1000.0).round();
+    (em(tracking), own.into_iter().map(|(b, need)| (b, em(need - tracking))).collect())
+}
+
+/// `runs` with tracking `tracking`, and each space at a byte offset of `spaces` (in order) a run
+/// of its own with the tracking given with it.
+fn tracked(runs: Vec<TextRun>, tracking: f64, spaces: &[(usize, f64)]) -> Vec<TextRun> {
+    let mut out = Vec::with_capacity(runs.len() + 2 * spaces.len());
+    let mut off = 0;
+    for r in runs {
+        let style = CharStyle { tracking, ..r.style };
+        let end = off + r.text.len();
+        let mut from = 0;
+        for &(b, own) in spaces.iter().filter(|(b, _)| (off..end).contains(b)) {
+            let at = b - off;
+            let (Some(before), Some(space)) = (r.text.get(from..at), r.text.get(at..at + 1)) else { continue };
+            if !before.is_empty() {
+                out.push(TextRun { text: before.to_string(), style: style.clone(), inline: None });
+            }
+            out.push(TextRun { text: space.to_string(), style: CharStyle { tracking: own, ..style.clone() }, inline: None });
+            from = at + 1;
+        }
+        if let Some(rest) = r.text.get(from..).filter(|t| !t.is_empty()) {
+            out.push(TextRun { text: rest.to_string(), style, inline: None });
+        }
+        off = end;
+    }
+    out
 }
 
 fn round(v: f64) -> f64 {
@@ -386,7 +505,7 @@ fn to_logical(t: &mut TextObject) {
             _ => runs.push((i, c.to_string())),
         }
     }
-    let runs = runs.into_iter().filter_map(|(i, text)| Some(TextRun { text, style: t.runs.get(i)?.style.clone() })).collect();
+    let runs = runs.into_iter().filter_map(|(i, text)| Some(TextRun { text, style: t.runs.get(i)?.style.clone(), inline: None })).collect();
     t.runs = runs;
     t.para.direction = Some(if rtl { ParaDirection::RightToLeft } else { ParaDirection::LeftToRight });
 }

@@ -324,14 +324,19 @@ pub fn bake_appearance(n: &Node) -> Option<Node> {
     Some(m)
 }
 
-/// A copy of `doc` with every live geometry effect baked into plain paths, or `None` when the
-/// document has none (export it as is).
+/// A copy of `doc` ready to export: every live geometry effect baked into plain paths, and the
+/// resources of its placed documents' art added ([`Document::with_placed_art`]); `None` when
+/// there is nothing to do (export it as is).
 pub fn bake_document(doc: &Document) -> Option<Document> {
-    if !doc.layers.iter().any(|l| needs_bake(l)) {
-        return None;
+    let placed = doc.with_placed_art();
+    if !placed.layers.iter().any(|l| needs_bake(l)) {
+        return match placed {
+            std::borrow::Cow::Owned(d) => Some(d),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
     }
-    let mut d = doc.clone();
-    let layers = doc.layers.clone();
+    let mut d = placed.into_owned();
+    let layers = d.layers.clone();
     d.layers = layers.iter().map(|l| bake_node(&mut d, l).map(Arc::new).unwrap_or_else(|| l.clone())).collect();
     Some(d)
 }

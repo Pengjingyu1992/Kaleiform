@@ -75,14 +75,24 @@ pub(crate) fn reflow(before: &Document, doc: &mut Document) {
         });
         // The story: live frames' runs, plus the text of frames deleted by this edit.
         let mut story: Vec<TextRun> = vec![];
+        let mut sources: Vec<TextObject> = vec![];
+        let mut later_wins = vec![];
         let mut live = vec![];
         for id in &thread {
             match (text_of(doc, *id), text_of(before, *id)) {
-                (Some(t), _) => {
+                (Some(t), old) => {
                     story.extend(t.runs.iter().cloned());
+                    // A frame whose first paragraph was just restyled gives the paragraph it
+                    // shares with the frame before it that style.
+                    later_wins.push(old.is_some_and(|o| o.para_at(0) != t.para_at(0)));
+                    sources.push(t.clone());
                     live.push(*id);
                 }
-                (None, Some(old)) => story.extend(old.runs.iter().cloned()),
+                (None, Some(old)) => {
+                    story.extend(old.runs.iter().cloned());
+                    later_wins.push(false);
+                    sources.push(old.clone());
+                }
                 (None, None) => {}
             }
         }
@@ -92,16 +102,33 @@ pub(crate) fn reflow(before: &Document, doc: &mut Document) {
             }
             continue;
         }
+        let source_refs: Vec<&TextObject> = sources.iter().collect();
+        let paras = vectorcraft_text::thread::story_paras(&source_refs, &later_wins);
         vectorcraft_text::edit::normalize(&mut story);
+        if live.len() >= 2 {
+            // Threaded frames keep their size: Auto Size is off for them (as in Illustrator).
+            for id in &live {
+                if text_of(doc, *id).is_some_and(|t| t.area.fit == vectorcraft_doc::AreaFit::AutoHeight)
+                    && let Some(NodeKind::Text(t)) = doc.node_mut(*id).map(|n| &mut n.kind)
+                {
+                    t.area.fit = vectorcraft_doc::AreaFit::None;
+                }
+            }
+        }
         let frames: Vec<TextObject> = live.iter().filter_map(|id| text_of(doc, *id).cloned()).collect();
         let refs: Vec<&TextObject> = frames.iter().collect();
-        let parts = vectorcraft_text::thread::distribute(vectorcraft_text::FontDb::global(), &refs, &story);
-        for (id, runs) in live.iter().zip(parts) {
-            if let Some(NodeKind::Text(t)) = doc.node_mut(*id).map(|n| &mut n.kind)
-                && t.runs != runs
-            {
-                t.runs = runs;
-                refresh_bounds(t);
+        let parts = vectorcraft_text::thread::distribute(vectorcraft_text::FontDb::global(), &refs, &story, &paras);
+        for (id, part) in live.iter().zip(parts) {
+            if let Some(NodeKind::Text(t)) = doc.node_mut(*id).map(|n| &mut n.kind) {
+                let mut next = (**t).clone();
+                next.runs = part.runs;
+                next.set_paragraph_styles(part.paras);
+                if next.runs != t.runs || next.para != t.para || next.paras != t.paras {
+                    t.runs = next.runs;
+                    t.para = next.para;
+                    t.paras = next.paras;
+                    refresh_bounds(t);
+                }
             }
         }
         if live.len() >= 2 {
@@ -183,15 +210,17 @@ fn release(s: &mut Session, _: &Value) -> Result<Value> {
                 continue;
             }
             let mut story: Vec<TextRun> = vec![];
-            for id in &thread {
-                if let Some(t) = text_of(d, *id) {
-                    story.extend(t.runs.iter().cloned());
-                }
+            let sources: Vec<TextObject> = thread.iter().filter_map(|id| text_of(d, *id).cloned()).collect();
+            for t in &sources {
+                story.extend(t.runs.iter().cloned());
             }
+            let paras = vectorcraft_text::thread::story_paras(&sources.iter().collect::<Vec<_>>(), &[]);
             let style = story.first().map(|r| r.style.clone()).unwrap_or_default();
+            let first_para = paras.first().cloned().unwrap_or_default();
             for id in &out {
                 if let Some(NodeKind::Text(t)) = d.node_mut(*id).map(|n| &mut n.kind) {
-                    t.runs = vec![TextRun { text: String::new(), style: style.clone() }];
+                    t.runs = vec![TextRun { text: String::new(), style: style.clone(), inline: None }];
+                    t.set_all_paras(first_para.clone());
                     refresh_bounds(t);
                 }
             }
@@ -200,6 +229,7 @@ fn release(s: &mut Session, _: &Value) -> Result<Value> {
             {
                 vectorcraft_text::edit::normalize(&mut story);
                 t.runs = story;
+                t.set_paragraph_styles(paras);
             }
             let i = d.text_threads.iter().position(|t| *t == thread).unwrap_or(0);
             d.text_threads[i] = keep;

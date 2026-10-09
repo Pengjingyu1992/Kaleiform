@@ -91,12 +91,12 @@ fn real_text_lands_within_half_a_point_of_the_outlines() {
     turned.xf *= Affine::rotate(-0.5) * Affine::skew(0.2, 0.0);
     let mut mixed = TextObject::point(Point::new(200.0, 60.0), "", style(20.0));
     mixed.runs = vec![
-        TextRun { text: "x".into(), style: style(20.0) },
-        TextRun { text: "2".into(), style: CharStyle { baseline_shift: 8.0, v_scale: 140.0, ..style(12.0) } },
-        TextRun { text: " ok".into(), style: CharStyle { rotation: 20.0, ..style(20.0) } },
+        TextRun { text: "x".into(), style: style(20.0), inline: None },
+        TextRun { text: "2".into(), style: CharStyle { baseline_shift: 8.0, v_scale: 140.0, ..style(12.0) }, inline: None },
+        TextRun { text: " ok".into(), style: CharStyle { rotation: 20.0, ..style(20.0) }, inline: None },
     ];
     let mut on_path = TextObject::point(Point::ZERO, "along the arc", style(18.0));
-    on_path.kind = TextKind::OnPath { path: arc(), start: 0.0 };
+    on_path.kind = TextKind::OnPath { path: arc(), start: 0.0, end: None };
     on_path.xf = Affine::IDENTITY;
     for t in [plain, turned, mixed, on_path] {
         let what = t.plain_text();
@@ -227,4 +227,66 @@ fn a_variable_font_instance_comes_back_in_its_own_style() {
         }
     });
     assert_eq!(styles, ["Bold"]);
+}
+
+/// The export of `text` (one point type object) with its ToUnicode map rewritten so that the
+/// digits map to U+FFFD, as some files have it (#708). Each `<003D>` of a digit becomes `<FFFD>`, so
+/// the file's offsets still hold.
+fn digits_unnamed(text: &str) -> Vec<u8> {
+    let d = doc(vec![TextObject::point(Point::new(20.0, 50.0), text, style(24.0))]);
+    let bytes = pdf(&d, false).bytes;
+    let at = bytes.windows(11).position(|w| w == b"beginbfchar").expect("a readable ToUnicode map");
+    let end = at + bytes[at..].windows(9).position(|w| w == b"endbfchar").unwrap();
+    let mut out = bytes.clone();
+    for i in at..end.saturating_sub(5) {
+        // `<0030>` … `<0039>` after a space: a digit's character (each line's code comes first).
+        if &bytes[i..i + 4] == b"<003" && bytes[i + 4].is_ascii_digit() && bytes[i + 5] == b'>' && bytes[i - 1] == b' ' {
+            out[i + 1..i + 5].copy_from_slice(b"FFFD");
+        }
+    }
+    assert_ne!(out, bytes, "digits were mapped");
+    out
+}
+
+/// #708: a glyph whose ToUnicode value is U+FFFD isn't type showing "�". This subset font has no
+/// character map of its own, so the digits keep their outlines, drawn as the file draws them, and
+/// a warning names the font.
+#[test]
+fn glyphs_mapped_to_the_replacement_character_keep_their_outlines() {
+    let bytes = digits_unnamed("Tel 02-12345");
+    let report = import_with_report(&bytes, &ImportOptions { text_as: TextAs::Text, ..Default::default() }).unwrap();
+    let all = texts(&report.document).concat();
+    assert!(!all.contains('\u{FFFD}') && all.contains("Tel"), "no replacement characters: {all:?}");
+    assert!(ink(&report.document).width() > 50.0, "the digits are outlines");
+    assert!(report.warnings.iter().any(|w| w.contains("U+FFFD")), "{:?}", report.warnings);
+}
+
+/// #708: where the embedded font program has a character map, a glyph's character comes from it.
+#[test]
+fn an_embedded_fonts_own_cmap_names_its_glyphs() {
+    let data = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts/SourceSans3-Regular.ttf")).unwrap();
+    let chars = crate::import::font_chars(&data).unwrap();
+    use skrifa::MetadataProvider;
+    let font = skrifa::FontRef::new(&data).unwrap();
+    for c in ['0', '7', 'A', 'z'] {
+        let g = font.charmap().map(c).unwrap().to_u32();
+        assert_eq!(chars.get(&g), Some(&c));
+    }
+    assert!(crate::import::font_chars(b"not a font").is_none());
+}
+
+/// Type whose text matrix shears its glyphs (slanted as a whole, as Illustrator writes type
+/// turned and skewed) reopens as type that still leans: drawn, it covers what its outlines do.
+#[test]
+fn slanted_type_reopens_as_type_that_still_leans() {
+    for (turn, lean) in [(0.0, 0.25), (-0.2, 0.25), (0.3, -0.15)] {
+        let mut t = TextObject::point(Point::new(80.0, 150.0), "LEAN", style(60.0));
+        t.xf *= Affine::rotate(turn) * Affine::skew(lean, 0.0);
+        let d = doc(vec![t]);
+        let reopened = import_as(&pdf(&d, false).bytes, TextAs::Text);
+        assert_eq!(texts(&reopened), ["LEAN"], "{turn} {lean}: reopened as type");
+        let (a, b) = (ink(&import_as(&pdf(&reopened, true).bytes, TextAs::Outlines)), ink(&import_as(&pdf(&d, true).bytes, TextAs::Outlines)));
+        let off = [a.x0 - b.x0, a.y0 - b.y0, a.x1 - b.x1, a.y1 - b.y1].iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        assert!(off < 0.5, "{turn} {lean}: {a:?} vs {b:?}");
+    }
 }

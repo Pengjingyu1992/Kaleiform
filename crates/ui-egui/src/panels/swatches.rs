@@ -581,6 +581,7 @@ pub(crate) fn drag_preview(app: &VectorcraftApp, ctx: &egui::Context) {
             None => return,
         },
         PanelDrag::Brush { def, .. } => return pointer_chip(ctx, |ui, r| super::brushes::chip(ui, r, def)),
+        PanelDrag::LibraryGraphic { library, item } => return pointer_chip(ctx, |ui, r| super::libraries::chip(app, ui, r, library, item)),
     };
     pointer_chip(ctx, |ui, r| {
         if registration {

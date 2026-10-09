@@ -364,6 +364,22 @@ pub fn encode_with_warnings(doc: &Document, format: &str, p: &Value) -> Result<(
 
 /// [`encode`], with every file the export writes.
 pub fn encode_all(doc: &Document, format: &str, p: &Value) -> Result<Encoded> {
+    // Placed documents output their files' art (a native file keeps what it keeps: see
+    // `native::encode`).
+    if !matches!(format, "vectorcraft" | "template") {
+        let (full, warnings) = crate::cmd::place::document::full_documents(doc);
+        if !warnings.is_empty() {
+            let mut enc = encode_all_of(&full, format, p)?;
+            enc.warnings.extend(warnings);
+            return Ok(enc);
+        }
+        return encode_all_of(&full, format, p);
+    }
+    encode_all_of(doc, format, p)
+}
+
+/// [`encode_all`] of `doc` as it is.
+fn encode_all_of(doc: &Document, format: &str, p: &Value) -> Result<Encoded> {
     let f = super::writable(C, Some(format), None)?;
     let mut enc = encode_files(doc, f, p)?;
     // Formats that draw type: missing fonts come out in the fallback font (PDF and SVG say so
@@ -401,6 +417,12 @@ fn encode_files(doc: &Document, f: &Format, p: &Value) -> Result<Encoded> {
         "txt" => super::text::encode(doc, p)?,
         "svg" | "svgz" => return super::svg::encode(doc, p, f.id == "svgz").map_err(|e| bad(C, e)),
         "dxf" => return super::dxf::encode(doc, p, use_artboards),
+        // As Save As writes it (a PDF of every artboard carrying the native document).
+        "ai" => {
+            let mut q = p.clone();
+            super::save::ai_params(&mut q);
+            return super::save::encode_ai(C, f, doc, &q);
+        }
         // EPS reads its own `useArtboards` (the art's bounds unless asked).
         "eps" => return super::eps::encode(doc, p),
         "emf" => return super::metafile::encode(doc, p, use_artboards, vectorcraft_metafile::Kind::Emf),

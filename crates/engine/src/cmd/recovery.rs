@@ -523,6 +523,10 @@ struct Meta {
     format: String,
     /// When the copy was written (Unix seconds; none without a clock).
     saved: Option<i64>,
+    /// The file it was read from when that import left things out of the document, and what
+    /// (see [`crate::DocState::import_losses`]): a restored copy still refuses to replace it.
+    imported_from: Option<String>,
+    import_losses: Vec<String>,
 }
 
 fn read_meta(store: &dyn RecoveryStore, file: &str) -> Meta {
@@ -651,7 +655,14 @@ pub fn jobs(s: &mut Session, store: &Arc<dyn RecoveryStore>) -> Result<(Vec<Reco
             modified: None,
         };
         let save = fileio::job_for(s, st, plan)?;
-        let meta = Meta { title: title.clone(), path: st.path.clone(), format: st.format.to_string(), saved };
+        let meta = Meta {
+            title: title.clone(),
+            path: st.path.clone(),
+            format: st.format.to_string(),
+            saved,
+            imported_from: st.imported_from.clone(),
+            import_losses: st.import_losses.clone(),
+        };
         out.push(RecoveryJob { uid: st.uid, file, title, meta, save });
     }
     Ok((out, skipped))
@@ -839,6 +850,8 @@ fn restore_one(s: &mut Session, store: &Arc<dyn RecoveryStore>, file: &str) -> R
     let index = s.add_document(doc, meta.path.clone());
     let st = s.doc_mut()?;
     st.recovered = true;
+    st.imported_from = meta.imported_from.clone();
+    st.import_losses = meta.import_losses.clone();
     st.format = SAVE_FORMATS.iter().copied().find(|f| *f == meta.format).unwrap_or("vectorcraft");
     st.mark_unsaved();
     // The copy stays until the document is saved or closed.

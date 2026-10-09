@@ -11,17 +11,35 @@
 	About Kaleiform	Kaleiform について
 	MIT OR Apache-2.0. Third-party attributions are included in the notices.	MIT または Apache-2.0。第三者のクレジットは同梱の通知に記載されています。
 	All Scripts	すべての文字
+	Anchors:	アンカー:
 	Any Kind	すべての種類
+	Ascender	アセンダ
+	Baseline	ベースライン
 	Bottom-to-Bottom Leading	欧文ベースライン基準の行送り
+	Burasagari	ぶら下がり
+	Force	強制
+	Center	中央
 	Character Alignment	文字揃え
+	Connect Selected End Points	選択した端点を連結
+	Convert Selected Anchor Points to Corner	選択したアンカーポイントをコーナーポイントに変換
+	Convert Selected Anchor Points to Smooth	選択したアンカーポイントをスムーズポイントに変換
+	Convert:	変換:
+	Cut Path	パスをカット
 	Decorative	装飾
+	Descender	ディセンダ
 	Em Box Bottom/Left	仮想ボディの下 / 左
 	Em Box Center	仮想ボディの中央
 	Em Box Top/Right	仮想ボディの上 / 右
+	ICF Top/Right	平均字面の上 / 右
+	ICF Bottom/Left	平均字面の下 / 左
 	Favorites	お気に入り
+	Flip	反転
 	Japanese	日本語
 	Line-end Punctuation Half Width	行末約物半角
 	Mojikumi Set	文字組み
+	Kinsoku Set	禁則処理
+	Hard	強い禁則
+	Soft	弱い禁則
 	Latin	欧文
 	Monospaced	等幅
 	Roman Baseline	欧文ベースライン
@@ -31,7 +49,9 @@
 	Serif / Mincho	明朝・セリフ
 	Settings…	環境設定…
 	Language	表示言語
+	Spacing	間隔
 	Top-to-Top Leading	仮想ボディの上基準の行送り
+	Type on a Path Options	パス上文字オプション
 	UI Brightness	UI の明るさ
 	Dark	暗い
 	Medium Dark	やや暗い
@@ -151,6 +171,7 @@
 	Expand…	分割・拡張…
 	Expand Appearance	アピアランスを分割
 	Crop Image	画像の切り抜き
+	Mask	マスク
 	Rasterize…	ラスタライズ…
 	Create Gradient Mesh…	グラデーションメッシュを作成…
 	Create Object Mosaic…	モザイクオブジェクトを作成…
@@ -215,8 +236,8 @@
 	Merge	結合
 	Gap Options…	間隔オプション…
 	Image Trace	画像トレース
-	Make…	作成…
-	Make and Expand…	作成して拡張…
+	Image Tracing	画像トレースオブジェクト
+	Tracing Presets	トレースプリセット
 	Text Wrap	テキストの回り込み
 	Text Wrap Options…	テキストの回り込みオプション…
 	Clipping Mask	クリッピングマスク
@@ -303,7 +324,10 @@
 	Create Outlines	アウトラインを作成
 	Optical Margin Alignment	最適なマージン揃え
 	Fill with Placeholder Text	サンプルテキストの割り付け
+	Insert Inline Symbol	インラインシンボルを挿入
 	Show Hidden Characters	制御文字を表示
+	Bold	太字
+	Italic	斜体
 	Type Orientation	組み方向
 	Horizontal	横書き
 	Vertical	縦書き
@@ -318,6 +342,7 @@
 	Same	共通
 	Appearance	アピアランス
 	Appearance Attribute	アピアランス属性
+	Apply	適用
 	Blending Mode	描画モード
 	Fill & Stroke	塗りと線
 	Fill Color	カラー (塗り)
@@ -493,10 +518,12 @@
 	Manage Workspaces…	ワークスペースを管理…
 	Control	コントロール
 	Contextual Task Bar	コンテキストタスクバー
+	Pin Bar Position	バーの位置を固定
+	Reset Bar Position	バーの位置をリセット
 	Tools	ツール
 	Toolbars	ツールバー
 	Advanced	詳細
-	Single / Double Column	1 列／2 列
+	Double Column	2 列
 	Actions	アクション
 	Asset Export	アセットの書き出し
 	Attributes	属性
@@ -651,6 +678,9 @@
 	 to transform  |  	：変形  |  
 	 to zoom in  |  	：拡大  |  
 	 to zoom into an area	：範囲を拡大
+	Hold	長押し
+	 right or left to zoom in or out  |  	：右で拡大、左で縮小  |  
+	 to keep zooming	：拡大または縮小し続ける
 	 to zoom out  |  	：縮小  |  
 	 while dragging to move perpendicular to the plane  |  	：ドラッグ中に面と垂直に移動  |  
 	(closest)	(最も近い)
@@ -697,6 +727,7 @@
 	Add to Selection	選択範囲に追加
 	Add to Swatches	スウォッチに追加
 	Additional Plug-ins Folder	追加プラグインフォルダー
+	Additional Fonts Folder	追加フォントフォルダー
 	Adjust Adjoining Width Points	隣接する幅ポイントを調整
 	Adjust Colors	カラーを調整
 	Adjust Options:	調整オプション:
@@ -781,6 +812,7 @@
 	Auto	自動
 	Auto Size New Area Type	新規エリア内文字を自動サイズ調整
 	Auto-Collapse Iconic Panels	アイコンパネルを自動的に折りたたむ
+	Show Tool Group Labels	ツールグループのラベルを表示
 	Auto-Rotate (turn the paper to each artboard)	自動回転 (アートボードごとに用紙を回転)
 	Automatic flatness	フラットネスを自動設定
 	Automatically	自動
@@ -849,6 +881,8 @@
 	Choose…	選択…
 	Circle	円
 	Clear All Tabs	すべてのタブを消去
+	Above Text	テキストの上
+	Position Panel Above Text	テキストの上にパネルを配置
 	Clear Appearance	アピアランスを消去
 	Clear Overrides	オーバーライドを消去
 	Click	クリック
@@ -960,7 +994,7 @@
 	Create New Sublayer	新規サブレイヤーを作成
 	Create New Swatch…	新規スウォッチを作成…
 	Create New {kind} Style	新しい{kind}スタイルを作成
-	Create PDF layers from top-level layers	最上位レイヤーから PDF レイヤーを作成
+	Create PDF layers from layers and sublayers	レイヤーとサブレイヤーから PDF レイヤーを作成
 	Create PDF-Compatible File	PDF 互換ファイルを作成
 	Create Path	パスを作成
 	Create Slice	スライスを作成
@@ -1104,6 +1138,8 @@
 	Drawing Mode	描画モード
 	Duplicate	複製
 	Duplicate Artboard	アートボードを複製
+	Copy Artboard	アートボードをコピー
+	Cut Artboard	アートボードをカット
 	Duplicate Artboards	アートボードを複製
 	Duplicate Brush	ブラシを複製
 	Duplicate Character Style	文字スタイルを複製
@@ -1328,6 +1364,7 @@
 	Graphics: {adapter}	グラフィックス: {adapter}
 	Grays	グレー
 	Grayscale	グレースケール
+	Flat Logo	フラットロゴ
 	Grayscale images	グレースケールイメージ
 	Green	グリーン
 	Grid Color & Opacity	グリッドのカラーと不透明度
@@ -1347,7 +1384,9 @@
 	Height:	高さ:
 	Help › Search Commands…	ヘルプ › コマンドを検索…
 	Hide Code	コードを隠す
-	Hide Contextual Task Bar	コンテキストタスクバーを隠す
+	Hide Bar	バーを隠す
+	More Options	その他のオプション
+	Show Properties Panel	プロパティパネルを表示
 	Hide Corner Widget for angles greater than	次の角度より大きい場合はコーナーウィジェットを隠す
 	Hide Note	メモを隠す
 	Hide Options	オプションを隠す
@@ -1380,6 +1419,11 @@
 	Ignore	無視
 	Ignore Artboards (all the art as one page)	アートボードを無視 (すべてのアートを 1 ページとして扱う)
 	Ignore White	白を無視
+	Palette:	パレット:
+	Limited	限定
+	Full Tone	フルトーン
+	Document Library	ドキュメントライブラリ
+	Library:	ライブラリ:
 	Image Info	画像情報
 	Image Map:	イメージマップ:
 	Image Size	イメージサイズ
@@ -1536,6 +1580,9 @@
 	Mark as trapped	トラップ済みとしてマーク
 	Marks	トンボ
 	Match User Interface Brightness	ユーザーインターフェイスの明るさに合わせる
+	Light Gray	ライトグレー
+	Medium Gray	ミディアムグレー
+	Dark Gray	ダークグレー
 	Matte:	マット:
 	Maximize	最大化
 	Maximum Editability	編集機能を最大限に保持
@@ -1606,6 +1653,8 @@
 	New Art Brush from Selection	選択範囲から新規アートブラシ
 	New Art Has Basic Appearance	新規アートに基本アピアランスを使用
 	New Artboard	新規アートボード
+	Artboard	アートボード
+	Exit	終了
 	New Bristle Brush	新規剛毛ブラシ
 	New Brush…	新規ブラシ…
 	New Calligraphic Brush	新規絵筆ブラシ
@@ -1662,6 +1711,9 @@
 	No symbols in this document	このドキュメントにシンボルはありません
 	No text selected	テキストが選択されていません
 	Noise	ノイズ
+	Create:	作成:
+	Fills	塗り
+	Strokes	線
 	None	なし
 	None.	なし。
 	Normal	通常
@@ -1939,7 +1991,17 @@
 	Rating:	評価:
 	Real World:	実寸:
 	Real-time Drawing and Editing	リアルタイム描画および編集
-	Rearrange All Artboards (on the roadmap)	すべてのアートボードを再配置 (今後対応予定)
+	Rearrange All Artboards	すべてのアートボードを再配置
+	Rearrange All	すべて再配置
+	Layout Order:	レイアウト順序:
+	Change to Left-to-Right Layout	左から右のレイアウトに変更
+	Grid by Row	行ごとのグリッド
+	Grid by Column	列ごとのグリッド
+	Arrange by Row	1 行に配置
+	Arrange by Column	1 列に配置
+	Move Artwork with Artboard	アートボードと一緒にアートワークを移動
+	Scale Artwork with Artboard	アートボードと一緒にアートワークを拡大・縮小
+	Artboards: {n}	アートボード: {n}
 	Recall Selection	選択範囲を呼び出し
 	Recent Colors	最近使用したカラー
 	Recent Files	最近使ったファイル
@@ -2056,6 +2118,8 @@
 	Reverse Path Direction Off	パスの方向を反転: オフ
 	Reverse Path Direction On	パスの方向を反転: オン
 	Revert to the saved version of “{name}”?	「{name}」を保存済みの状態に戻しますか？
+	Replace “{name}”, the file this document was opened from?	このドキュメントの開き元のファイル「{name}」を置き換えますか？
+	Opening it left out what Kaleiform can't read yet ({what}), so replacing it loses that for good. Save under another name to keep it.	開いたときに Kaleiform がまだ読み込めない内容（{what}）が除外されたため、置き換えるとそれは完全に失われます。保持するには別の名前で保存してください。
 	Right Grid:	右グリッド:
 	Right Indent	右インデント
 	Right Plane	右面
@@ -2280,6 +2344,13 @@
 	Smooth	スムーズ
 	Smooth Tool	スムーズツール
 	Snap Curves To Lines	曲線を直線にスナップ
+	View:	表示:
+	Tracing Result	トレース結果
+	Tracing Result with Outlines	トレース結果（アウトライン付き）
+	Outlines	アウトライン
+	Outlines with Source Image	アウトライン（元画像付き）
+	Source Image	元画像
+	Image Trace View	画像トレースの表示
 	Snap Options	スナップオプション
 	Snapping Tolerance	スナップ許容値
 	Soft Light	ソフトライト
@@ -2317,7 +2388,10 @@
 	Stop editing the opacity mask	不透明マスクの編集を終了
 	Strikethrough	打ち消し線
 	Stroke Options	線オプション
+	Character:	文字:
+	Character options	文字オプション
 	Stroke options	線オプション
+	Transform options	変形オプション
 	Stroke:	線:
 	Style	スタイル
 	Style Name:	スタイル名:
@@ -2341,6 +2415,25 @@
 	Swatch Options…	スウォッチオプション…
 	Swatch Tiles	スウォッチタイル
 	Switch workspace	ワークスペースを切り替え
+	Add Content	コンテンツを追加
+	Click to apply to the selected type	クリックして選択したテキストに適用
+	Create New Library	新規ライブラリを作成
+	Create New Library…	新規ライブラリを作成…
+	Rename Library…	ライブラリ名を変更…
+	Delete the library “{name}”?	ライブラリ「{name}」を削除しますか？
+	Drag art or swatches here, or use + to add the selection's colors and text styles.	ここにアートやスウォッチをドラッグするか、+ で選択範囲のカラーやテキストスタイルを追加します。
+	Its graphics, colors and text styles are deleted from this machine.	グラフィック、カラー、テキストスタイルはこのコンピューターから削除されます。
+	Keep graphics, colors and text styles here to use them in any document. Libraries are stored on this machine — no account required.	グラフィック、カラー、テキストスタイルをここに保存すると、どのドキュメントでも使えます。ライブラリはこのコンピューターに保存され、アカウントは不要です。
+	This library is empty	このライブラリは空です
+	Add to Library	ライブラリに追加
+	Delete Library	ライブラリを削除
+	Delete Library Item	ライブラリ項目を削除
+	Library	ライブラリ
+	Rename Library	ライブラリ名を変更
+	Show Library	ライブラリを表示
+	Use Library Item	ライブラリ項目を使用
+	Graphic	グラフィック
+	Show all open documents	開いているすべてのドキュメントを表示
 	Symbol Libraries (on the roadmap)	シンボルライブラリ (今後対応予定)
 	Symbol Screener Tool	シンボルスクリーナーツール
 	Symbol Scruncher Tool	シンボルスクランチャーツール
@@ -2400,6 +2493,7 @@
 	Total Width:	合計幅:
 	Touch Type Tool	文字タッチツール
 	Trace	トレース
+	Trace the image with the Default preset	「デフォルト」プリセットで画像をトレース
 	Tracking	トラッキング
 	Transform Both	両方を変形
 	Transform Each	個別に変形
@@ -2545,6 +2639,7 @@
 	Zoom Tool	ズームツール
 	Zoom to Selection	選択範囲にズーム
 	Zoom with Mouse Wheel	マウスホイールでズーム
+	Scrub Numeric Fields by Dragging	ドラッグで数値フィールドを調整
 	[Default] is protected: New… starts an editable copy.	[Default] は変更できません。「新規…」で編集できる複製を作ります。
 	[Unnamed]	[名称未設定]
 	above	(対象：次を超える画像)
@@ -2993,3 +3088,59 @@
 	Version	バージョン
 	% of all commits	全コミットに占める割合
 	Lines +/−	行数 +/−
+	Joins	角の形状
+	Miter	マイター
+	Bevel	ベベル
+	Offset	オフセット
+	Axis	軸
+axis	Horizontal	水平方向
+axis	Vertical	垂直方向
+axis	Both	両方
+	Drag to move	移動するにはドラッグ
+	Drag to float as a toolbar	ドラッグしてツールバーとして浮かせる
+	Put back in the toolbar	ツールバーに戻す
+	Float Panel	パネルをフローティング
+	Dock Panel	パネルをドッキング
+	Drag to float the panel group	ドラッグしてパネルグループをフローティング
+	Put back in the dock	ドックに戻す
+	Drag to float the toolbar	ドラッグしてツールバーをフローティング
+	Drag to the window's left edge to dock	ウィンドウの左端までドラッグしてドッキング
+	Float Tool Group	ツールグループをフローティング
+
+# The macOS menu bar (native_menu): the app and Window menus' system items, Settings pages.
+	Services	サービス
+	Hide Kaleiform	Kaleiform を隠す
+	Zoom	拡大/縮小
+	Bring All to Front	すべてを手前に移動
+	Settings	環境設定
+theme	Appearance	外観
+	Break Link	リンクを解除
+	On: one locked object showing the document, updated when it changes.	オン：ドキュメントを表示するロックされた 1 つのオブジェクト。ドキュメントの変更時に更新されます。
+	Off: an editable copy of its art, embedded in this document.	オフ：アートの編集可能なコピーをこのドキュメントに埋め込みます。
+	Images: link to the file instead of only embedding it.	画像：埋め込むだけでなく、ファイルにリンクします。
+	Kaleiform documents: one locked object, updated when the file changes.	Kaleiform ドキュメント：ロックされた 1 つのオブジェクト。ファイルの変更時に更新されます。
+	A file dialog is open: choose there first	ファイルダイアログが開いています。先にそちらで選択してください
+	Shaper	Shaper
+	Expand Shaper Group	Shaper グループを拡張
+	Release Shaper Group	Shaper グループを解除
+	Select Shaper Face	Shaper の面を選択
+	Constrain	制限
+	Free Transform	自由変形
+	Perspective Distort	遠近変形
+
+# Photoshop-style raster effects (Effect menu, their dialogs).
+	Radial Blur…	ぼかし (放射状)…
+	Smart Blur…	ぼかし (詳細)…
+	Sharpen	シャープ
+	Unsharp Mask…	アンシャープマスク…
+	Radial Blur	ぼかし (放射状)
+	Smart Blur	ぼかし (詳細)
+	Unsharp Mask	アンシャープマスク
+	Gaussian Blur	ぼかし (ガウス)
+	Method	方法
+	Quality	画質
+	Radius	半径
+	Spin	回転
+	Draft	ドラフト
+	Good	標準
+	Best	高品質

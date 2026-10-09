@@ -3,6 +3,7 @@
 
 use egui::{Key, KeyboardShortcut, Modifiers};
 use serde_json::json;
+use vectorcraft_engine::cmd::clipboard::{Flavour, TEXT};
 use vectorcraft_tools::{Mods, ToolKey};
 
 use crate::VectorcraftApp;
@@ -39,9 +40,18 @@ pub fn parse(s: &str) -> Option<KeyboardShortcut> {
         "Backspace" => Key::Backspace,
         "Tab" => Key::Tab,
         "~" => Key::Backtick,
-        k => Key::from_name(k)?,
+        // A modifier alone is never a chord's key: it couldn't fire (#487).
+        k => Key::from_name(k).filter(|k| !is_modifier(*k))?,
     };
     Some(KeyboardShortcut::new(m, key))
+}
+
+/// The modifier keys, which egui also reports as key presses of their own.
+pub(crate) fn is_modifier(key: Key) -> bool {
+    matches!(
+        key,
+        Key::ShiftLeft | Key::ShiftRight | Key::ControlLeft | Key::ControlRight | Key::AltLeft | Key::AltRight | Key::SuperLeft | Key::SuperRight
+    )
 }
 
 /// Every command shortcut in effect (user overrides from Edit → Keyboard Shortcuts win), with the
@@ -58,11 +68,12 @@ pub(crate) fn all_shortcuts() -> Vec<(KeyboardShortcut, &'static str, serde_json
             v.push((sc, c.0, json!({})));
         }
     }
-    for (panel, _, _) in crate::state::ICON_PANELS {
+    for (panel, _) in crate::state::all_panels() {
         if let Some(sc) = crate::shortcut_editor::panel_shortcut(panel).and_then(parse) {
             v.push((sc, "window.panel", json!({ "panel": panel })));
         }
     }
+    settings_chord(&mut v, cfg!(target_os = "macos"));
     // Most specific (most modifiers) first so Cmd+Shift+Z isn't eaten by Cmd+Z.
     v.sort_by_key(|(sc, ..)| {
         std::cmp::Reverse(sc.modifiers.shift as u8 + sc.modifiers.alt as u8 + sc.modifiers.command as u8 + sc.modifiers.ctrl as u8)
@@ -70,12 +81,19 @@ pub(crate) fn all_shortcuts() -> Vec<(KeyboardShortcut, &'static str, serde_json
     v
 }
 
+/// On a Mac, Cmd+, opens Settings as in every Mac app (#663), beside Preferences' own shortcut,
+/// unless a command or a user's shortcut already took it.
+fn settings_chord(v: &mut Vec<(KeyboardShortcut, &'static str, serde_json::Value)>, mac: bool) {
+    if let Some(sc) = parse("Cmd+,").filter(|sc| mac && !v.iter().any(|(s, ..)| s == sc)) {
+        v.push((sc, "edit.preferences", json!({})));
+    }
+}
+
 /// Consume a press of `sc`. A `=` chord also takes [`Key::Plus`], which is how `+` arrives from
 /// the numpad and from layouts where it has its own key (Shift+`=` arrives as either; extra Shift
-/// is ignored). `native`: the system menu already handles the chord as written, so only that
-/// alias is left to match here.
-pub(crate) fn consume(i: &mut egui::InputState, sc: &KeyboardShortcut, native: bool) -> bool {
-    (!native && i.consume_shortcut(sc))
+/// is ignored).
+pub(crate) fn consume(i: &mut egui::InputState, sc: &KeyboardShortcut) -> bool {
+    i.consume_shortcut(sc)
         || (sc.logical_key == Key::Equals && i.consume_key(sc.modifiers, Key::Plus))
         || (sc.modifiers.shift && shifted(sc.logical_key).is_some_and(|k| i.consume_key(sc.modifiers, k)))
 }
@@ -190,6 +208,10 @@ fn type_text(app: &mut VectorcraftApp, ctx: &egui::Context) {
 pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
     // Followed before anything returns, so a key typed in a field isn't taken for a paste.
     let textless_paste = ctx.input(|i| app.paste_chord.textless_paste(&i.events));
+    // A numeric field being scrubbed has the keyboard: Escape cancels the drag.
+    if crate::scrub::phase(ctx) != crate::scrub::Phase::Idle {
+        return;
+    }
     if app.ui.dialog.is_some() || app.ui.palette_open {
         if crate::shortcut_editor::is_recording(app) {
             return;
@@ -217,7 +239,10 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
                 crate::canvas::apply_requests(app, r);
             }
             if k == Key::Escape && !busy && !claimed {
-                if app.session.active().is_some_and(|d| d.doc.pattern_edit.is_some()) {
+                // Escape leaves Presentation Mode first: it hides the menus and panels.
+                if app.ui.screen_mode == 3 {
+                    let _ = app.run("view.presentation", json!({}));
+                } else if app.session.active().is_some_and(|d| d.doc.pattern_edit.is_some()) {
                     let _ = app.run("object.pattern.done", json!({}));
                 } else if app.session.active().is_some_and(|d| d.isolation.is_some()) {
                     let _ = app.run("object.exitIsolation", json!({}));
@@ -229,7 +254,7 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
                 // Enter with a selection tool opens the Move dialog, as a double-click on its button
                 // does.
                 let tool = app.session.tool_id();
-                if app.ui.dialog.is_none() && crate::canvas::is_selection_tool(tool) {
+                if app.ui.dialog.is_none() && vectorcraft_tools::catalog::is_selection_tool(tool) {
                     // Nothing selected: it fails and nothing opens (the menu item is disabled then too).
                     let _ = crate::toolbar::open_options(app, tool);
                 }
@@ -264,14 +289,13 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
         // Editing keys with modifiers and the clipboard (Cmd+A is Select All's, below: the text).
         crate::panels::character::route_type_input(app, ctx);
         // Enter was already delivered above as ToolKey::Enter (newline).
-        let fire = all_shortcuts().into_iter().filter(|(sc, ..)| sc.modifiers.command).find(|(sc, ..)| ctx.input_mut(|i| consume(i, sc, false)));
+        let fire = all_shortcuts().into_iter().filter(|(sc, ..)| sc.modifiers.command).find(|(sc, ..)| ctx.input_mut(|i| consume(i, sc)));
         if let Some((_, id, p)) = fire {
             crate::menus::invoke(app, id, p);
         }
         return;
     }
-    // Clipboard keys arrive as events, not key presses (except where the native menu has them);
-    // the chord held says which paste.
+    // Clipboard keys arrive as events, not key presses; the chord held says which paste.
     let mut clip = vec![];
     ctx.input_mut(|i| {
         let held = i.modifiers;
@@ -282,22 +306,18 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
                 egui::Event::Paste(t) => (paste_command(held), Some(t.clone())),
                 _ => return true,
             };
-            if app.native_shortcuts.contains(id) {
-                return true;
-            }
             clip.push((id, text));
             false
         })
     });
-    // Only the system clipboard service reads what isn't text (the native menu has its own Paste).
+    // Only the system clipboard service reads what isn't text.
     if let Some(id) = textless_paste.map(paste_command)
         && app.services.system_clipboard.is_some()
-        && !app.native_shortcuts.contains(id)
     {
         clip.push((id, None));
     }
     for (id, text) in clip {
-        app.clipboard_in = text;
+        app.clipboard_in = text.map(|t| Flavour { mime: TEXT, data: t.into_bytes() });
         crate::menus::invoke(app, id, json!({}));
     }
     if busy {
@@ -372,8 +392,7 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
         if plain && (sc.logical_key.name().len() == 1 || matches!(sc.logical_key, Key::Slash | Key::Comma | Key::Period)) {
             continue;
         }
-        let native = app.native_shortcuts.contains(id);
-        if ctx.input_mut(|i| consume(i, &sc, native)) {
+        if ctx.input_mut(|i| consume(i, &sc)) {
             fire = Some((id, p));
             break;
         }
@@ -445,6 +464,31 @@ mod tests {
         });
         out.textures_delta.clear();
         out
+    }
+
+    /// Cmd+Shift+B while the Type tool edits text is Type › Bold, not Hide Bounding Box (#724).
+    #[test]
+    fn cmd_shift_b_while_typing_is_bold_not_the_bounding_box() {
+        let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
+        app.session.execute("file.new", &json!({"width": 200, "height": 200})).unwrap();
+        app.select_tool("type");
+        let view = app.view_info();
+        for kind in [vectorcraft_tools::PointerKind::Down, vectorcraft_tools::PointerKind::Up] {
+            app.session.pointer(&vectorcraft_tools::PointerEvent::new(kind, 50.0, 50.0), view).unwrap();
+        }
+        frame(&mut app, vec![egui::Event::Text("Bold".into())]);
+        assert!(app.session.tool_wants_text());
+        let chord =
+            egui::Event::Key { key: Key::B, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND | Modifiers::SHIFT };
+        frame(&mut app, vec![chord.clone()]);
+        assert!(app.ui.view.bounding_box, "the bounding box stays");
+        // The chord reached Bold: the text is in a bold face, or its family has none and says so.
+        let face = crate::panels::character::text_style(&app).map(|(s, _)| s.font_style).unwrap_or_default();
+        assert!(face.contains("Bold") || app.ui.status.contains("has no Bold style"), "{face:?} {:?}", app.ui.status);
+        // Out of the text, the chord hides the bounding box as before.
+        app.select_tool("selection");
+        frame(&mut app, vec![chord]);
+        assert!(!app.ui.view.bounding_box);
     }
 
     /// Tab shows and hides the panels, and in the Type tool it types a tab, without moving the
@@ -652,13 +696,6 @@ mod tests {
         let before = zoom(&mut app);
         frame(&mut app, vec![press(Key::Minus, Modifiers::COMMAND)]);
         assert!(zoom(&mut app) < before, "Cmd+- zooms out");
-        // The system menu handles `Cmd+=` itself; the `+` key is still matched here.
-        app.native_shortcuts.insert("view.zoomIn".into());
-        let before = zoom(&mut app);
-        frame(&mut app, vec![press(Key::Equals, Modifiers::COMMAND)]);
-        assert_eq!(zoom(&mut app), before, "left to the system menu");
-        frame(&mut app, vec![press(Key::Plus, Modifiers::COMMAND)]);
-        assert!(zoom(&mut app) > before);
     }
 
     #[test]
@@ -682,6 +719,24 @@ mod tests {
         assert_eq!((preview.0.as_str(), &preview.1["perpendicular"]), ("perspective.move", &json!(true)));
         assert_eq!(digit_of(Key::Num0), Some(0));
         assert_eq!(digit_of(Key::A), None);
+    }
+
+    /// Cmd+, opens Settings on a Mac only, and never takes a chord a command already has.
+    #[test]
+    fn cmd_comma_opens_settings_on_a_mac() {
+        let comma = parse("Cmd+,").unwrap();
+        let mut v = vec![];
+        super::settings_chord(&mut v, false);
+        assert!(v.is_empty(), "not elsewhere");
+        super::settings_chord(&mut v, true);
+        assert_eq!(v.len(), 1);
+        assert_eq!((v[0].0, v[0].1), (comma, "edit.preferences"));
+        let mut taken = vec![(comma, "view.zoomIn", json!({}))];
+        super::settings_chord(&mut taken, true);
+        assert_eq!(taken.len(), 1, "a command that has it keeps it");
+        if cfg!(target_os = "macos") {
+            assert!(super::all_shortcuts().iter().any(|(sc, id, _)| *sc == comma && *id == "edit.preferences"));
+        }
     }
 
     #[test]

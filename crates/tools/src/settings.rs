@@ -34,7 +34,7 @@ const ROWS: &[Row] = &[
     (&["polygon"], None, &["sides"]),
     (&["star"], None, &["points"]),
     (&["freeTransform"], None, &["constrain"]),
-    (&["artboard"], None, &["moveArt"]),
+    (&["artboard"], None, &["moveArt", "scaleArt"]),
 ];
 
 /// The stores `tool`'s persistent options live in, each with the option keys it holds.

@@ -242,11 +242,13 @@ fn text_becomes_point_type() {
     // The baseline origin, in y-down page space.
     let o = t[0].xf * kurbo::Point::ORIGIN;
     assert!((o.x - 10.0).abs() < 0.01 && (o.y - 70.0).abs() < 0.01, "{o:?}");
-    // A gap of an em between words reads as a space; another font on the line is another run.
+    // A gap of an em between words reads as a space, tracked on its own to keep the gap's width
+    // (#508); another font on the line is another run.
     assert_eq!(text(&t[1]), "Next line in bold");
     let runs: Vec<(&str, &str)> = t[1].runs.iter().map(|r| (r.text.as_str(), r.style.font_style.as_str())).collect();
-    assert_eq!(runs, [("Next line", "Regular"), (" in bold", "Bold")]);
-    assert_eq!(t[1].runs[1].style.fill.color(), Some(Color::rgb(0.0, 0.0, 1.0)));
+    assert_eq!(runs, [("Next", "Regular"), (" ", "Regular"), ("line", "Regular"), (" in bold", "Bold")]);
+    assert!(t[1].runs[1].style.tracking > t[1].runs[0].style.tracking + 100.0, "{:?}", t[1].runs);
+    assert_eq!(t[1].runs[3].style.fill.color(), Some(Color::rgb(0.0, 0.0, 1.0)));
     assert!(!r.warnings.iter().any(|w| w.contains("outlines")), "{:?}", r.warnings);
     // As outlines: paths, no type.
     let r = open_with(&bytes, |o| o.text_as = TextAs::Outlines);

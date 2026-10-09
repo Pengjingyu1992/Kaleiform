@@ -169,6 +169,29 @@ fn item_opacity_popup_sets_the_items_opacity() {
 }
 
 #[test]
+fn opacity_popup_blend_dropdown_sets_the_blend_mode() {
+    let mut app = app_with_rect();
+    let ctx = egui::Context::default();
+    let texts = frame_events(&ctx, &mut app, vec![], appearance::show);
+    // The object's own Opacity row (the last one).
+    let link = texts.iter().rev().find(|(t, _)| t == "Opacity:").expect("object opacity row").1;
+    click(&ctx, &mut app, link.center(), appearance::show);
+    let texts = frame_events(&ctx, &mut app, vec![], appearance::show);
+    // Opening the dropdown inside the popup keeps the popup open: the list shows.
+    click(&ctx, &mut app, text_rect(&texts, "Normal").center(), appearance::show);
+    let texts = frame_events(&ctx, &mut app, vec![], appearance::show);
+    click(&ctx, &mut app, text_rect(&texts, "Multiply").center(), appearance::show);
+    assert_eq!(first_selected(&app).unwrap().blend, vectorcraft_color::BlendMode::Multiply);
+    // The popup is still open after choosing.
+    let texts = frame_events(&ctx, &mut app, vec![], appearance::show);
+    assert!(texts.iter().any(|(t, _)| t == "Multiply"), "{texts:?}");
+    // A frame without the panel closes it, as egui closes the popups it remembers.
+    frame_events(&ctx, &mut app, vec![], |_, _| {});
+    let texts = frame_events(&ctx, &mut app, vec![], appearance::show);
+    assert!(!texts.iter().any(|(t, _)| t == "Multiply"), "{texts:?}");
+}
+
+#[test]
 fn object_row_names_the_selection_like_the_control_bar() {
     let mut app = app_with_rect();
     let a = first_selected(&app).unwrap().id.0;

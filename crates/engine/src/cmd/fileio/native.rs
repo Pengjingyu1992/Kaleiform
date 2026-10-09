@@ -127,6 +127,13 @@ pub(super) fn save_options(cmd: &str, f: &Format, doc: &Document, p: &Value) -> 
 /// The `.vectorcraft` file of `doc` with the options in `p`.
 pub(super) fn encode(cmd: &str, f: &Format, doc: &Document, p: &Value) -> Result<Vec<u8>> {
     let (mut so, extras) = save_options(cmd, f, doc, p)?;
+    // Include Linked Files keeps placed documents' files; older versions get their art.
+    let full = if so.include_linked || so.version < vectorcraft_format::VERSION {
+        crate::cmd::place::document::full_documents(doc).0
+    } else {
+        std::borrow::Cow::Borrowed(doc)
+    };
+    let doc = &*full;
     if extras.preview {
         so.preview = preview_png(doc)?;
     }
@@ -179,7 +186,7 @@ pub(super) fn ai_native(cmd: &str, f: &Format, doc: &Document, p: &Value) -> Res
 
 /// The first artboard (else the art) as a PNG fitted into [`PREVIEW_MAX`] pixels (`None`: nothing
 /// to show).
-fn preview_png(doc: &Document) -> Result<Option<Vec<u8>>> {
+pub(crate) fn preview_png(doc: &Document) -> Result<Option<Vec<u8>>> {
     let Some(r) = doc.artboards.first().map(|a| a.rect).or_else(|| vectorcraft_render::encode::art_bounds(doc)) else { return Ok(None) };
     let scale = f64::from(PREVIEW_MAX) / r.width().max(r.height());
     if vectorcraft_render::raster_size(r, scale).is_err() {

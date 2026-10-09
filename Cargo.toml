@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/vectorcraft", "apps/vectorcraft-cli", "xtask"]
 
 [workspace.package]
-version = "0.4.0-kaleiform.3"
+version = "0.7.0-kaleiform.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -33,6 +33,7 @@ vectorcraft-cad = { path = "crates/cad" }
 vectorcraft-eps = { path = "crates/eps" }
 vectorcraft-metafile = { path = "crates/metafile" }
 vectorcraft-plugins = { path = "crates/plugins" }
+vectorcraft-affinity = { path = "crates/affinity" }
 
 # foundation
 kurbo = { version = "0.13", features = ["serde"] }
@@ -42,6 +43,7 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 log = "0.4"
 proptest = "1"
+crc32fast = "1.5"
 # tests: a TCP port bound without listening (connections to it are refused)
 socket2 = "0.6"
 # Sandboxed WebAssembly plug-ins: a pure-Rust interpreter (MIT OR Apache-2.0) that builds for wasm32
@@ -60,6 +62,8 @@ skrifa = "0.47"
 harfrust = "0.13"
 linesweeper = "0.4"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Zstandard decoder (pure Rust, builds for wasm32 too): the editing copy an EPS carries of its art.
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 jpeg-encoder = { version = "0.6", default-features = false, features = ["std"] }
 gif = { version = "0.14", default-features = false, features = ["std", "raii_no_panic"] }
 # CMYK image samples (vectorcraft-doc's cmyk module): the image crate's own TIFF and JPEG

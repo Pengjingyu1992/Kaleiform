@@ -362,3 +362,26 @@ fn invalid_dash_pattern_strokes_solid() {
         assert_eq!(img.pixels, solid.pixels, "dash {pattern:?}");
     }
 }
+
+/// An image drawn larger than its pixels samples smoothly, or with `smooth_images` off each screen
+/// pixel takes its nearest image pixel (Pixel Preview with File Handling › Display Bitmaps as
+/// Anti-aliased Images off, #394).
+#[test]
+fn images_take_their_nearest_pixel_without_smoothing() {
+    use vectorcraft_doc::{ImageBlob, ImageObject, NodeKind};
+    let img = image::RgbaImage::from_fn(2, 1, |x, _| image::Rgba(if x == 0 { [0, 0, 0, 255] } else { [255, 255, 255, 255] }));
+    let mut png = vec![];
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    let mut d = Document::new(40.0, 20.0);
+    d.images.insert("bw".into(), ImageBlob::new("image/png", png));
+    let id = d.alloc_id();
+    let im = ImageObject { key: "bw".into(), width: 2, height: 1, xf: Affine::scale(20.0), link: None, placement: Default::default() };
+    d.insert(Some(d.layers[0].id), 0, Node::new(id, NodeKind::Image(im))).unwrap();
+    // How many pixels across the image are neither black nor white.
+    let greys = |smooth_images| {
+        let r = Renderer::new().render(&d, 40, 20, Affine::IDENTITY, &RenderOptions { smooth_images, ..Default::default() });
+        (0..40).filter(|x| (16..240).contains(&r.pixel(*x, 10)[0])).count()
+    };
+    assert!(greys(true) >= 4, "smooth: a ramp from black to white");
+    assert_eq!(greys(false), 0, "nearest: black, then white");
+}

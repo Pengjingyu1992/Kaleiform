@@ -37,7 +37,7 @@ fn general_mm(app: &mut VectorcraftApp) {
 #[test]
 fn panels_show_millimetres_after_the_preference_changes() {
     let mut app = app_with_rect();
-    assert_eq!(side_mm(), "35.278 mm");
+    assert_eq!(side_mm(), "35.2778 mm");
     assert!(shows(&texts(&mut app, transform::show), "100 pt"), "points first");
     general_mm(&mut app);
     // The next frame: no restart, nothing cached.

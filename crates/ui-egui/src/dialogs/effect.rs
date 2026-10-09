@@ -131,7 +131,11 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     let changed = match vectorcraft_plugins::effect::installed(&id) {
         Some(plugin) => form::schema_fields(ui, d, &plugin.manifest().params),
         None if vectorcraft_effects::is_adjustment(&id) => adjust_fields(ui, d),
-        None => form::param_fields(ui, d, &|k| vectorcraft_effects::is_length(&id, k, relative), app.session.general_unit()),
+        None => {
+            let doc = vectorcraft_effects::effect_info(&id).map(|e| e.params).unwrap_or_default();
+            let unit = app.session.general_unit();
+            form::param_fields(ui, d, &|k| vectorcraft_effects::is_length(&id, k, relative), &|k| choices(&id, k), &|k| doc_rank(doc, k), unit)
+        }
     };
     ui.add_space(6.0);
     let mut pv = d.bool("preview");
@@ -146,6 +150,26 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
         let _ = app.session.cancel_interaction();
     }
     false
+}
+
+/// The parameters of the effect dialogs that pick one of some values, as (label, value).
+fn choices(effect: &str, key: &str) -> Option<form::Choices> {
+    match (effect, key) {
+        ("blur.radial", "method") => Some(&[("Spin", "spin"), ("Zoom", "zoom")]),
+        ("blur.radial", "quality") => Some(&[("Draft", "draft"), ("Good", "good"), ("Best", "best")]),
+        ("blur.smart", "quality") => Some(&[("Low", "low"), ("Medium", "medium"), ("High", "high")]),
+        _ => None,
+    }
+}
+
+/// Where parameter `key` comes in the effect's parameter documentation `doc` (`{radius: …,
+/// threshold: …}`), which lists them in its dialog's order; the end when it isn't there.
+pub(super) fn doc_rank(doc: &str, key: &str) -> usize {
+    let starts = |at: usize| doc.get(..at).and_then(|s| s.chars().last()).is_some_and(|c| c == '{' || c == ' ');
+    doc.match_indices(key)
+        .map(|(at, _)| at)
+        .find(|at| starts(*at) && doc.get(at + key.len()..).is_some_and(|rest| rest.starts_with(':') || rest.starts_with("?:")))
+        .unwrap_or(usize::MAX)
 }
 
 /// A slider of a colour adjustment dialog: (effect, field, label, range, rail colour at 0..1).
@@ -225,8 +249,7 @@ fn adjust_fields(ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     }
     if d.fields.contains_key("gamma") {
         widgets::label_row(ui, tl!("Gamma"), LABEL_W, |ui| {
-            let mut g = d.f64("gamma", 1.0);
-            if ui.add(egui::DragValue::new(&mut g).speed(0.01).range(0.1..=10.0).max_decimals(2)).changed() {
+            if let Some(g) = widgets::range_field(ui, "gamma", d.f64("gamma", 1.0), 0.1..=10.0, "", 2, 60.0) {
                 d.fields.insert("gamma".into(), json!(g));
             }
         });

@@ -803,9 +803,10 @@ impl Picked {
                 run_attrs(&mut r.style, &placed, ap);
             }
             if let Some((_, para)) = text.filter(|_| a.paragraph) {
-                t.para = para.clone();
+                // The source's first paragraph's attributes, on every paragraph.
+                t.set_all_paras(para.clone());
             }
-            if text.is_some() && a.character {
+            if text.is_some() && (a.character || a.paragraph) {
                 super::typecmd::refresh_bounds(t);
             }
             return;

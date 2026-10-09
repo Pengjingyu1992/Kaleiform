@@ -73,7 +73,7 @@ fn stroke_unit_follows_the_preference() {
     assert_eq!(s.stroke_unit(), Unit::Points);
     s.prefs.units_stroke = "millimeters".into();
     assert_eq!(s.stroke_unit(), Unit::Millimeters);
-    assert_eq!(s.stroke_unit().format(1.0), "0.353 mm");
+    assert_eq!(s.stroke_unit().format(1.0), "0.3528 mm");
 }
 
 #[test]

@@ -134,6 +134,10 @@ struct MenuState {
     /// The pass the list was last drawn in, and the pass it opened in.
     last: u64,
     opened: u64,
+    /// The family the text had as the menu opened. A preview shows another one in the document
+    /// (and the menu's caller), but this one stays the current family: hovering it ends the
+    /// preview (#563).
+    current: String,
     /// The highlighted row and the query and filters it belongs to.
     highlight: Option<usize>,
     query: String,
@@ -194,6 +198,7 @@ fn list(ui: &mut Ui, state_id: egui::Id, st: &mut MenuState, current: &str, samp
         st.opened = pass;
         st.highlight = None;
         st.query.clear();
+        st.current = current.to_string();
     }
     st.last = pass;
     // For [`end_stale_preview`]: the menu is open, in this layer.
@@ -243,8 +248,9 @@ fn list(ui: &mut Ui, state_id: egui::Id, st: &mut MenuState, current: &str, samp
     });
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
     let db = vectorcraft_text::FontDb::global();
-    // The current family by its own name (a document may name it in Japanese: ヒラギノ角ゴシック).
-    let current = db.canonical(current, "").0;
+    // The current family by its own name (a document may name it in Japanese: ヒラギノ角ゴシック),
+    // as it was before any preview.
+    let current = db.canonical(&st.current, "").0;
     let current = current.as_str();
     let favorite = |f: &str| look.favorites.iter().any(|x| x.eq_ignore_ascii_case(f));
     // The generation is read first: fonts that load meanwhile make the next frame list them.
@@ -307,12 +313,10 @@ fn list(ui: &mut Ui, state_id: egui::Id, st: &mut MenuState, current: &str, samp
         widgets::dim_label(ui, tl!("No matching fonts"));
         return None;
     }
-    // The rows: only those in view are laid out (there are thousands of families). The list fills
-    // what the popup shows below the filters (its clip: the popup doesn't grow past its own size,
-    // and a taller list would scroll inside a scrolling popup), down to the window's bottom.
-    const BOTTOM_GAP: f32 = 12.0;
-    let bottom = ui.clip_rect().bottom().min(ui.ctx().content_rect().bottom() - BOTTOM_GAP);
-    let room = (bottom - ui.next_widget_position().y).max(120.0);
+    // The rows: only those in view are laid out (there are thousands of families). The list is
+    // the menu's one scrolling part, under the search field and filters (#555): it fills the
+    // menu's room (its max rect) below them.
+    let room = (ui.max_rect().bottom() - ui.next_widget_position().y).clamp(120.0, 600.0);
     let mut area = egui::ScrollArea::vertical().max_height(room).min_scrolled_height(room.min(row_h * rows.len() as f32));
     // The highlight in view: centred as the menu opens, scrolled just enough as the keys move it.
     if let Some(top) = st.highlight.map(|i| i as f32 * row_h) {

@@ -1,4 +1,5 @@
 use super::*;
+use vectorcraft_geom::Point;
 
 const BLACK: [u8; 4] = [0, 0, 0, 255];
 const WHITE: [u8; 4] = [255, 255, 255, 255];
@@ -259,13 +260,14 @@ fn snap_curves_to_lines_straightens_near_lines() {
 
 #[test]
 fn presets_resolve() {
-    assert_eq!(presets().len(), 12);
+    assert_eq!(presets().len(), 13);
     for n in PRESET_NAMES {
         assert!(preset(n).is_some(), "{n}");
     }
     assert!(preset("[Default]").is_some());
     assert_eq!(preset("16 colors").unwrap().colors, 16);
     assert_eq!(preset("Shades of Gray").unwrap().mode, Mode::Grayscale);
+    assert_eq!(preset("flat logo").unwrap().mode, Mode::Logo);
     assert!(preset("nope").is_none());
 }
 
@@ -295,6 +297,10 @@ fn decode_png() {
 fn all_presets_trace_a_colour_image() {
     let img = Raster::from_fn(64, 64, |x, y| [(x * 4) as u8, (y * 4) as u8, ((x + y) * 2) as u8, 255]);
     for (name, p) in presets() {
+        // Flat Logo refuses a gradient on purpose (see logo::tests); every other preset traces it.
+        if p.mode == Mode::Logo {
+            continue;
+        }
         let r = trace(&img, &p);
         assert!(!r.paths.is_empty() || p.ignore_white, "{name}");
         for tp in &r.paths {
@@ -317,4 +323,277 @@ fn timing_1000x1000_bw_under_300ms() {
     eprintln!("1000x1000 B&W: {} paths, {} anchors in {ms:.1} ms", res.paths.len(), res.anchor_count());
     assert!(!res.paths.is_empty());
     assert!(ms < 300.0, "{ms} ms");
+}
+
+/// Stripes of `n` colours, each with a few dots of the next one: many layers, many small shapes.
+fn stripes(size: u32, n: u32) -> Raster {
+    let colour = |i: u32| [(i * 37 % 256) as u8, (i * 91 % 256) as u8, (i * 53 % 256) as u8, 255];
+    Raster::from_fn(size, size, |x, y| {
+        let band = x * n / size;
+        if (x % 9 < 3) && (y % 9 < 3) { colour(band + 1) } else { colour(band) }
+    })
+}
+
+/// #525: past the anchor budget the trace gives up with advice instead of making millions of
+/// anchors; under it, it is the plain trace.
+#[test]
+fn a_trace_past_its_anchor_budget_is_refused() {
+    let img = stripes(120, 8);
+    let p = TraceParams { mode: Mode::Color, colors: 16, noise: 1, ..TraceParams::default() };
+    let full = trace(&img, &p);
+    let anchors = full.anchor_count();
+    assert!(anchors > 100, "{anchors} anchors");
+    assert!(matches!(trace_within(&img, &p, anchors / 2), Err(TraceError::TooComplex { max }) if max == anchors / 2));
+    assert_eq!(trace_within(&img, &p, anchors).unwrap(), full);
+}
+
+/// Layers traced in parallel come out in the same order every time: bottom (largest) first.
+#[test]
+fn parallel_layers_keep_their_order() {
+    let img = stripes(90, 12);
+    let p = TraceParams { mode: Mode::Color, colors: 24, noise: 1, method: Method::Overlapping, ..TraceParams::default() };
+    let a = trace(&img, &p);
+    assert!(a.palette.len() > 8, "{} colours", a.palette.len());
+    for _ in 0..4 {
+        assert_eq!(trace(&img, &p), a);
+    }
+    // Overlapping: each layer's shapes cover the layers above, so the pixel counts fall upwards.
+    let firsts: Vec<usize> = a.palette.iter().filter_map(|c| a.paths.iter().find(|t| t.color == *c).map(|t| t.pixels)).collect();
+    assert!(firsts.windows(2).all(|w| w[0] >= w[1]), "{firsts:?}");
+}
+
+/// A PNG whose header says `w` × `h` pixels, with no image data.
+fn png_header(w: u32, h: u32) -> Vec<u8> {
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in bytes {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+    let mut ihdr = b"IHDR".to_vec();
+    ihdr.extend(w.to_be_bytes());
+    ihdr.extend(h.to_be_bytes());
+    ihdr.extend([8, 6, 0, 0, 0]);
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    for chunk in [ihdr, b"IDAT".to_vec(), b"IEND".to_vec()] {
+        png.extend((chunk.len() as u32 - 4).to_be_bytes());
+        png.extend(&chunk);
+        png.extend(crc(&chunk).to_be_bytes());
+    }
+    png
+}
+
+/// An image too large to trace is refused from its header, before it is decoded.
+#[test]
+fn an_image_too_large_to_trace_is_refused_before_decoding() {
+    let err = Raster::decode(&png_header(30_000, 30_000)).unwrap_err();
+    assert!(matches!(err, TraceError::TooLarge { width: 30_000, height: 30_000, .. }), "{err}");
+    assert!(matches!(Raster::decode(&png_header(64, 64)), Err(TraceError::Decode(_))), "a small header goes on to decoding");
+}
+
+/// Four flat colours with anti-aliased (blended) edges between the quadrants.
+fn flat_quads() -> Raster {
+    const C: [[u8; 3]; 4] = [[220, 30, 30], [30, 200, 40], [30, 40, 210], [240, 220, 20]];
+    Raster::from_fn(100, 100, |x, y| {
+        let at = |x: u32, y: u32| C[usize::from(x >= 50) + 2 * usize::from(y >= 50)];
+        let (a, b) = (at(x, y), at(x.saturating_sub(1), y.saturating_sub(1)));
+        // Blend the pixels along the quadrant edges, as an anti-aliased picture has them.
+        let c: Vec<u8> = a.iter().zip(b).map(|(p, q)| ((u16::from(*p) + u16::from(q)) / 2) as u8).collect();
+        [c[0], c[1], c[2], 255]
+    })
+}
+
+/// A smooth two-dimensional colour gradient (continuous tone).
+fn gradient() -> Raster {
+    Raster::from_fn(128, 128, |x, y| [(x * 2) as u8, (y * 2) as u8, (255 - x - y / 2) as u8, 255])
+}
+
+fn palette(img: &Raster, palette: Palette, colors: u32, color_detail: f64) -> Vec<[u8; 3]> {
+    let p = TraceParams { mode: Mode::Color, palette, colors, color_detail, noise: 4, ..TraceParams::default() };
+    trace(img, &p).palette
+}
+
+#[test]
+fn palettes_parse_from_their_ids_and_names() {
+    for (id, want) in [
+        ("limited", Palette::Limited),
+        ("fullTone", Palette::FullTone),
+        ("Automatic", Palette::Automatic),
+        ("documentLibrary", Palette::DocumentLibrary),
+        ("library", Palette::DocumentLibrary),
+    ] {
+        let p: TraceParams = serde_json::from_value(serde_json::json!({ "palette": id })).unwrap();
+        assert_eq!(p.palette, want, "{id}");
+    }
+    assert_eq!(TraceParams::default().palette, Palette::Limited);
+    // The library's colours are looked up at every trace, not saved with the settings.
+    let v = serde_json::to_value(TraceParams { swatches: vec![[1, 2, 3]], ..TraceParams::default() }).unwrap();
+    assert!(v.get("swatches").is_none() && v["library"] == "document" && v["colorDetail"] == 50.0, "{v}");
+}
+
+#[test]
+fn full_tone_follows_the_tones_the_image_has() {
+    // Flat art keeps its few colours (and the tones of its blended edges); a gradient gets many,
+    // more with more detail.
+    let flat = palette(&flat_quads(), Palette::FullTone, 6, 50.0);
+    assert!((4..=10).contains(&flat.len()), "flat art: {flat:?}");
+    let few = palette(&gradient(), Palette::FullTone, 6, 10.0).len();
+    let many = palette(&gradient(), Palette::FullTone, 6, 90.0).len();
+    assert!(few > 6 && many > few && many <= FULL_TONE_MAX, "{few} then {many} colours");
+}
+
+#[test]
+fn automatic_traces_flat_art_with_its_colours_and_photos_in_full_tone() {
+    let flat = palette(&flat_quads(), Palette::Automatic, 2, 50.0);
+    assert_eq!(flat.len(), 4, "the four flat colours, whatever `colors` says: {flat:?}");
+    assert!(flat.iter().any(|c| c[0] > 200 && c[1] < 60 && c[2] < 60), "red is one of them: {flat:?}");
+    let tone = palette(&gradient(), Palette::Automatic, 2, 50.0);
+    assert_eq!(tone.len(), palette(&gradient(), Palette::FullTone, 2, 50.0).len(), "continuous tone: as Full Tone");
+}
+
+#[test]
+fn document_library_uses_the_most_used_swatches_exactly() {
+    let swatches = vec![[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [0, 0, 0], [255, 255, 255]];
+    let p = |colors| TraceParams {
+        mode: Mode::Color,
+        palette: Palette::DocumentLibrary,
+        colors,
+        swatches: swatches.clone(),
+        noise: 4,
+        ..TraceParams::default()
+    };
+    let hard = Raster::from_fn(100, 100, |x, y| match (x < 50, y < 50) {
+        (true, true) => [220, 30, 30, 255],
+        (false, true) => [30, 200, 40, 255],
+        (true, false) => [30, 40, 210, 255],
+        (false, false) => [240, 220, 20, 255],
+    });
+    let res = trace(&hard, &p(6));
+    let mut got = res.palette.clone();
+    got.sort_unstable();
+    assert_eq!(got, [[0, 0, 255], [0, 255, 0], [255, 0, 0], [255, 255, 0]], "the nearest swatch of each colour, as it is");
+    assert!(res.paths.iter().all(|t| swatches.contains(&t.color)));
+    // At most `colors` of them: the ones the most pixels are nearest to.
+    let two = trace(&hard, &p(2)).palette;
+    assert!(two.len() <= 2 && two.iter().all(|c| swatches.contains(c)), "{two:?}");
+    // Without library colours, it traces as Limited.
+    let none = TraceParams { swatches: vec![], ..p(4) };
+    assert_eq!(trace(&hard, &none).palette.len(), 4);
+}
+
+fn strokes(fills: bool) -> TraceParams {
+    TraceParams { strokes: true, fills, stroke_width: 6.0, noise: 4, ..bw() }
+}
+
+/// Endpoints (first and last anchor) of each open subpath of the stroked paths.
+fn stroked(res: &TraceResult) -> Vec<(&TracedPath, &vectorcraft_geom::SubPath)> {
+    res.paths.iter().filter(|p| p.stroke.is_some()).flat_map(|p| p.path.subpaths.iter().map(move |s| (p, s))).collect()
+}
+
+#[test]
+fn a_thin_line_traces_as_one_stroked_centre_line() {
+    // A 3 px wide diagonal line from (20, 20) to (180, 100).
+    let img = Raster::from_fn(200, 120, |x, y| {
+        let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+        let t = (((px - 20.0) * 160.0 + (py - 20.0) * 80.0) / (160.0f64.powi(2) + 80.0f64.powi(2))).clamp(0.0, 1.0);
+        let (cx, cy) = (20.0 + 160.0 * t, 20.0 + 80.0 * t);
+        if (px - cx).hypot(py - cy) <= 1.5 { BLACK } else { WHITE }
+    });
+    let res = trace(&img, &strokes(true));
+    assert_eq!(res.paths.len(), 1, "{:?}", res.paths.iter().map(|p| p.stroke).collect::<Vec<_>>());
+    let p = &res.paths[0];
+    let width = p.stroke.expect("stroked");
+    assert!((2.0..=4.0).contains(&width), "width {width}");
+    assert_eq!(p.path.subpaths.len(), 1);
+    let sp = &p.path.subpaths[0];
+    assert!(!sp.closed);
+    let (a, b) = (sp.anchors[0].p, sp.anchors[sp.anchors.len() - 1].p);
+    let (a, b) = if a.x < b.x { (a, b) } else { (b, a) };
+    assert!(a.distance(Point::new(20.0, 20.0)) < 3.0 && b.distance(Point::new(180.0, 100.0)) < 3.0, "{a:?} … {b:?}");
+    // A straight line: a few anchors, all on it.
+    assert!(sp.anchors.len() <= 4, "{} anchors", sp.anchors.len());
+    // Without Create Strokes, the same line is a filled outline.
+    let filled = trace(&img, &bw());
+    assert!(filled.paths.iter().all(|p| p.stroke.is_none()) && filled.paths[0].path.subpaths[0].closed);
+}
+
+#[test]
+fn a_thin_ring_traces_as_a_closed_centre_line() {
+    let img = Raster::from_fn(120, 120, |x, y| {
+        let d = (x as f64 + 0.5 - 60.0).hypot(y as f64 + 0.5 - 60.0);
+        if (d - 40.0).abs() <= 1.5 { BLACK } else { WHITE }
+    });
+    let res = trace(&img, &strokes(true));
+    let lines = stroked(&res);
+    assert_eq!(lines.len(), 1, "one ring");
+    let sp = lines[0].1;
+    assert!(sp.closed);
+    let len = PathData::single(sp.clone()).length();
+    let want = std::f64::consts::TAU * 40.0;
+    assert!((len - want).abs() / want < 0.05, "length {len} vs {want}");
+}
+
+#[test]
+fn wide_areas_stay_filled_and_lines_cross_at_junctions() {
+    // A disc (r = 20) and, apart from it, a plus sign of 3 px wide bars.
+    let img = Raster::from_fn(200, 100, |x, y| {
+        let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+        let disc = (px - 50.0).hypot(py - 50.0) <= 20.0;
+        let plus = ((px - 150.0).abs() <= 1.5 && (20.0..=80.0).contains(&py)) || ((py - 50.0).abs() <= 1.5 && (120.0..=180.0).contains(&px));
+        if disc || plus { BLACK } else { WHITE }
+    });
+    let res = trace(&img, &strokes(true));
+    let fills: Vec<_> = res.paths.iter().filter(|p| p.stroke.is_none()).collect();
+    assert_eq!(fills.len(), 1, "the disc");
+    let a = net_area(&fills[0].path);
+    assert!((a - std::f64::consts::PI * 400.0).abs() < 60.0, "disc area {a}");
+    let lines = stroked(&res);
+    assert!((2..=4).contains(&lines.len()), "{} centre lines", lines.len());
+    // The centre lines stop about half a width short of each end of the bars (their round caps
+    // cover it).
+    let total: f64 = lines.iter().map(|(_, s)| PathData::single((*s).clone()).length()).sum();
+    assert!((106.0..=120.0).contains(&total), "both bars' length: {total}");
+    let ends: Vec<Point> = lines.iter().flat_map(|(_, s)| [s.anchors[0].p, s.anchors[s.anchors.len() - 1].p]).collect();
+    for want in [Point::new(150.0, 20.0), Point::new(150.0, 80.0), Point::new(120.0, 50.0), Point::new(180.0, 50.0)] {
+        assert!(ends.iter().any(|e| e.distance(want) < 4.0), "a line ends near {want:?}: {ends:?}");
+    }
+    // Strokes only: the disc is outlined.
+    let res = trace(&img, &strokes(false));
+    assert!(res.paths.iter().all(|p| p.stroke.is_some()));
+    assert!(res.paths.iter().any(|p| p.stroke == Some(1.0) && p.path.subpaths[0].closed), "the disc's outline");
+}
+
+#[test]
+fn create_settings_parse_with_defaults() {
+    let p: TraceParams = serde_json::from_value(serde_json::json!({ "strokes": true, "strokeWidth": 4 })).unwrap();
+    assert!(p.fills && p.strokes && p.stroke_width == 4.0);
+    let d = TraceParams::default();
+    assert!(d.fills && !d.strokes && d.stroke_width == 10.0);
+}
+
+#[test]
+fn create_strokes_survives_noise_and_tiny_images() {
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let noise: Vec<u8> = (0..120 * 120).flat_map(|_| if next() % 3 == 0 { BLACK } else { WHITE }).collect();
+    let noise = Raster::new(120, 120, noise);
+    for img in [noise, Raster::from_fn(1, 1, |_, _| BLACK), Raster::from_fn(3, 2, |x, _| if x == 1 { BLACK } else { WHITE })] {
+        for (fills, width) in [(true, 1.0), (false, 4.0), (true, 100.0)] {
+            for noise in [0, 1, 4] {
+                let p = TraceParams { strokes: true, fills, stroke_width: width, noise, ..TraceParams::default() };
+                for t in trace(&img, &p).paths {
+                    assert!(t.stroke.is_none_or(|w| w.is_finite() && w >= 1.0), "{:?}", t.stroke);
+                }
+            }
+        }
+    }
 }

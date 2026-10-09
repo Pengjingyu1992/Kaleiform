@@ -122,7 +122,7 @@ fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> Result<Value, String> {
             p if !p.is_empty() => p,
             _ => {
                 let pick = crate::FilePick { filters: vectorcraft_engine::cmd::fileio::place_filters().collect(), ..Default::default() };
-                app.services.pick_open.as_mut().and_then(|f| f(&pick)).ok_or("cancelled")?
+                crate::picks::open(app, &pick).ok_or("cancelled")?
             }
         };
         out = app.run("links.relink", json!({ "ids": current["ids"], "path": path }))?;

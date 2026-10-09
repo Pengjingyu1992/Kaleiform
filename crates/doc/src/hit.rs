@@ -44,17 +44,23 @@ impl Hit {
 /// Options for hit testing.
 #[derive(Clone, Copy, Debug)]
 pub struct HitOptions {
+    /// The isolated construction container, whose retained Shaper sources are hittable.
+    pub scope: Option<NodeId>,
     /// Tolerance in document units (screen tolerance / zoom).
     pub tol: f64,
     /// Outline mode: only outlines are hittable.
     pub outline: bool,
     /// "Object Selection by Path Only" preference.
     pub path_only: bool,
+    /// "Type Object Selection by Path Only" preference: type is picked on its type path only
+    /// (point type's baseline, area type's frame, type on a path's path), not anywhere in its
+    /// bounds.
+    pub type_path_only: bool,
 }
 
 impl Default for HitOptions {
     fn default() -> Self {
-        Self { tol: 3.0, outline: false, path_only: false }
+        Self { tol: 3.0, outline: false, path_only: false, type_path_only: false, scope: None }
     }
 }
 
@@ -66,6 +72,7 @@ pub fn hit_test(doc: &Document, p: Point, opt: HitOptions) -> Option<Hit> {
 /// The objects under `p` that [`Hit::top_object`] picks in `scope` (isolation mode), topmost
 /// first: what clicks there select, one below the other (Cmd/Ctrl-click selects behind).
 pub fn objects_at(doc: &Document, p: Point, opt: HitOptions, scope: Option<NodeId>) -> Vec<NodeId> {
+    let opt = HitOptions { scope: scope.or(opt.scope), ..opt };
     let mut tops: Vec<NodeId> = vec![];
     // Each round leaves out the objects found so far (and everything inside them).
     while let Some(top) = hit_test_skipping(doc, p, opt, &|id| tops.contains(&id)).map(|h| h.top_object(scope)) {
@@ -127,13 +134,20 @@ fn hit_children(parent: &Node, p: Point, opt: HitOptions, skip: &dyn Fn(NodeId) 
     {
         return None;
     }
-    for c in children.iter().rev() {
+    for (i, c) in children.iter().enumerate().rev() {
+        if parent.shaper.is_some() {
+            let construction = children.first().is_some_and(|source| Some(source.id) == opt.scope);
+            if (i == 0) != construction {
+                continue;
+            }
+        }
         // Hidden, locked and template sublayers block clicks like top-level layers do.
         if !c.visible || c.locked || c.is_template() || skip(c.id) {
             continue;
         }
         // (An envelope's content sits where it was, not where the envelope draws it.)
-        if !edits_contents(c)
+        if !(edits_contents(c)
+            || c.shaper.is_some() && c.children().and_then(|children| children.first()).is_some_and(|source| Some(source.id) == opt.scope))
             && let Some(b) = c.reach_bounds()
             && !b.inflate(opt.tol, opt.tol).contains(p)
         {
@@ -190,9 +204,17 @@ fn hit_leaf(n: &Node, p: Point, opt: HitOptions) -> Option<HitKind> {
             }
             (!opt.outline && !opt.path_only && fill_contains(&bp, *rule, p)).then_some(HitKind::Fill)
         }
-        NodeKind::Text(_) | NodeKind::Image(_) | NodeKind::SymbolInstance { .. } | NodeKind::Blend { .. } | NodeKind::Envelope { .. } => {
-            n.geometric_bounds().filter(|b| b.inflate(opt.tol, opt.tol).contains(p)).map(|_| HitKind::Bounds)
+        // The type path lies within the bounds: they rule out the rest before it is measured.
+        NodeKind::Text(t) if opt.type_path_only => {
+            n.geometric_bounds().filter(|b| b.inflate(opt.tol, opt.tol).contains(p))?;
+            on_type_path(n, t, p, opt.tol).then_some(HitKind::Outline)
         }
+        NodeKind::Text(_)
+        | NodeKind::Image(_)
+        | NodeKind::PlacedDocument(_)
+        | NodeKind::SymbolInstance { .. }
+        | NodeKind::Blend { .. }
+        | NodeKind::Envelope { .. } => n.geometric_bounds().filter(|b| b.inflate(opt.tol, opt.tol).contains(p)).map(|_| HitKind::Bounds),
         NodeKind::Repeat(r) => r.expand().iter().find_map(|g| hit_any(g, p, opt)),
         NodeKind::Mesh(m) => {
             let bp = m.outline().to_bezpath();
@@ -203,6 +225,28 @@ fn hit_leaf(n: &Node, p: Point, opt: HitOptions) -> Option<HitKind> {
         }
         _ => None,
     }
+}
+
+/// Is `p` within `tol` of the type path of `t` (in `n`), what "Type Object Selection by Path
+/// Only" picks type by: its baselines ([`crate::TextObject::baselines`]), area type's frame and
+/// type on a path's path, drawn through `n`'s perspective projection if it has one.
+fn on_type_path(n: &Node, t: &crate::TextObject, p: Point, tol: f64) -> bool {
+    use crate::TextKind;
+    use vectorcraft_geom::kurbo::ParamCurveNearest;
+    let h = n.projection();
+    let project = |q: Point| h.as_ref().and_then(|h| h.apply(q)).unwrap_or(q);
+    // A homography keeps straight lines straight: a baseline's ends are enough.
+    let near = |(a, b): (Point, Point)| vectorcraft_geom::Line::new(project(t.xf * a), project(t.xf * b)).nearest(p, 1e-9).distance_sq <= tol * tol;
+    if t.baselines().any(near) {
+        return true;
+    }
+    let (TextKind::Area { frame: path } | TextKind::OnPath { path, .. }) = &t.kind else { return false };
+    let mut path = path.transformed(t.xf);
+    if h.is_some() {
+        let piece = path.bounds().map_or(1.0, |b| (b.width().max(b.height()) / 64.0).max(0.25));
+        path = crate::live::map_nonlinear(&path, piece, project);
+    }
+    stroke_contains(&path.to_bezpath(), 0.0, tol, p)
 }
 
 /// Hit anywhere in an evaluated subtree (groups recurse; leaves use [`hit_leaf`]).
@@ -402,6 +446,102 @@ mod tests {
             assert!(hit_test(&d, inside, path_only).is_none(), "path only: the fill of {id:?} doesn't hit");
             assert_eq!(hit_test(&d, edge, path_only).map(|h| h.leaf), Some(id), "path only: the outline does");
         }
+    }
+
+    /// Type Object Selection by Path Only: point type is picked on its baseline, area type on its
+    /// frame and type on a path on its path, no longer anywhere in its bounds.
+    #[test]
+    fn type_path_only_picks_type_on_its_path() {
+        use crate::{CharStyle, TextKind, TextObject};
+        let mut d = Document::new(400.0, 400.0);
+        let l = d.layers[0].id;
+        let mut add = |t: TextObject| {
+            let id = d.alloc_id();
+            d.insert(Some(l), 9, Node::new(id, NodeKind::Text(Box::new(t)))).unwrap();
+            id
+        };
+        // Point type at (10, 100), 20 pt: its glyphs rise above the baseline, its layout is 60 wide.
+        let mut point = TextObject::point(Point::new(10.0, 100.0), "Hello", CharStyle { size: 20.0, ..CharStyle::default() });
+        point.cached_bounds = Some(Rect::new(0.0, -16.0, 60.0, 4.0));
+        let point = add(point);
+        let mut area = TextObject::point(Point::new(200.0, 200.0), "Area", CharStyle::default());
+        area.kind = TextKind::Area { frame: shapes::rectangle(Rect::new(0.0, 0.0, 100.0, 50.0)) };
+        let area = add(area);
+        let mut on_path = TextObject::point(Point::new(10.0, 300.0), "Path", CharStyle::default());
+        on_path.kind = TextKind::OnPath { path: shapes::rectangle(Rect::new(0.0, 0.0, 100.0, 40.0)), start: 0.0, end: None };
+        let on_path = add(on_path);
+        let path_only = HitOptions { type_path_only: true, ..Default::default() };
+        let hit = |p: Point, opt: HitOptions| hit_test(&d, p, opt).map(|h| (h.leaf, h.kind));
+        // Off: anywhere in the bounds.
+        assert_eq!(hit(Point::new(40.0, 90.0), HitOptions::default()), Some((point, HitKind::Bounds)));
+        assert_eq!(hit(Point::new(250.0, 225.0), HitOptions::default()), Some((area, HitKind::Bounds)));
+        assert_eq!(hit(Point::new(60.0, 320.0), HitOptions::default()), Some((on_path, HitKind::Bounds)));
+        // On: the glyphs and the inside of the frame or path no longer pick the type.
+        assert_eq!(hit(Point::new(40.0, 90.0), path_only), None, "point type: among its glyphs");
+        assert_eq!(hit(Point::new(250.0, 225.0), path_only), None, "area type: inside its frame");
+        assert_eq!(hit(Point::new(60.0, 320.0), path_only), None, "type on a path: inside its path");
+        // The baseline (within the tolerance, across the layout's width), frame and path do.
+        assert_eq!(hit(Point::new(40.0, 101.5), path_only), Some((point, HitKind::Outline)), "point type: its baseline");
+        assert_eq!(hit(Point::new(75.0, 100.0), path_only), None, "point type: past the end of its layout");
+        assert_eq!(hit(Point::new(250.0, 200.5), path_only), Some((area, HitKind::Outline)), "area type: its frame");
+        assert_eq!(hit(Point::new(60.0, 339.5), path_only), Some((on_path, HitKind::Outline)), "type on a path: its path");
+    }
+
+    /// Type Object Selection by Path Only with the layout's baselines: every line's for point type,
+    /// area type's besides its frame, a vertical column's centre line, and type in perspective
+    /// where it is drawn.
+    #[test]
+    fn type_path_only_picks_every_baseline() {
+        use crate::{CharStyle, PerspectiveAttachment, TextKind, TextObject};
+        use vectorcraft_geom::{Affine, Homography};
+        let mut d = Document::new(400.0, 400.0);
+        let l = d.layers[0].id;
+        let mut add = |t: TextObject, perspective: Option<Affine>| {
+            let mut n = Node::new(d.alloc_id(), NodeKind::Text(Box::new(t)));
+            n.perspective = perspective.map(|a| {
+                Box::new(PerspectiveAttachment { projection: Some(Homography::from_affine(a).to_array()), ..PerspectiveAttachment::new("left", 0.0) })
+            });
+            let id = n.id;
+            d.insert(Some(l), 9, n).unwrap();
+            id
+        };
+        let style = CharStyle { size: 20.0, ..CharStyle::default() };
+        // Two lines of point type at (10, 100), 24 pt apart.
+        let mut point = TextObject::point(
+            Point::new(10.0, 100.0),
+            "Hello
+world",
+            style.clone(),
+        );
+        point.cached_bounds = Some(Rect::new(0.0, -16.0, 60.0, 28.0));
+        point.cached_baselines = vec![(Point::ZERO, Point::new(60.0, 0.0)), (Point::new(0.0, 24.0), Point::new(50.0, 24.0))];
+        let point = add(point, None);
+        // Area type: a line inside its frame.
+        let mut area = TextObject::point(Point::new(200.0, 50.0), "Area", style.clone());
+        area.kind = TextKind::Area { frame: shapes::rectangle(Rect::new(0.0, 0.0, 100.0, 50.0)) };
+        area.cached_baselines = vec![(Point::new(0.0, 16.0), Point::new(40.0, 16.0))];
+        let area = add(area, None);
+        // Vertical point type at (300, 200) with no baselines cached: down its first column.
+        let mut vertical = TextObject::point(Point::new(300.0, 200.0), "Tate", style.clone());
+        vertical.vertical = true;
+        vertical.cached_bounds = Some(Rect::new(-10.0, 0.0, 10.0, 80.0));
+        let vertical = add(vertical, None);
+        // Point type drawn 100 to the right of where it is laid out.
+        let mut moved = TextObject::point(Point::new(10.0, 350.0), "Moved", style);
+        moved.cached_bounds = Some(Rect::new(0.0, -16.0, 60.0, 4.0));
+        let moved = add(moved, Some(Affine::translate((100.0, 0.0))));
+        let path_only = HitOptions { type_path_only: true, ..Default::default() };
+        let hit = |p: Point| hit_test(&d, p, path_only).map(|h| h.leaf);
+        assert_eq!(hit(Point::new(40.0, 100.0)), Some(point), "the first line's baseline");
+        assert_eq!(hit(Point::new(40.0, 125.0)), Some(point), "the second line's");
+        assert_eq!(hit(Point::new(40.0, 112.0)), None, "between the lines");
+        assert_eq!(hit(Point::new(65.0, 124.0)), None, "past the end of the shorter second line");
+        assert_eq!(hit(Point::new(220.0, 66.0)), Some(area), "area type: a line's baseline");
+        assert_eq!(hit(Point::new(220.0, 80.0)), None, "area type: inside the frame, off the baselines");
+        assert_eq!(hit(Point::new(299.0, 260.0)), Some(vertical), "vertical type: down the column");
+        assert_eq!(hit(Point::new(306.0, 260.0)), None, "vertical type: beside it");
+        assert_eq!(hit(Point::new(140.0, 351.0)), Some(moved), "in perspective: where it is drawn");
+        assert_eq!(hit(Point::new(40.0, 351.0)), None, "in perspective: not where it is laid out");
     }
 
     /// `objects_at`: every object under the point, topmost first; a group counts once.

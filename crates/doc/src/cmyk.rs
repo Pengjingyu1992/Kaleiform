@@ -136,9 +136,64 @@ fn tiff_inks(bytes: &[u8]) -> Option<Inks> {
     Inks::new(w, h, data)
 }
 
+/// A CMYK TIFF with an alpha channel (5 samples) as RGBA pixels, each colour converted by `rgb`
+/// (ink amounts 0..1 → sRGB 0..1) and associated (premultiplied) alpha divided back out; `None`
+/// for other images, planar ones and ones larger than [`MAX_CMYK_PIXELS`]. The image decoder
+/// doesn't read these at all; the inks can't be kept with the transparency, so they show as RGB.
+pub fn cmyka_tiff_rgba(bytes: &[u8], rgb: impl Fn([f32; 4]) -> [f32; 3]) -> Option<image::RgbaImage> {
+    let (kind, mut d) = tiff(bytes)?;
+    let (w, h) = d.dimensions().ok()?;
+    let planar = d.find_tag_unsigned::<u16>(tiff::tags::Tag::PlanarConfiguration).ok().flatten().is_some_and(|p| p != 1);
+    if !matches!(kind, tiff::ColorType::CMYKA(8 | 16)) || planar {
+        return None;
+    }
+    let n = usize::try_from(pixels(w, h)?).ok()?;
+    // ExtraSamples 1: associated alpha (premultiplied colour); 2 (or none stated): unassociated.
+    let associated = d.find_tag_unsigned_vec::<u16>(tiff::tags::Tag::ExtraSamples).ok().flatten().is_some_and(|v| v.first() == Some(&1));
+    let data: Vec<u8> = match d.read_image().ok()? {
+        tiff::decoder::DecodingResult::U8(v) => v,
+        tiff::decoder::DecodingResult::U16(v) => v.iter().map(|s| (s >> 8) as u8).collect(),
+        _ => return None,
+    };
+    if data.len() != n * 5 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(n * 4);
+    for p in data.as_chunks::<5>().0 {
+        let a = f32::from(p[4]) / 255.0;
+        let ink = |v: u8| {
+            let v = f32::from(v) / 255.0;
+            if associated && a > 0.0 { (v / a).min(1.0) } else { v }
+        };
+        let [r, g, b] = rgb([ink(p[0]), ink(p[1]), ink(p[2]), ink(p[3])]);
+        out.extend([r, g, b].map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8));
+        out.push(p[4]);
+    }
+    image::RgbaImage::from_raw(w, h, out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cmyk_tiff_with_alpha_reads_as_rgba() {
+        use tiff::encoder::{TiffEncoder, colortype::CMYKA8};
+        // 2 × 1: full cyan opaque, then 100% K at half alpha (premultiplied: K 128, alpha 128).
+        let mut file = Cursor::new(Vec::new());
+        let mut enc = TiffEncoder::new(&mut file).unwrap();
+        let mut img = enc.new_image::<CMYKA8>(2, 1).unwrap();
+        img.encoder().write_tag(tiff::tags::Tag::ExtraSamples, &[1u16][..]).unwrap();
+        img.write_data(&[255, 0, 0, 0, 255, 0, 0, 0, 128, 128]).unwrap();
+        let bytes = file.into_inner();
+        let naive = |[c, m, y, k]: [f32; 4]| [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)];
+        let px = cmyka_tiff_rgba(&bytes, naive).expect("CMYKA reads");
+        assert_eq!(px.dimensions(), (2, 1));
+        assert_eq!(px.get_pixel(0, 0).0, [0, 255, 255, 255], "cyan, opaque");
+        assert_eq!(px.get_pixel(1, 0).0, [0, 0, 0, 128], "the premultiplied K divided back out: black at half alpha");
+        // Not CMYKA: not this reader's.
+        assert!(cmyka_tiff_rgba(&ImageBlob::cmyk_tiff(&inks()).unwrap().bytes, naive).is_none());
+    }
 
     fn inks() -> Inks {
         Inks::new(3, 2, vec![0, 40, 100, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 12, 34, 56, 78]).unwrap()

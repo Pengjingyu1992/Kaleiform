@@ -1,6 +1,7 @@
 //! The document walk: each visible object becomes DXF entities on its layer's DXF layer, in paint
-//! order. Fills are solid hatches (outlines in R12), strokes polylines and cubic splines with a
-//! lineweight and dashes, or filled outlines where the look needs them.
+//! order. Fills are their outlines then solid hatches (the outlines alone in R12), strokes
+//! polylines and cubic splines with a lineweight and dashes, or filled outlines where the look
+//! needs them.
 
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -315,7 +316,7 @@ impl<'a> Scene<'a> {
                 }
             }
             // Live blends, envelopes, meshes and repeats are written as their evaluated art.
-            NodeKind::Blend { .. } | NodeKind::Envelope { .. } | NodeKind::Mesh(_) | NodeKind::Repeat(_) => {
+            NodeKind::Blend { .. } | NodeKind::Envelope { .. } | NodeKind::Mesh(_) | NodeKind::Repeat(_) | NodeKind::PlacedDocument(_) => {
                 let g = vectorcraft_effects::expand_live_deep(Some(self.doc), n);
                 for c in g.children().into_iter().flatten() {
                     self.node(c, false);
@@ -504,8 +505,9 @@ impl<'a> Scene<'a> {
         Some(vectorcraft_brush::stroke_pieces(b, bp, st))
     }
 
-    /// A filled area as a solid hatch (R12: its outlines). `clean`: the path has no overlaps, so
-    /// the hatch's even-odd rule reads it as it is.
+    /// A filled area as its outlines followed by a solid hatch (R12: the outlines alone). Laser
+    /// and cutter software reads the outlines and skips hatches. `clean`: the path has no
+    /// overlaps, so the hatch's even-odd rule reads it as it is.
     fn area(&mut self, bp: &BezPath, rule: FillRule, style: &EntityStyle, clean: bool) {
         if !self.o.version.handles() {
             self.warn(NO_FILLS);
@@ -517,10 +519,12 @@ impl<'a> Scene<'a> {
             .then(|| vectorcraft_pathops::try_normalize(&PathData::from_bezpath(bp), rule).ok())
             .flatten()
             .map(|p| p.to_bezpath());
-        let loops: Vec<Vec<Point>> = polygons(normalized.as_ref().unwrap_or(bp)).into_iter().filter(|p| p.len() >= 3).collect();
+        let outline = normalized.as_ref().unwrap_or(bp);
+        let loops: Vec<Vec<Point>> = polygons(outline).into_iter().filter(|p| p.len() >= 3).collect();
         if loops.is_empty() {
             return;
         }
+        self.lines(outline, style, 0.0);
         let h = self.handle();
         let layer = self.layer.clone();
         self.e.entity("HATCH", h, fixed::MODEL_RECORD, &layer, style, "AcDbHatch");

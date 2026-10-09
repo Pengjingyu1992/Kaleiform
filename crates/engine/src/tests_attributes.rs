@@ -190,3 +190,27 @@ fn svg_export_links_objects_and_import_reads_the_links_back() {
     });
     assert_eq!(urls, [Some("https://example.com/?a=1&b=2".to_string()), None], "the link wraps the path alone");
 }
+
+/// #522: an object's own data (SVG `data-*` attributes) is set with `object.setProps {data}`,
+/// undone in one step, written to SVG and kept by the native format.
+#[test]
+fn object_data_is_set_saved_and_written_to_svg() {
+    let mut s = session();
+    let a = rect(&mut s, 10.0);
+    let data = |s: &Session| s.doc().unwrap().doc.node(a).unwrap().attrs.as_deref().map(|x| x.data.clone()).unwrap_or_default();
+    let pair = |k: &str, v: &str| (k.to_string(), v.to_string());
+    run(&mut s, "object.setProps", json!({"data": {"pivot": "60,100", "z": 3}}));
+    assert_eq!(data(&s), [pair("pivot", "60,100"), pair("z", "3")], "values are text");
+    run(&mut s, "object.setProps", json!({"data": {"data-pivot": "1,2", "z": null}}));
+    assert_eq!(data(&s), [pair("pivot", "1,2")], "a data- prefix is optional; null removes a key");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(data(&s).len(), 2, "one step");
+    for bad in [json!({"data": {"vc-x": "1"}}), json!({"data": {"name": "x"}}), json!({"data": {"a b": "1"}}), json!({"data": "pivot"})] {
+        assert!(s.execute("object.setProps", &bad).is_err(), "{bad}");
+    }
+    let svg = run(&mut s, "document.serialize", json!({"format": "svg"}))["text"].as_str().unwrap().to_string();
+    assert!(svg.contains("data-pivot=\"60,100\" data-z=\"3\""), "{svg}");
+    let native = vectorcraft_format::save(&s.doc().unwrap().doc, false);
+    let back = vectorcraft_format::load(&native).unwrap();
+    assert_eq!(back.node(a).unwrap().attrs, s.doc().unwrap().doc.node(a).unwrap().attrs);
+}

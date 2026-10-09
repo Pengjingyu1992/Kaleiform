@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use vectorcraft_doc::{CharStyle, Guide, Node, NodeId, NodeKind, SavedSelection, TextKind};
+use vectorcraft_geom::Vec2;
 
 use super::edit::selected_roots;
 use super::*;
@@ -154,8 +155,24 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             clear_guides
         ),
-        cmd!("guide.add", "Add Guide", [], None, "{vertical: bool, pos: pt (x for vertical, y for horizontal)} → {index}", has_doc, guide_add),
-        cmd!(query "guide.list", "Guides", [], None, "{} → [{index, vertical, pos, selected}…] the ruler guides", has_doc, guide_list),
+        cmd!(
+            "guide.add",
+            "Add Guide",
+            [],
+            None,
+            "{vertical: bool, pos: pt (x for vertical, y for horizontal), artboard?: index (an artboard guide: it runs across that artboard only and moves, is copied and is deleted with it; default a canvas guide, across the whole canvas)} → {index}",
+            has_doc,
+            guide_add
+        ),
+        cmd!(
+            query "guide.list",
+            "Guides",
+            [],
+            None,
+            "{} → [{index, vertical, pos, selected, artboard?: index (an artboard guide's)}…] the ruler guides",
+            has_doc,
+            guide_list
+        ),
         cmd!(
             "guide.select",
             "Select Guides",
@@ -189,7 +206,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Document Color Mode",
             ["File", "Document Color Mode"],
             None,
-            "{mode: \"cmyk\"|\"rgb\", convert?: true (convert every colour of the art, symbols and swatches through the colour settings; swatch links kept; greys stay greys), intent?} → {changed}",
+            "{mode: \"cmyk\"|\"rgb\", convert?: true (convert every colour of the art, symbols, pattern tiles and swatches through the colour settings; swatch links kept; Gray colours stay Gray, on the black plate), intent?, grays?: \"profile\" (default: RGB greys separate through the CMYK profile like any colour, into four-colour greys and a rich black) | \"black\" (to CMYK, RGB greys with R = G = B go on the black plate only, K = their grey value)} → {changed}",
             has_doc,
             super::colormgmt::convert_mode
         ),
@@ -481,8 +498,16 @@ fn clear_guides(s: &mut Session, _: &Value) -> Result<Value> {
 fn guide_add(s: &mut Session, p: &Value) -> Result<Value> {
     let pos = f64_req(p, "pos", "guide.add")?;
     let vertical = bool_or(p, "vertical", false);
+    let artboard = match p.get("artboard").filter(|v| !v.is_null()) {
+        Some(v) => {
+            let boards = &s.doc()?.doc.artboards;
+            let ab = v.as_u64().and_then(|i| boards.get(usize::try_from(i).ok()?)).ok_or_else(|| EngineError::Other("no such artboard".into()))?;
+            Some(ab.id)
+        }
+        None => None,
+    };
     let i = s.edit("New Guide", |d, _| {
-        d.guides.push(Guide { vertical, pos });
+        d.guides.push(Guide { artboard, ..Guide::new(vertical, pos) });
         Ok(d.guides.len() - 1)
     })?;
     Ok(json!({ "index": i }))
@@ -490,7 +515,13 @@ fn guide_add(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn guide_list(s: &mut Session, _: &Value) -> Result<Value> {
     let st = s.doc()?;
-    let row = |(i, g): (usize, &Guide)| json!({ "index": i, "vertical": g.vertical, "pos": g.pos, "selected": st.selection.guides.contains(&i) });
+    let row = |(i, g): (usize, &Guide)| {
+        let mut r = json!({ "index": i, "vertical": g.vertical, "pos": g.pos, "selected": st.selection.guides.contains(&i) });
+        if let Some(ab) = st.doc.artboards.iter().position(|a| Some(a.id) == g.artboard) {
+            r["artboard"] = json!(ab);
+        }
+        r
+    };
     Ok(Value::Array(st.doc.guides.iter().enumerate().map(row).collect()))
 }
 
@@ -533,11 +564,7 @@ pub(crate) fn guide_remove(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let label = if gone.len() == 1 { "Delete Guide" } else { "Delete Guides" };
     s.edit(label, |d, sel| {
-        let kept = |i: &usize| !gone.contains(i);
-        // The guides left selected keep their place among the rest.
-        let left: Vec<usize> = sel.guides.iter().filter(|i| kept(i)).map(|i| i - gone.iter().filter(|g| *g < i).count()).collect();
-        d.guides = std::mem::take(&mut d.guides).into_iter().enumerate().filter(|(i, _)| kept(i)).map(|(_, g)| g).collect();
-        sel.set_guides(left);
+        d.retain_guides(sel, |i, _| !gone.contains(&i));
         Ok(())
     })?;
     Ok(json!({ "count": gone.len() }))
@@ -565,7 +592,7 @@ pub(crate) fn guide_move(s: &mut Session, p: &Value) -> Result<Value> {
         let mut copies = vec![];
         for &i in &moving {
             let Some(g) = d.guides.get_mut(i) else { continue };
-            let moved = Guide { vertical: g.vertical, pos: g.pos + if g.vertical { dx } else { dy } };
+            let moved = g.moved(Vec2::new(dx, dy));
             if copy {
                 copies.push(moved);
             } else {

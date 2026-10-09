@@ -80,6 +80,7 @@
 	Add to Swatches	添加到色板
 	Add Used Colors	添加已用颜色
 	Additional Plug-ins Folder	附加增效工具文件夹
+	Additional Fonts Folder	附加字体文件夹
 	Adjust Adjoining Width Points	调整相邻宽度点
 	Adjust Color Balance…	调整色彩平衡…
 	Adjust Colors	调整颜色
@@ -127,6 +128,7 @@
 	Anchor Points	锚点
 	Anchor Points, Handle, and Bounding Box Display	锚点、手柄和定界框显示
 	Anchor/Path Labels	锚点/路径标签
+	Anchors:	锚点：
 	Angle	角度
 	Angle:	角度：
 	Angles	角度
@@ -143,6 +145,7 @@
 	Appearance Panel	外观面板
 	Appearance panel	外观面板
 	Applies when the linked file is relinked or updated.	在重新链接或更新链接文件时应用。
+	Apply	应用
 	Apply Brush	应用画笔
 	Apply Character Style	应用字符样式
 	Apply Effect	应用效果
@@ -182,6 +185,7 @@
 	Artwork Colors	图稿颜色
 	As Multiple Assets	作为多个资源
 	As Single Asset	作为单一资源
+	Ascender	上缘
 	Ask When Modified	修改时询问
 	Aspect Ratio	长宽比
 	Asset Export	资源导出
@@ -199,6 +203,7 @@
 	Auto Size New Area Type	自动调整新区域文字大小
 	Auto Spell Check	自动拼写检查
 	Auto-Collapse Iconic Panels	自动折叠图标面板
+	Show Tool Group Labels	显示工具组标签
 	Auto-Rotate (turn the paper to each artboard)	自动旋转 (为每个画板转动纸张)
 	Automatic flatness	自动平滑度
 	Automatically	自动
@@ -213,6 +218,7 @@
 	Background:	背景：
 	Backspace	Backspace
 	Bar Graph Tool	条形图工具
+	Baseline	基线
 	Baseline Shift	基线偏移
 	Basic Latin	基本拉丁文
 	Batch	批处理
@@ -245,6 +251,8 @@
 	Bottom	下
 	Bottom in Front	下方置前
 	Bottom-to-Bottom Leading	基线至基线行距
+	Burasagari	标点悬挂
+	Force	强制
 	Bottom:	下：
 	Bounds	边界
 	Bounds (Fill Proportionally)	边界 (按比例填满)
@@ -317,6 +325,8 @@
 	Clean Up…	清理…
 	Clear	清除
 	Clear All Tabs	清除全部制表位
+	Above Text	文本上方
+	Position Panel Above Text	将面板置于文本上方
 	Clear Appearance	清除外观
 	Clear Guides	清除参考线
 	Clear Overrides	清除覆盖
@@ -422,12 +432,15 @@
 	Compression:	压缩：
 	Condition identifier:	条件识别码：
 	Conflict {n} of {count}	冲突 {n}／{count}
+	Connect Selected End Points	连接所选端点
 	Consolidate All Windows	合并所有窗口
 	Constrain Angle	约束角度
 	Constrain Width and Height Proportions	约束宽高比例
 	Construction Guides	构造参考线
 	Contextual Alternates	上下文替代
 	Contextual Task Bar	上下文任务栏
+	Pin Bar Position	固定任务栏位置
+	Reset Bar Position	重置任务栏位置
 	Contrast	对比
 	Control	控制栏
 	Convert	转换
@@ -439,6 +452,8 @@
 	Convert Color	转换颜色
 	Convert Document Color Mode	转换文档颜色模式
 	Convert Process to Global	将印刷色转换为全局色
+	Convert Selected Anchor Points to Corner	将所选锚点转换为尖角
+	Convert Selected Anchor Points to Smooth	将所选锚点转换为平滑
 	Convert text to outlines	将文字转换为轮廓
 	Convert To Area Type	转换为区域文字
 	Convert to Artboards	转换为画板
@@ -449,6 +464,7 @@
 	Convert to RGB	转换为 RGB
 	Convert to Shape	转换为形状
 	Convert to sRGB	转换为 sRGB
+	Convert:	转换：
 	Copied the CSS of {rules} object(s)	已复制 {rules} 个对象的 CSS
 	Copies:	份数：
 	Copy	复制
@@ -469,6 +485,9 @@
 	Corner Radius:	圆角半径：
 	Corner:	转角：
 	Corners	转角
+	Cut Path	切割路径
+	Descender	下缘
+	Flip	翻转
 	Round	圆角
 	Inverted Round	反向圆角
 	Corners…	转角…
@@ -492,7 +511,7 @@
 	Create Object Mosaic…	创建对象马赛克…
 	Create Outlines	创建轮廓
 	Create Path	创建路径
-	Create PDF layers from top-level layers	从顶层图层创建 PDF 图层
+	Create PDF layers from layers and sublayers	从图层和子图层创建 PDF 图层
 	Create PDF-Compatible File	创建与 PDF 兼容的文件
 	Create Report	创建报告
 	Create Slice	创建切片
@@ -503,6 +522,7 @@
 	Created:	创建时间：
 	Crop	裁剪
 	Crop Image	裁剪图像
+	Mask	蒙版
 	Crop Marks	裁切标记
 	Crop To	裁剪到
 	Crystallize Tool	晶格化工具
@@ -684,6 +704,8 @@
 	Duplicate	复制
 	Duplicate and Offset 10 pt	复制并偏移 10 pt
 	Duplicate Artboard	复制画板
+	Copy Artboard	拷贝画板
+	Cut Artboard	剪切画板
 	Duplicate Artboards	复制画板
 	Duplicate Brush	复制画笔
 	Duplicate Character Style	制作字符样式副本
@@ -749,6 +771,8 @@
 	Em Box Bottom/Left	全角字框下 / 左
 	Em Box Center	全角字框居中
 	Em Box Top/Right	全角字框上 / 右
+	ICF Top/Right	ICF 上 / 右
+	ICF Bottom/Left	ICF 下 / 左
 	Em Dash	长破折号
 	Em Space	全角空格
 	Embed	嵌入
@@ -897,6 +921,7 @@
 	Fill New Type Objects With Placeholder Text	用占位文本填充新文字对象
 	Fill Rule	填充规则
 	Fill with Placeholder Text	用占位文本填充
+	Insert Inline Symbol	插入行内符号
 	Fill:	填色：
 	Fill: click for swatches, Shift-click for the color mixer	填色：单击开启色板，按住 Shift 单击开启混色器
 	Find	查找
@@ -916,6 +941,7 @@
 	Fit Headline	适合标题
 	Decrease Font Size	减小字体大小
 	Increase Font Size	增大字体大小
+	Spacing	间距
 	Step Type	按增量调整文字
 	Fit in View	适合视图
 	Fit in Window	适合窗口
@@ -1029,6 +1055,7 @@
 	Grays	灰度级数
 	Grays and Neutrals	灰色和中性色
 	Grayscale	灰度
+	Flat Logo	扁平徽标
 	Grayscale images	灰度图像
 	Greek & Cyrillic	希腊文与西里尔文
 	Green	绿
@@ -1062,7 +1089,9 @@
 	Hide Artboards	隐藏画板
 	Hide Bounding Box	隐藏定界框
 	Hide Code	隐藏代码
-	Hide Contextual Task Bar	隐藏快捷工作列
+	Hide Bar	隐藏任务栏
+	More Options	更多选项
+	Show Properties Panel	显示属性面板
 	Hide Corner Widget	隐藏角控件
 	Hide Corner Widget for angles greater than	角度大于此值时隐藏圆角控件
 	Hide Edges	隐藏边缘
@@ -1115,11 +1144,18 @@
 	Ignore	忽略
 	Ignore Artboards (all the art as one page)	忽略画板 (所有图稿作为一页)
 	Ignore White	忽略白色
+	Palette:	调板：
+	Limited	有限
+	Full Tone	全色调
+	Document Library	文档库
+	Library:	库：
 	Image	图像
 	Image Info	图像信息
 	Image Map:	图像映射：
 	Image Size	图像大小
 	Image Trace	图像描摹
+	Image Tracing	图像描摹对象
+	Tracing Presets	描摹预设
 	Image Trace Presets	图像描摹预设
 	Image:	图像：
 	Images:	图像：
@@ -1324,7 +1360,6 @@
 	Make a theme on Create and save it.	在“创建”中制作主题并存储。
 	Make all bleed settings the same	使所有出血设置相同
 	Make and Expand	创建并扩展
-	Make and Expand…	制作并展开…
 	Make Clipping Mask	制作剪切蒙版
 	Make Compound Shape	创建复合形状
 	Make Envelope	制作封套
@@ -1337,7 +1372,6 @@
 	Make with Top Object	用顶层对象创建
 	Make with Warp…	用变形创建…
 	Make/Release Clipping Mask	创建/释放剪切蒙版
-	Make…	制作…
 	Manage Workspaces	管理工作区
 	Manage Workspaces…	管理工作区…
 	Manually	手动
@@ -1348,6 +1382,9 @@
 	Marks and Bleed	标记和出血
 	Marks and Bleeds	标记和出血
 	Match User Interface Brightness	匹配用户界面亮度
+	Light Gray	浅灰色
+	Medium Gray	中灰色
+	Dark Gray	深灰色
 	Materials…	材质…
 	Matte	杂边
 	Matte:	杂边：
@@ -1444,6 +1481,7 @@
 	New Art Brush from Selection	从选区新建艺术画笔
 	New Art Has Basic Appearance	新建图稿使用基本外观
 	New Artboard	新建画板
+	Exit	退出
 	New Bristle Brush	新建鬃毛画笔
 	New Brush…	新建画笔…
 	New Calligraphic Brush	新建书法画笔
@@ -1512,6 +1550,9 @@
 	No text selected	未选择文字
 	No Thumbnails	无缩略图
 	Noise	杂色
+	Create:	创建：
+	Fills	填色
+	Strokes	描边
 	Nonbreaking Hyphen	不断行连字号
 	Nonbreaking Space	不断行空格
 	None	无
@@ -1890,7 +1931,17 @@
 	Rating:	等级：
 	Real World:	真实世界：
 	Real-time Drawing and Editing	实时绘图和编辑
-	Rearrange All Artboards (on the roadmap)	重新排列所有画板 (规划中)
+	Rearrange All Artboards	重新排列所有画板
+	Rearrange All	全部重新排列
+	Layout Order:	布局顺序：
+	Change to Left-to-Right Layout	更改为由左至右版面配置
+	Grid by Row	按行网格排列
+	Grid by Column	按列网格排列
+	Arrange by Row	排成一行
+	Arrange by Column	排成一列
+	Move Artwork with Artboard	随画板移动图稿
+	Scale Artwork with Artboard	随画板缩放图稿
+	Artboards: {n}	画板：{n}
 	Rearrange All Artboards…	重新排列所有画板…
 	Recall Selection	召回选区
 	RECENT	最近使用
@@ -2050,6 +2101,8 @@
 	Reverse Spine	反转路径
 	Revert	恢复
 	Revert to the saved version of “{name}”?	要恢复为“{name}”已存储的版本吗？
+	Replace “{name}”, the file this document was opened from?	要替换“{name}”（打开此文档的源文件）吗？
+	Opening it left out what Kaleiform can't read yet ({what}), so replacing it loses that for good. Save under another name to keep it.	打开时略去了 虹构 尚无法读取的内容（{what}），替换该文件会永久丢失这些内容。要保留它们，请以其他名称存储。
 	Revolve…	回转…
 	RGB Color	RGB 颜色
 	Right	右
@@ -2307,6 +2360,8 @@
 	Show Guides	显示参考线
 	Show handles when multiple anchors are selected	选择多个锚点时显示手柄
 	Show Hidden Characters	显示隐藏字符
+	Bold	粗体
+	Italic	斜体
 	Show Images in Outline Mode	以轮廓模式显示图像
 	Show in Folder	在文件夹中显示
 	Show Indic Options	显示印度文字选项
@@ -2353,7 +2408,7 @@
 	Simplify…	简化…
 	Simulate Colored Paper	模拟有色纸张
 	Simulate Paper	模拟纸张
-	Single / Double Column	单列/双列
+	Double Column	双列
 	Single Left Quotation Mark	左单引号
 	Single Quotes:	单引号：
 	Single Right Quotation Mark	右单引号
@@ -2394,6 +2449,13 @@
 	Smooth Color	平滑颜色
 	Smooth Tool	平滑工具
 	Snap Curves To Lines	将曲线对齐到直线
+	View:	视图：
+	Tracing Result	描摹结果
+	Tracing Result with Outlines	描摹结果（带轮廓）
+	Outlines	轮廓
+	Outlines with Source Image	轮廓（带源图像）
+	Source Image	源图像
+	Image Trace View	图像描摹视图
 	Snap Options	对齐选项
 	Snap to Glyph	靠齐字符
 	Snap to Grid	对齐网格
@@ -2452,7 +2514,10 @@
 	Stroke (X), double-click for the Color Picker	描边 (X)，双击打开拾色器
 	Stroke Color	描边颜色
 	Stroke Options	描边选项
+	Character:	字符：
+	Character options	字符选项
 	Stroke options	描边选项
+	Transform options	变换选项
 	Stroke Weight	描边粗细
 	Stroke:	描边：
 	Stroke: click for swatches, Shift-click for the color mixer	描边：单击开启色板，按住 Shift 单击开启混色器
@@ -2494,6 +2559,25 @@
 	Swatch Tiles	色板拼贴
 	Swatches	色板
 	Switch workspace	切换工作区
+	Add Content	添加内容
+	Click to apply to the selected type	单击以应用到所选文字
+	Create New Library	创建新库
+	Create New Library…	创建新库…
+	Rename Library…	重命名库…
+	Delete the library “{name}”?	要删除库“{name}”吗？
+	Drag art or swatches here, or use + to add the selection's colors and text styles.	将图稿或色板拖到此处，或使用 + 添加所选对象的颜色和文字样式。
+	Its graphics, colors and text styles are deleted from this machine.	其图形、颜色和文字样式将从此计算机中删除。
+	Keep graphics, colors and text styles here to use them in any document. Libraries are stored on this machine — no account required.	在此保存图形、颜色和文字样式，即可在任何文档中使用。库存储在此计算机上，无需帐户。
+	This library is empty	此库为空
+	Add to Library	添加到库
+	Delete Library	删除库
+	Delete Library Item	删除库项目
+	Library	库
+	Rename Library	重命名库
+	Show Library	显示库
+	Use Library Item	使用库项目
+	Graphic	图形
+	Show all open documents	显示所有打开的文档
 	Symbol Instance	符号实例
 	Symbol Libraries	符号库
 	Symbol Libraries (on the roadmap)	符号库 (已列入路线图)
@@ -2589,6 +2673,7 @@
 	Total Width:	总宽度：
 	Touch Type Tool	修饰文字工具
 	Trace	描摹
+	Trace the image with the Default preset	使用“默认”预设描摹图像
 	Tracing	描摹
 	Tracking	字距
 	Trademark Symbol	商标符号
@@ -2640,6 +2725,7 @@
 	Type becomes outlines, and strokes a CAD line can't draw become filled shapes.	文字变为轮廓，CAD 无法绘制的描边变为填充形状。
 	Type Object Selection by Path Only	仅按路径选择文字对象
 	Type on a Path	路径文字
+	Type on a Path Options	路径文字选项
 	Type on a Path Options…	路径文字选项…
 	Type on a Path Tool	路径文字工具
 	Type Orientation	文字方向
@@ -2813,6 +2899,7 @@
 	Zoom to Selection	缩放到所选对象
 	Zoom Tool	缩放工具
 	Zoom with Mouse Wheel	使用鼠标滚轮缩放
+	Scrub Numeric Fields by Dragging	拖动以调整数值字段
 	{count} file(s) in {folder}{note}. Show the package folder?	{folder} 中有 {count} 个文件{note}。要显示打包文件夹吗？
 	{count} linked file(s) not found	找不到 {count} 个链接文件
 	{count} linked image(s) changed since this document was saved. Show the new versions?	自存储此文档后，有 {count} 个链接图像已更改。要显示新版本吗？
@@ -2874,6 +2961,9 @@
 	 to zoom in  |  	以放大  |  
 	 to zoom out  |  	以缩小  |  
 	 to zoom into an area	以放大指定区域
+	Hold	按住
+	 right or left to zoom in or out  |  	向右以放大、向左以缩小  |  
+	 to keep zooming	以持续缩放
 	 an object to copy its attributes  |  	选择对象以复制其属性  |  
 	 to apply the selection's to it  |  	以将所选对象属性应用到它  |  
 	 to sample a color	以取样颜色
@@ -3195,6 +3285,9 @@
 	Right-to-Left Paragraph Direction	从右到左段落方向
 	Line-end Punctuation Half Width	行尾标点半角
 	Mojikumi Set	标点挤压集
+	Kinsoku Set	Kinsoku 集
+	Hard	强
+	Soft	弱
 	Saved Selection 1	已保存的选区 1
 	Saved Selection 2	已保存的选区 2
 	Saved Selection 3	已保存的选区 3
@@ -3251,3 +3344,55 @@
 	Version	版本
 	% of all commits	占全部提交的百分比
 	Lines +/−	行数 +/−
+	Joins	连接
+	Miter	斜接
+	Bevel	斜角
+	Offset	偏移
+	Axis	轴
+axis	Horizontal	水平
+axis	Vertical	垂直
+axis	Both	两者
+	Drag to move	拖动以移动
+	Drag to float as a toolbar	拖动使其浮动为工具栏
+	Put back in the toolbar	放回工具栏
+	Float Panel	浮动面板
+	Dock Panel	停放面板
+	Drag to float the panel group	拖动以浮动面板组
+	Put back in the dock	放回停放区
+	Drag to float the toolbar	拖动以浮动工具栏
+	Drag to the window's left edge to dock	拖到窗口左边缘以停放
+	Float Tool Group	浮动工具组
+
+# The macOS menu bar (native_menu): the app and Window menus' system items, Settings pages.
+	Services	服务
+	Hide Kaleiform	隐藏 虹构
+	Bring All to Front	前置全部窗口
+	Settings	设置
+	Break Link	断开链接
+	On: one locked object showing the document, updated when it changes.	开启：以一个锁定对象显示文档，文档更改时随之更新。
+	Off: an editable copy of its art, embedded in this document.	关闭：将其图稿的可编辑副本嵌入此文档。
+	Images: link to the file instead of only embedding it.	图像：链接到文件，而不只是嵌入。
+	Kaleiform documents: one locked object, updated when the file changes.	虹构 文档：一个锁定对象，文件更改时随之更新。
+	A file dialog is open: choose there first	文件对话框已打开：请先在其中选择
+	Expand Shaper Group	扩展 Shaper 组
+	Release Shaper Group	释放 Shaper 组
+	Select Shaper Face	选择 Shaper 区域
+	Constrain	约束
+	Perspective Distort	透视扭曲
+
+# Photoshop-style raster effects (Effect menu, their dialogs).
+	Radial Blur…	径向模糊…
+	Smart Blur…	智能模糊…
+	Sharpen	锐化
+	Unsharp Mask…	反锐化遮罩…
+	Radial Blur	径向模糊
+	Smart Blur	智能模糊
+	Unsharp Mask	反锐化遮罩
+	Gaussian Blur	高斯模糊
+	Method	方法
+	Quality	质量
+	Radius	半径
+	Spin	旋转
+	Draft	草稿
+	Good	良好
+	Best	最佳

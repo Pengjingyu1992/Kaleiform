@@ -551,6 +551,26 @@ fn paste_on_all_artboards_keeps_the_offset_to_the_source_artboard() {
     }
 }
 
+/// Paste in Place, in Front and in Back onto the active artboard (#693): where the objects were on
+/// the artboard they were copied from, on the one named; without it, where they were.
+#[test]
+fn in_place_pastes_go_onto_the_artboard_named() {
+    let mut s = Session::new();
+    s.execute("file.new", &json!({"width": 200, "height": 100, "artboards": 3})).unwrap();
+    let boards: Vec<Rect> = doc(&s).artboards.iter().map(|a| a.rect).collect();
+    let r = rect(&mut s, boards[0].x0 + 10.0, boards[0].y0 + 15.0, 20.0, 20.0);
+    copy(&mut s, &[r]);
+    for cmd in ["edit.pasteInPlace", "edit.pasteInFront", "edit.pasteInBack"] {
+        let ids = ids_of(&s.execute(cmd, &json!({"artboard": 2})).unwrap());
+        assert_eq!(doc(&s).bounds_of(&ids, false).unwrap().origin(), Point::new(boards[2].x0 + 10.0, boards[2].y0 + 15.0), "{cmd}");
+        let ids = ids_of(&s.execute(cmd, &json!({})).unwrap());
+        assert_eq!(doc(&s).bounds_of(&ids, false).unwrap().origin(), Point::new(boards[0].x0 + 10.0, boards[0].y0 + 15.0), "{cmd} without one");
+        // An artboard that isn't there: where they were.
+        let ids = ids_of(&s.execute(cmd, &json!({"artboard": 9})).unwrap());
+        assert_eq!(doc(&s).bounds_of(&ids, false).unwrap().origin(), Point::new(boards[0].x0 + 10.0, boards[0].y0 + 15.0), "{cmd} on no artboard");
+    }
+}
+
 #[test]
 fn paste_remembers_layers_restores_the_source_layers() {
     let mut s = session();

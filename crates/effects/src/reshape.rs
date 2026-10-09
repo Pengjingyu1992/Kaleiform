@@ -26,6 +26,7 @@ pub fn needs_outline(n: &Node) -> bool {
             | NodeKind::Envelope { .. }
             | NodeKind::Mesh(_)
             | NodeKind::Repeat(_)
+            | NodeKind::PlacedDocument(_)
     )
 }
 

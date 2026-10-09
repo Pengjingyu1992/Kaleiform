@@ -247,10 +247,13 @@ fn artboard_tool_moves_with_art_creates_and_deletes() {
     assert_eq!(s.doc().unwrap().doc.artboards.len(), 2);
     assert_eq!(s.tool_options()["active"], 1);
     assert_eq!(s.doc().unwrap().doc.artboards[1].rect, Rect::new(1000.0, 0.0, 1200.0, 100.0));
-    // Delete it.
+    // Delete it: the tool takes the key ahead of the Clear shortcut (the UI only hands Delete to a
+    // tool that claims it).
+    assert!(s.tool_claims_key(ToolKey::Delete, ViewInfo::default()));
     s.tool_key(ToolKey::Delete, Mods::default(), ViewInfo::default()).unwrap();
     assert_eq!(s.doc().unwrap().doc.artboards.len(), 1);
-    // The last artboard can't be deleted.
+    // The last artboard can't be deleted, so Delete stays the shortcut's.
+    assert!(!s.tool_claims_key(ToolKey::Delete, ViewInfo::default()));
     s.tool_key(ToolKey::Delete, Mods::default(), ViewInfo::default()).unwrap();
     assert_eq!(s.doc().unwrap().doc.artboards.len(), 1);
 }
@@ -313,6 +316,106 @@ fn artboard_move_copy_reports_the_copies_and_follows_move_art() {
     assert_eq!(ids.len(), 3, "every artboard has an id of its own");
 }
 
+fn stroke_width(s: &Session, id: NodeId) -> f64 {
+    s.doc().unwrap().doc.node(id).unwrap().appearance.stroke().unwrap().width
+}
+
+fn guide_positions(s: &Session) -> Vec<f64> {
+    s.doc().unwrap().doc.guides.iter().map(|g| g.pos).collect()
+}
+
+/// Scale Artwork with Artboard (#602): `artboard.setProps {scaleArt}` takes the art fully inside the
+/// artboard and its guides from the old rectangle onto the new one, each side by its own ratio, in
+/// one undo step; art partly outside and canvas guides stay.
+#[test]
+fn artboard_set_props_scales_the_art_and_guides_with_the_artboard() {
+    let mut s = session();
+    let inside = rect(&mut s, 100.0, 100.0, 200.0, 100.0);
+    s.execute("stroke.set", &json!({"weight": 4})).unwrap();
+    let partly = rect(&mut s, 700.0, 500.0, 200.0, 200.0);
+    for (vertical, pos, artboard) in [(true, 400.0, json!(0)), (false, 300.0, json!(0)), (true, 400.0, json!(null))] {
+        s.execute("guide.add", &json!({"vertical": vertical, "pos": pos, "artboard": artboard})).unwrap();
+    }
+    let before = s.doc().unwrap().doc.clone();
+    // Half the size: half the art, half the stroke (Scale Strokes & Effects).
+    let out = s.execute("artboard.setProps", &json!({"index": 0, "width": 400, "height": 300, "scaleArt": true, "strokes": true})).unwrap();
+    assert_eq!(out["scaled"], json!([inside.0]));
+    assert_eq!(s.doc().unwrap().doc.artboards[0].rect, Rect::new(0.0, 0.0, 400.0, 300.0));
+    assert_eq!(bounds(&s, inside), Rect::new(50.0, 50.0, 150.0, 100.0));
+    assert_eq!(stroke_width(&s, inside), 2.0);
+    assert_eq!(bounds(&s, partly), Rect::new(700.0, 500.0, 900.0, 700.0), "art partly outside stays");
+    assert_eq!(guide_positions(&s), vec![200.0, 150.0, 400.0], "the artboard's guides scale, the canvas guide stays");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(*s.doc().unwrap().doc, *before, "one undo step");
+    // Moved and stretched (left edge to -100, twice as wide), strokes kept: the art follows.
+    s.execute("artboard.setProps", &json!({"index": 0, "x": -100, "width": 1600, "scaleArt": true, "strokes": false})).unwrap();
+    assert_eq!(bounds(&s, inside), Rect::new(100.0, 100.0, 500.0, 200.0));
+    assert_eq!(stroke_width(&s, inside), 4.0);
+    assert_eq!(guide_positions(&s), vec![700.0, 300.0, 400.0]);
+}
+
+/// Without `scaleArt` a resize leaves the art and guides alone (and returns nothing, as before);
+/// with it, a pure move scales nothing (guides move along, as they always have).
+#[test]
+fn artboard_set_props_scales_art_only_when_asked_and_resized() {
+    let mut s = session();
+    let r = rect(&mut s, 100.0, 100.0, 200.0, 100.0);
+    s.execute("guide.add", &json!({"vertical": true, "pos": 400, "artboard": 0})).unwrap();
+    assert_eq!(s.execute("artboard.setProps", &json!({"index": 0, "width": 400})).unwrap(), Value::Null);
+    assert_eq!(bounds(&s, r), Rect::new(100.0, 100.0, 300.0, 200.0));
+    assert_eq!(guide_positions(&s), vec![400.0]);
+    let out = s.execute("artboard.setProps", &json!({"index": 0, "x": 50, "scaleArt": true})).unwrap();
+    assert_eq!(out["scaled"], json!([]));
+    assert_eq!(bounds(&s, r), Rect::new(100.0, 100.0, 300.0, 200.0));
+    assert_eq!(guide_positions(&s), vec![450.0]);
+    assert!(s.execute("artboard.setProps", &json!({"index": 9, "width": 10, "scaleArt": true})).is_err());
+}
+
+/// Locked and hidden art scales only with Move Locked and Hidden Artwork with Artboard, as it
+/// moves only with it.
+#[test]
+fn scale_artwork_with_artboard_leaves_locked_art_unless_the_preference_says() {
+    let mut s = session();
+    let locked = rect(&mut s, 100.0, 100.0, 200.0, 100.0);
+    s.execute("object.lock", &json!({})).unwrap();
+    let scaled = |s: &mut Session| {
+        let out = s.execute("artboard.setProps", &json!({"index": 0, "width": 400, "height": 300, "scaleArt": true})).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        out["scaled"].clone()
+    };
+    assert_eq!(scaled(&mut s), json!([]));
+    s.execute("prefs.set", &json!({"key": "moveLockedWithArtboard", "value": true})).unwrap();
+    assert_eq!(scaled(&mut s), json!([locked.0]));
+    // The choice is journaled: replayed with the preference off, the same art scales.
+    s.execute("artboard.setProps", &json!({"index": 0, "width": 400, "height": 300, "scaleArt": true})).unwrap();
+    assert_eq!(s.journal.last().unwrap().1["lockedAndHidden"], true);
+    let (id, p) = s.journal.last().unwrap().clone();
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("prefs.set", &json!({"key": "moveLockedWithArtboard", "value": false})).unwrap();
+    assert_eq!(s.execute(&id, &p).unwrap()["scaled"], json!([locked.0]));
+}
+
+/// The Artboard tool with its `scaleArt` option on resizes proportionally and the art scales with
+/// the artboard, in one undo step.
+#[test]
+fn artboard_tool_scales_art_with_the_artboard() {
+    let mut s = session();
+    let r = rect(&mut s, 100.0, 100.0, 200.0, 100.0);
+    let before = s.doc().unwrap().doc.clone();
+    s.set_tool_options(Some("artboard"), json!({"scaleArt": true}).as_object().unwrap());
+    // The right handle 100 pt out: 9/8 as wide, and as tall about the middle of the left side.
+    gesture(&mut s, "artboard", &[(800.0, 300.0), (850.0, 300.0), (900.0, 300.0), (900.0, 300.0)], Mods::default());
+    assert_eq!(s.doc().unwrap().doc.artboards[0].rect, Rect::new(0.0, -37.5, 900.0, 637.5));
+    assert_eq!(bounds(&s, r), Rect::new(112.5, 75.0, 337.5, 187.5));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(*s.doc().unwrap().doc, *before, "one undo step");
+    // Off again (the option is remembered like Move Artwork with Artboard): the art stays.
+    s.set_tool_options(Some("artboard"), json!({"scaleArt": false}).as_object().unwrap());
+    gesture(&mut s, "artboard", &[(800.0, 300.0), (850.0, 300.0), (900.0, 300.0), (900.0, 300.0)], Mods::default());
+    assert_eq!(s.doc().unwrap().doc.artboards[0].rect, Rect::new(0.0, 0.0, 900.0, 600.0));
+    assert_eq!(bounds(&s, r), Rect::new(100.0, 100.0, 300.0, 200.0));
+}
+
 #[test]
 fn magic_wand_selects_same_fill() {
     let mut s = session();
@@ -336,6 +439,72 @@ fn lasso_selects_anchor_subset() {
     let st = s.doc().unwrap();
     assert_eq!(st.selection.objects, vec![a]);
     assert_eq!(st.selection.partial(a).map(|p| p.len()), Some(2));
+}
+
+/// Shift-drag a marquee with the Selection tool (#483): the selected objects it reaches are
+/// deselected and the others selected, the rest of the selection staying as it was.
+#[test]
+fn selection_shift_marquee_toggles_objects() {
+    let mut s = session();
+    let a = rect(&mut s, 100.0, 100.0, 50.0, 50.0);
+    let b = rect(&mut s, 200.0, 100.0, 50.0, 50.0);
+    let c = rect(&mut s, 300.0, 100.0, 50.0, 50.0);
+    s.execute("select.set", &json!({"ids": [a.0, b.0]})).unwrap();
+    let shift = Mods { shift: true, ..Default::default() };
+    gesture(&mut s, "selection", &[(180.0, 80.0), (300.0, 200.0), (380.0, 200.0)], shift);
+    assert_eq!(s.doc().unwrap().selection.objects, vec![a, c]);
+    // Again over all three: a leaves, b joins, c leaves.
+    gesture(&mut s, "selection", &[(80.0, 80.0), (300.0, 200.0), (380.0, 200.0)], shift);
+    assert_eq!(s.doc().unwrap().selection.objects, vec![b]);
+    // Without Shift the marquee replaces the selection.
+    gesture(&mut s, "selection", &[(80.0, 80.0), (300.0, 200.0), (260.0, 200.0)], Mods::default());
+    assert_eq!(s.doc().unwrap().selection.objects, vec![a, b]);
+}
+
+/// Shift-drag a marquee with Direct Selection (#483): the anchors inside toggle; a path left with
+/// none of them leaves the selection, one with all of them is selected whole again.
+#[test]
+fn direct_selection_shift_marquee_toggles_anchors() {
+    let mut s = session();
+    let a = rect(&mut s, 100.0, 100.0, 100.0, 100.0);
+    let b = rect(&mut s, 300.0, 100.0, 100.0, 100.0);
+    s.execute("select.set", &json!({"ids": [a.0]})).unwrap();
+    let shift = Mods { shift: true, ..Default::default() };
+    // Around a's top edge (two anchors, selected) and b's top-left anchor (not selected).
+    let top = [(90.0, 90.0), (310.0, 110.0), (310.0, 110.0)];
+    gesture(&mut s, "directSelection", &top, shift);
+    let st = s.doc().unwrap();
+    assert_eq!(st.selection.objects, vec![a, b]);
+    assert_eq!(st.selection.partial(a).map(|p| p.len()), Some(2), "a's bottom anchors stay");
+    assert_eq!(st.selection.partial(b).map(|p| p.len()), Some(1));
+    // The same again: a whole once more, b out.
+    gesture(&mut s, "directSelection", &top, shift);
+    let st = s.doc().unwrap();
+    assert_eq!(st.selection.objects, vec![a]);
+    assert_eq!(st.selection.partial(a), None);
+    // Group Selection's marquee toggles the same way.
+    gesture(&mut s, "groupSelection", &top, shift);
+    assert_eq!(s.doc().unwrap().selection.partial(a).map(|p| p.len()), Some(2));
+}
+
+/// The Lasso: Shift adds anchors, Alt takes them away, and neither drops the rest of the
+/// selection (a path selected whole stays whole when its anchors are added again).
+#[test]
+fn lasso_shift_adds_and_alt_subtracts() {
+    let mut s = session();
+    let a = rect(&mut s, 100.0, 100.0, 100.0, 100.0);
+    let t = s.execute("text.create", &json!({"x": 300, "y": 300, "text": "Hi"})).unwrap();
+    let t = NodeId(t["id"].as_u64().unwrap());
+    s.execute("select.set", &json!({"ids": [a.0, t.0]})).unwrap();
+    // A loop round a's top-left anchor.
+    let corner = [(90.0, 90.0), (110.0, 90.0), (110.0, 110.0), (90.0, 110.0), (90.0, 110.0)];
+    gesture(&mut s, "lasso", &corner, Mods { shift: true, ..Default::default() });
+    let st = s.doc().unwrap();
+    assert_eq!((st.selection.objects.clone(), st.selection.partial(a)), (vec![a, t], None));
+    gesture(&mut s, "lasso", &corner, Mods { alt: true, ..Default::default() });
+    let st = s.doc().unwrap();
+    assert_eq!(st.selection.objects, vec![a, t], "the type stays selected");
+    assert_eq!(st.selection.partial(a).map(|p| p.len()), Some(3));
 }
 
 #[test]

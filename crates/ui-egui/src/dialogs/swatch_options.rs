@@ -146,7 +146,7 @@ pub(super) fn grid<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -
 
 /// A dimmed field label in the swatch dialogs' grid.
 pub(super) fn label(ui: &mut egui::Ui, s: &str) {
-    ui.label(egui::RichText::new(s).color(Tokens::get(ui.ctx()).text_dim));
+    crate::widgets::field_label(ui, egui::RichText::new(s).color(Tokens::get(ui.ctx()).text_dim));
 }
 
 /// The Swatch Name row of the grid. Returns true when it changed.

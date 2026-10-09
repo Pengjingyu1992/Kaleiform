@@ -16,15 +16,16 @@ const TEMPLATE_EXTS: &[&str] = &["vctemplate", "ait", "vectorcraft", "drawcraft"
 
 /// Open bytes of any readable format as a new document (templates open untitled); swatch and
 /// graphic style library files open in the library panel and flattener, PDF, print and perspective
-/// grid presets files are imported.
-pub fn open_bytes(app: &mut VectorcraftApp, name: &str, bytes: &[u8], path: Option<String>) -> Result<(), String> {
+/// grid presets files are imported. → `document.open`'s result for a document opened now (its
+/// `warnings` say what didn't come in as it was), else null.
+pub fn open_bytes(app: &mut VectorcraftApp, name: &str, bytes: &[u8], path: Option<String>) -> Result<Value, String> {
     let ext = fileio::extension(name);
     // A WebAssembly plug-in is installed.
     if vectorcraft_engine::cmd::plugin::EXTS.contains(&ext.as_str()) {
         let r =
             app.run("plugin.install", json!({"dataBase64": vectorcraft_format::base64_encode(bytes), "name": path.as_deref().unwrap_or(name)}))?;
         app.status(format!("Installed plug-in {}", r["name"].as_str().unwrap_or(name)));
-        return Ok(());
+        return Ok(Value::Null);
     }
     let presets = [
         (vectorcraft_engine::cmd::flatten::PRESET_EXTS, "flattener.presets.import", "flattener presets"),
@@ -36,41 +37,44 @@ pub fn open_bytes(app: &mut VectorcraftApp, name: &str, bytes: &[u8], path: Opti
         let r = app.run(import, serde_json::json!({"data": String::from_utf8_lossy(bytes)}))?;
         let names: Vec<&str> = r["imported"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         app.status(format!("Imported {what}: {}", names.join(", ")));
-        return Ok(());
+        return Ok(Value::Null);
     }
     let swatches = vectorcraft_engine::cmd::swatchlib::LIBRARY_EXTS.contains(&ext.as_str());
     if swatches || ext == vectorcraft_doc::style_libs::STYLES_EXT {
         let p = match path {
             Some(path) => serde_json::json!({ "path": path }),
+            // `.ase` swatch libraries are binary.
+            None if swatches => serde_json::json!({"name": name, "dataBase64": vectorcraft_format::base64_encode(bytes)}),
             None => serde_json::json!({"name": name, "data": String::from_utf8_lossy(bytes)}),
         };
         let load = if swatches { crate::panels::swatches::load_library } else { crate::panels::graphic_styles::load_library };
-        return load(app, p).map(|_| ());
+        return load(app, p).map(|_| Value::Null);
     }
     // A PDF with several pages or a password asks first (the Import PDF dialog), and so does a
     // DXF drawing (DXF Import Options).
     if crate::dialogs::import_pdf::offer(app, name, bytes, path.clone(), None)
         || crate::dialogs::dxf_import::offer(app, name, bytes, path.clone(), None)
     {
-        return Ok(());
+        return Ok(Value::Null);
     }
     open_document(app, name, bytes, path, &Value::Null)
 }
 
-/// Open a document through the engine loader with the `document.open` options in `p`.
-pub fn open_document(app: &mut VectorcraftApp, name: &str, bytes: &[u8], path: Option<String>, p: &Value) -> Result<(), String> {
+/// Open a document through the engine loader with the `document.open` options in `p` →
+/// `document.open`'s result.
+pub fn open_document(app: &mut VectorcraftApp, name: &str, bytes: &[u8], path: Option<String>, p: &Value) -> Result<Value, String> {
     let r = fileio::open_bytes_with(&mut app.session, name, bytes, path, p).map_err(|e| e.to_string())?;
     app.sync_views();
     if let Some(w) = r["warnings"].as_array().filter(|w| !w.is_empty()) {
         app.status(format!("Opened with {} note(s): {}", w.len(), w[0].as_str().unwrap_or_default()));
     }
     crate::dialogs::missing_links::after_open(app, &r);
-    Ok(())
+    Ok(r)
 }
 
 /// A path from the open dialog, or "cancelled".
 fn pick_open(app: &mut VectorcraftApp, pick: &FilePick) -> Result<String, String> {
-    app.services.pick_open.as_mut().and_then(|f| f(pick)).ok_or_else(|| "cancelled".into())
+    crate::picks::open(app, pick).ok_or_else(|| "cancelled".into())
 }
 
 /// Object › Plug-ins › Install Plug-in…: installs the `.wasm` at `path`, else a picked one (the
@@ -93,18 +97,19 @@ pub fn open_dialog(app: &mut VectorcraftApp) -> Result<(), String> {
         return Ok(());
     }
     let path = pick_open(app, &FilePick { filters: fileio::open_filters().collect(), ..Default::default() })?;
-    open_path(app, &path)
+    open_path(app, &path).map(|_| ())
 }
 
 fn read(app: &VectorcraftApp, path: &str) -> Result<Vec<u8>, String> {
     app.services.read.as_ref().ok_or("no file reader")?(path)
 }
 
-pub fn open_path(app: &mut VectorcraftApp, path: &str) -> Result<(), String> {
+/// Open the file at `path` (see [`open_bytes`]) → `document.open`'s result, or null.
+pub fn open_path(app: &mut VectorcraftApp, path: &str) -> Result<Value, String> {
     let bytes = read(app, path)?;
-    open_bytes(app, path, &bytes, Some(path.to_string()))?;
+    let r = open_bytes(app, path, &bytes, Some(path.to_string()))?;
     note_recent(app, path);
-    Ok(())
+    Ok(r)
 }
 
 /// File → New from Template…: a template (or any readable file) as a new untitled document. Without
@@ -116,7 +121,7 @@ pub fn new_from_template(app: &mut VectorcraftApp, path: Option<String>) -> Resu
         None if app.services.open_async.is_some() => return open_dialog(app).map(|_| Value::Null),
         None => {
             let filters = std::iter::once(("Templates", TEMPLATE_EXTS)).chain(fileio::open_filters()).collect();
-            pick_open(app, &FilePick { folder: fileio::templates_folder(&app.session.prefs), filters, ..Default::default() })?
+            pick_open(app, &FilePick { folder: fileio::templates_dialog_folder(&app.session.prefs), filters, ..Default::default() })?
         }
     };
     let bytes = read(app, &path)?;
@@ -161,7 +166,7 @@ fn pick_path(app: &mut VectorcraftApp, pick: &FilePick) -> Result<String, String
     if is_web(app) {
         return Ok(pick.name.clone());
     }
-    let picked = app.services.pick_save.as_mut().and_then(|f| f(pick)).ok_or("cancelled")?;
+    let picked = crate::picks::save(app, pick).ok_or("cancelled")?;
     Ok(with_extension(&picked, &fileio::extension(&pick.name), |_| true))
 }
 
@@ -234,9 +239,13 @@ fn plan(app: &VectorcraftApp, mode: SaveMode, p: &Value) -> Result<SavePlan, Str
 /// path?}` while a dialog is open.
 pub fn save(app: &mut VectorcraftApp, mode: SaveMode, p: &Value, ask_options: bool) -> Result<Value, String> {
     remember_view(app);
-    let first = plan(app, mode, p)?;
+    // Writing over the file the document was read from is asked about here, not refused.
+    let first = plan(app, mode, &acknowledged(p))?;
     let ask = ask_options && !has_options(p);
     if let Some(path) = first.path.clone() {
+        if let Some(r) = ask_before_losing(app, &path, save_command(mode), p) {
+            return Ok(r);
+        }
         if ask && matches!(mode, SaveMode::SaveAs | SaveMode::Copy) && matches!(first.format.id, "svg" | "svgz") {
             return ask_format_options(app, mode, first.format, &path);
         }
@@ -256,12 +265,51 @@ pub fn save(app: &mut VectorcraftApp, mode: SaveMode, p: &Value, ask_options: bo
         o.remove("format");
         o.insert("path".into(), json!(with_save_extension(&picked, first.format)));
     }
-    let chosen = plan(app, mode, &q)?;
+    let chosen = plan(app, mode, &acknowledged(&q))?;
+    if let Some(r) = chosen.path.as_deref().and_then(|path| ask_before_losing(app, path, save_command(mode), &q)) {
+        return Ok(r);
+    }
     if ask && asks_options(mode, chosen.format) {
         let path = chosen.path.clone().unwrap_or_default();
         return ask_format_options(app, mode, chosen.format, &path);
     }
     write_plan(app, chosen)
+}
+
+/// The UI command that runs a save in `mode`.
+fn save_command(mode: SaveMode) -> &'static str {
+    match mode {
+        SaveMode::Save => "file.save",
+        SaveMode::SaveAs => "file.saveAs",
+        SaveMode::Copy => "file.saveCopy",
+        SaveMode::Template => "file.saveAsTemplate",
+    }
+}
+
+/// `p` with `acknowledgeLoss: true`.
+fn acknowledged(p: &Value) -> Value {
+    let mut p = if p.is_object() { p.clone() } else { json!({}) };
+    p["acknowledgeLoss"] = json!(true);
+    p
+}
+
+/// Writing `path` over the file the active document was read from, when reading it left things
+/// out (hidden text, art or layers Kaleiform can't read yet): asks first, and OK runs `command`
+/// with `params` and `acknowledgeLoss` → `{pending}` while it asks, `None` when nothing is lost.
+fn ask_before_losing(app: &mut VectorcraftApp, path: &str, command: &str, params: &Value) -> Option<Value> {
+    let what = fileio::losses_summary(fileio::overwrite_losses(app.session.active()?, path, params)?);
+    let name = fileio::file_name(path);
+    let message = crate::i18n::fmt(tl!("Replace “{name}”, the file this document was opened from?"), &[("name", &name)]);
+    let detail = crate::i18n::fmt(
+        tl!("Opening it left out what Kaleiform can't read yet ({what}), so replacing it loses that for good. Save under another name to keep it."),
+        &[("what", &what)],
+    );
+    let mut params = acknowledged(params);
+    if command != "file.save" {
+        params["path"] = json!(path);
+    }
+    dialogs::confirm::ask(app, &message, &detail, command, params);
+    Some(json!({ "pending": dialogs::confirm::KIND }))
 }
 
 /// Does a save (`mode`) to a picked file of format `f` ask for its options first? Native and `.ai`
@@ -416,6 +464,13 @@ pub fn export(app: &mut VectorcraftApp, format: Option<&str>, path: Option<Strin
         std::borrow::Cow::Owned(d) => std::sync::Arc::new(d),
     };
     let path = target_path(app, path, f.extensions[0])?;
+    let mut again = params.clone();
+    if let Some(o) = again.as_object_mut() {
+        o.insert("format".into(), json!(f.id));
+    }
+    if let Some(r) = ask_before_losing(app, &path, "file.exportAs", &again) {
+        return Ok(r);
+    }
     // An SVG given a .svgz name is written compressed.
     let f = match fileio::format_for_name(&path) {
         Some(z) if f.id == "svg" && z.id == "svgz" => z,

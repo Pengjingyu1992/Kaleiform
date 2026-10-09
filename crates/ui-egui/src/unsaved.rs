@@ -77,6 +77,11 @@ pub fn confirm(app: &mut VectorcraftApp) -> Result<Value, String> {
     if !d.bool("discard") {
         app.session.set_active(i);
         let r = io::save(app, vectorcraft_engine::cmd::fileio::SaveMode::Save, &json!({}), false)?;
+        // A save that asks first (replacing a file that would lose what opening it left out) keeps
+        // the document open: it closes once saved.
+        if r.get("pending").is_some() {
+            return Ok(r);
+        }
         // Closing needs the file written: wait for a background save, and stop if it failed.
         if r["background"] == true {
             crate::background::wait_all(app);

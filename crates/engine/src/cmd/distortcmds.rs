@@ -418,6 +418,7 @@ fn not_liquified(n: &Node) -> Option<&'static str> {
         NodeKind::Mesh(_) => "meshes",
         NodeKind::Envelope { .. } => "envelopes",
         NodeKind::Repeat(_) => "repeats",
+        NodeKind::PlacedDocument(_) => "placed documents",
         NodeKind::Blend { .. } => "blends",
         _ => return None,
     })

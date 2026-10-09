@@ -143,6 +143,7 @@ impl Renderer {
     /// Draw the evaluated content of a live node (no transparency group).
     pub(crate) fn draw_live_body(&mut self, ctx: &mut RenderContext, f: &Frame, a: &Arc<Node>, cache: bool) {
         match &a.kind {
+            NodeKind::PlacedDocument(p) => self.draw_placed(ctx, f, p),
             NodeKind::Mesh(m) => self.draw_mesh(ctx, f, a, m, cache),
             NodeKind::Blend { .. } | NodeKind::Envelope { .. } | NodeKind::Repeat(_) | NodeKind::Group { .. } | NodeKind::Layer { .. } => {
                 let items = self.live_expanded(f.doc, a, cache);

@@ -1,17 +1,16 @@
 //! Document nodes.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use vectorcraft_color::BlendMode;
+use vectorcraft_geom::corners::cut_corners;
 use vectorcraft_geom::shapes::{self, CornerKind};
 use vectorcraft_geom::{Affine, BezPath, FillRule, PathData, Point, Rect};
 
 use crate::appearance::Appearance;
 use crate::live::{BlendSpec, EnvelopeKind, GradientMesh, Outliner};
 use crate::pattern::RepeatSpec;
-use crate::selection::AnchorRef;
 use crate::text::TextObject;
 
 /// Stable per-document object id. Never reused.
@@ -104,10 +103,29 @@ pub enum LiveShape {
         radius: f64,
         sides: u32,
         xf: Affine,
+        /// Corner radii in document units, by vertex from the first one clockwise (none: sharp).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        radii: Vec<f64>,
+        /// Corner kinds, in the same order (none: round).
+        #[serde(default, skip_serializing_if = "all_round")]
+        kinds: Vec<CornerKind>,
     },
     Line {
         a: Point,
         b: Point,
+    },
+    /// Any other path whose corners Live Corners cut (a star, a pen path): it keeps its uncut
+    /// outline so the corners stay editable. Without a cut corner it is a plain path again.
+    Path {
+        /// The path with its corners uncut, in the document.
+        base: PathData,
+        /// Corner radii in document units, by anchor index of `base` (counting every subpath's
+        /// anchors in order; missing: sharp).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        radii: Vec<f64>,
+        /// Corner kinds, in the same order (missing: round).
+        #[serde(default, skip_serializing_if = "all_round")]
+        kinds: Vec<CornerKind>,
     },
 }
 
@@ -119,6 +137,7 @@ impl LiveShape {
             LiveShape::Ellipse { .. } => "Ellipse",
             LiveShape::Polygon { .. } => "Polygon",
             LiveShape::Line { .. } => "Line",
+            LiveShape::Path { .. } => "Path",
         }
     }
     /// Regenerate the path.
@@ -128,9 +147,32 @@ impl LiveShape {
                 shapes::rectangle_with_corners(Rect::new(0.0, 0.0, *w, *h), *radii, *kinds).transformed(*xf)
             }
             LiveShape::Ellipse { w, h, xf, .. } => shapes::ellipse(Rect::new(0.0, 0.0, *w, *h)).transformed(*xf),
-            LiveShape::Polygon { radius, sides, xf } => shapes::polygon(Point::ZERO, *radius, *sides, 0.0).transformed(*xf),
+            LiveShape::Polygon { radii, kinds, .. } => cut_corners(&self.polygon_outline(), radii, kinds).0,
             LiveShape::Line { a, b } => shapes::line(*a, *b),
+            LiveShape::Path { base, radii, kinds } => cut_corners(base, radii, kinds).0,
         }
+    }
+    /// A polygon's outline with its corners uncut, in the document (empty for other shapes).
+    pub fn polygon_outline(&self) -> PathData {
+        match self {
+            LiveShape::Polygon { radius, sides, xf, .. } => shapes::polygon(Point::ZERO, *radius, *sides, 0.0).transformed(*xf),
+            _ => PathData::default(),
+        }
+    }
+    /// Give a polygon `n` sides (3–1000). Its corners keep the radius and kind they shared; else
+    /// the corners past the old last one are sharp.
+    pub fn set_sides(&mut self, n: u64) {
+        let LiveShape::Polygon { sides, radii, kinds, .. } = self else { return };
+        *sides = n.clamp(3, 1000) as u32;
+        fn spread<T: Copy + PartialEq + Default>(v: &mut Vec<T>, n: usize) {
+            match v.first().copied() {
+                Some(x) if v.iter().all(|y| *y == x) => *v = vec![x; n],
+                Some(_) => v.resize(n, T::default()),
+                None => {}
+            }
+        }
+        spread(radii, *sides as usize);
+        spread(kinds, *sides as usize);
     }
     /// Apply `a` to the shape. True when the shape is no longer `a` applied to the old path, so
     /// the caller must regenerate the path with [`LiveShape::to_path`].
@@ -140,31 +182,26 @@ impl LiveShape {
     /// only the rotation, reflection and position. The radii scale by the mean scale (the square
     /// root of the determinant), which [`LiveShape::keep_corners`] undoes for Scale Corners off.
     /// A shear can't keep circular corners: `xf` takes it, as do moves (so files saved with a
-    /// scale in `xf` keep their exact geometry until they're next transformed).
+    /// scale in `xf` keep their exact geometry until they're next transformed). A polygon's or a
+    /// path's corner radii are document lengths: they scale by the mean scale and the corners are
+    /// cut again, circular whatever `a` does.
     pub fn transform(&mut self, a: Affine) -> bool {
         match self {
-            LiveShape::Rectangle { w, h, radii, xf, .. } => {
-                let m = a * *xf;
-                let [a0, a1, a2, a3, _, _] = a.as_coeffs();
-                let moves_only = (a0 - 1.0).abs() < 1e-12 && a1.abs() < 1e-12 && a2.abs() < 1e-12 && (a3 - 1.0).abs() < 1e-12;
-                let [m0, m1, m2, m3, m4, m5] = m.as_coeffs();
-                let (sx, sy) = (m0.hypot(m1), m2.hypot(m3));
-                let orthogonal = sx > 1e-12 && sy > 1e-12 && (m0 * m2 + m1 * m3).abs() <= 1e-9 * sx * sy;
-                let finite = m.as_coeffs().iter().all(|c| c.is_finite()) && w.is_finite() && h.is_finite();
-                if moves_only || !orthogonal || !finite {
-                    *xf = m;
-                    return false;
-                }
-                let k = (sx * sy).sqrt();
-                radii.iter_mut().for_each(|r| *r *= k);
-                *w *= sx;
-                *h *= sy;
-                *xf = Affine::new([m0 / sx, m1 / sx, m2 / sy, m3 / sy, m4, m5]);
-                true
+            LiveShape::Rectangle { xf, .. } => {
+                *xf = a * *xf;
+                !moves_only(a) && self.fold_scale()
             }
-            LiveShape::Ellipse { xf, .. } | LiveShape::Polygon { xf, .. } => {
+            LiveShape::Ellipse { xf, .. } => {
                 *xf = a * *xf;
                 false
+            }
+            LiveShape::Polygon { xf, radii, .. } => {
+                *xf = a * *xf;
+                scale_radii(radii, a)
+            }
+            LiveShape::Path { base, radii, .. } => {
+                base.transform(a);
+                scale_radii(radii, a)
             }
             LiveShape::Line { a: p, b } => {
                 *p = a * *p;
@@ -173,54 +210,48 @@ impl LiveShape {
             }
         }
     }
+    /// Move the scale of a rectangle's `xf` into `w`/`h` (and its radii, by the mean scale), so
+    /// `xf` keeps only a rotation or reflection plus a move and the corners are circular in the
+    /// document. False (and nothing changes) when there is no scale to move, when `xf` shears or
+    /// isn't finite, and for other shapes. Files saved before transforms did this (#291) carry an
+    /// uneven scale in `xf`: their corners are elliptical until this runs.
+    pub fn fold_scale(&mut self) -> bool {
+        let LiveShape::Rectangle { w, h, radii, xf, .. } = self else { return false };
+        let [m0, m1, m2, m3, m4, m5] = xf.as_coeffs();
+        let (sx, sy) = (m0.hypot(m1), m2.hypot(m3));
+        let orthogonal = sx > 1e-12 && sy > 1e-12 && (m0 * m2 + m1 * m3).abs() <= 1e-9 * sx * sy;
+        let finite = xf.as_coeffs().iter().all(|c| c.is_finite()) && w.is_finite() && h.is_finite();
+        let unscaled = (sx - 1.0).abs() < 1e-12 && (sy - 1.0).abs() < 1e-12;
+        if !orthogonal || !finite || unscaled {
+            return false;
+        }
+        let k = (sx * sy).sqrt();
+        radii.iter_mut().for_each(|r| *r *= k);
+        *w *= sx;
+        *h *= sy;
+        *xf = Affine::new([m0 / sx, m1 / sx, m2 / sy, m3 / sy, m4, m5]);
+        true
+    }
+    /// This shape with [`LiveShape::fold_scale`] applied: a rectangle's size and radii in document
+    /// units (what Live Corners show and edit).
+    pub fn folded(&self) -> Self {
+        let mut s = self.clone();
+        s.fold_scale();
+        s
+    }
     /// Divide live corner radii by `k`, the mean scale of a transform just applied, so the corners
     /// keep their size (Scale Corners off). False when nothing changed.
     pub fn keep_corners(&mut self, k: f64) -> bool {
-        match self {
-            LiveShape::Rectangle { radii, .. } if radii.iter().any(|r| *r > 0.0) && k > 1e-12 => {
-                radii.iter_mut().for_each(|r| *r /= k);
-                true
-            }
-            _ => false,
+        let radii: &mut [f64] = match self {
+            LiveShape::Rectangle { radii, .. } => radii,
+            LiveShape::Polygon { radii, .. } | LiveShape::Path { radii, .. } => radii,
+            LiveShape::Ellipse { .. } | LiveShape::Line { .. } => return false,
+        };
+        if !radii.iter().any(|r| *r > 0.0) || k <= 1e-12 {
+            return false;
         }
-    }
-    /// The corner (radii order) of each anchor of a rectangle's path; empty for other shapes.
-    pub fn anchor_corners(&self) -> Vec<usize> {
-        match self {
-            LiveShape::Rectangle { w, h, radii, .. } => shapes::rectangle_anchor_corners(Rect::new(0.0, 0.0, *w, *h), *radii),
-            _ => vec![],
-        }
-    }
-    /// The corners of a rectangle that hold one of `anchors` (of its only subpath).
-    pub fn corners_of(&self, anchors: &BTreeSet<AnchorRef>) -> [bool; 4] {
-        let map = self.anchor_corners();
-        let mut out = [false; 4];
-        for k in anchors.iter().filter(|(si, _)| *si == 0).filter_map(|(_, ai)| map.get(*ai)) {
-            if let Some(c) = out.get_mut(*k) {
-                *c = true;
-            }
-        }
-        out
-    }
-    /// The corners Live Corners edit for a selection: those holding a selected anchor when the
-    /// shape is partly selected (Direct Selection), else all four.
-    pub fn picked_corners(&self, partial: Option<&BTreeSet<AnchorRef>>) -> [bool; 4] {
-        let picked = partial.map_or([true; 4], |a| self.corners_of(a));
-        if picked.contains(&true) { picked } else { [true; 4] }
-    }
-    /// The anchors of a rectangle's `corners` (to keep them selected as its path changes).
-    pub fn corner_anchors(&self, corners: [bool; 4]) -> BTreeSet<AnchorRef> {
-        self.anchor_corners().into_iter().enumerate().filter(|(_, k)| corners.get(*k) == Some(&true)).map(|(ai, _)| (0, ai)).collect()
-    }
-    /// The radius and kind the `corners` of a rectangle share (each `None` when they differ).
-    pub fn corner_style(&self, corners: [bool; 4]) -> (Option<f64>, Option<CornerKind>) {
-        let LiveShape::Rectangle { radii, kinds, .. } = self else { return (None, None) };
-        fn shared<T: Copy>(v: [T; 4], corners: [bool; 4], same: impl Fn(T, T) -> bool) -> Option<T> {
-            let mut it = v.into_iter().zip(corners).filter(|(_, on)| *on).map(|(x, _)| x);
-            let first = it.next()?;
-            it.all(|x| same(x, first)).then_some(first)
-        }
-        (shared(*radii, corners, |a, b| (a - b).abs() < 1e-9), shared(*kinds, corners, |a, b| a == b))
+        radii.iter_mut().for_each(|r| *r /= k);
+        true
     }
     /// Rotation angle of the live shape in degrees (shown in the Properties panel).
     pub fn angle_deg(&self) -> f64 {
@@ -230,12 +261,31 @@ impl LiveShape {
                 c[1].atan2(c[0]).to_degrees()
             }
             LiveShape::Line { a, b } => (b.y - a.y).atan2(b.x - a.x).to_degrees(),
+            LiveShape::Path { .. } => 0.0,
         }
     }
 }
 
-fn all_round(kinds: &[CornerKind; 4]) -> bool {
+fn all_round(kinds: &[CornerKind]) -> bool {
     kinds.iter().all(|k| *k == CornerKind::Round)
+}
+
+/// Whether `a` only moves (no rotation, scale, shear or reflection).
+fn moves_only(a: Affine) -> bool {
+    let [a0, a1, a2, a3, _, _] = a.as_coeffs();
+    (a0 - 1.0).abs() < 1e-12 && a1.abs() < 1e-12 && a2.abs() < 1e-12 && (a3 - 1.0).abs() < 1e-12
+}
+
+/// Scale corner radii in document units by the mean scale of `a`, applied to their path. True
+/// when the path must be cut again: some corner is cut and `a` does more than move it (an
+/// uneven scale would otherwise make the cuts elliptical).
+fn scale_radii(radii: &mut [f64], a: Affine) -> bool {
+    if moves_only(a) || !radii.iter().any(|r| *r > 0.0) {
+        return false;
+    }
+    let k = a.determinant().abs().sqrt();
+    radii.iter_mut().for_each(|r| *r *= k);
+    true
 }
 
 /// What a transform scales besides geometry, by its mean scale (the square root of its
@@ -373,6 +423,9 @@ pub enum NodeKind {
     Mesh(GradientMesh),
     /// Live Repeat (radial / grid / mirror) of source art.
     Repeat(RepeatSpec),
+    /// A placed document: an artboard of another Kaleiform file, linked and locked (see
+    /// [`crate::placed_document`]).
+    PlacedDocument(Box<crate::placed_document::PlacedDocument>),
 }
 
 fn yes() -> bool {
@@ -410,7 +463,8 @@ pub struct Node {
     /// Opacity mask (Transparency panel). Its art lives here, outside the layer tree.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<Box<OpacityMask>>,
-    /// Image Trace object: `{preset, params}` it was traced with (the Image Trace panel shows them).
+    /// Image Trace object: `{preset, params, view?}` it was traced with (the Image Trace panel shows
+    /// them; `view` is its [`crate::TraceView`] id, absent for the tracing result).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace: Option<Box<serde_json::Value>>,
     /// Object → Text Wrap: area type below this object (in the same layer) flows around it.
@@ -419,6 +473,9 @@ pub struct Node {
     /// Graph object: the group's children are generated from this spec (Object → Graph).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<Box<crate::graph::GraphSpec>>,
+    /// Editable Shaper composition; the original art is retained in its source child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shaper: Option<Box<crate::shaper::ShaperSpec>>,
     pub kind: NodeKind,
     /// The [`crate::GraphicStyle::id`] last applied to this object. It stays linked while it keeps
     /// that style's look: editing its appearance or transparency breaks the link.
@@ -483,6 +540,7 @@ impl Node {
             trace: None,
             wrap: None,
             graph: None,
+            shaper: None,
             kind,
             graphic_style: None,
             attrs: None,
@@ -592,6 +650,7 @@ impl Node {
             NodeKind::Envelope { .. } => "Envelope",
             NodeKind::Mesh(_) => "Mesh",
             NodeKind::Repeat(r) => r.kind.label(),
+            NodeKind::PlacedDocument(_) => "Placed Document",
         }
     }
     /// Name shown in the Layers panel: explicit name or `<Kind>`.
@@ -653,6 +712,7 @@ impl Node {
             }
             NodeKind::Layer { children, .. } | NodeKind::Group { children, .. } | NodeKind::Compound { children, .. } => children
                 .iter()
+                .skip(usize::from(self.shaper.is_some()))
                 .filter(|c| c.visible || !matches!(self.kind, NodeKind::Layer { .. }))
                 .fold(None, |acc, c| vectorcraft_geom::union_opt(acc, c.geometric_bounds())),
             NodeKind::Text(t) => self.projected(t.bounds()),
@@ -665,6 +725,7 @@ impl Node {
             NodeKind::Envelope { content, kind, frame, .. } => crate::live::envelope_bounds(content, kind, *frame),
             NodeKind::Mesh(m) => m.bounds(),
             NodeKind::Repeat(r) => r.bounds(),
+            NodeKind::PlacedDocument(p) => Some(p.bounds()),
         }
     }
     /// Visual bounds: what the object paints, its strokes included (paths and compound paths
@@ -683,7 +744,11 @@ impl Node {
             NodeKind::Layer { children, .. } | NodeKind::Group { children, .. } => {
                 // The container's own strokes paint around its members.
                 let o = self.appearance.outset();
-                children.iter().fold(None, |acc, c| vectorcraft_geom::union_opt(acc, c.visual_bounds())).map(|b| b.inflate(o, o))
+                children
+                    .iter()
+                    .skip(usize::from(self.shaper.is_some()))
+                    .fold(None, |acc, c| vectorcraft_geom::union_opt(acc, c.visual_bounds()))
+                    .map(|b| b.inflate(o, o))
             }
             NodeKind::Blend { children, spec } => {
                 let b = children.iter().fold(None, |acc, c| vectorcraft_geom::union_opt(acc, c.visual_bounds()));
@@ -760,6 +825,7 @@ impl Node {
                 }
             }
             NodeKind::Image(im) => im.xf = a * im.xf,
+            NodeKind::PlacedDocument(p) => p.xf = a * p.xf,
             NodeKind::SymbolInstance { xf, .. } => *xf = a * *xf,
             NodeKind::Blend { children, spec } => {
                 for c in children.iter_mut() {
@@ -909,7 +975,7 @@ impl Node {
                 }
             }
             NodeKind::Group { children, .. } | NodeKind::Layer { children, .. } => {
-                for c in children.iter().filter(|c| c.visible) {
+                for c in children.iter().skip(usize::from(self.shaper.is_some())).filter(|c| c.visible) {
                     c.push_clip_shapes(text, out);
                 }
             }
@@ -920,6 +986,10 @@ impl Node {
             }
             NodeKind::Image(im) => {
                 let frame = shapes::rectangle(Rect::new(0.0, 0.0, im.width as f64, im.height as f64)).transformed(im.xf);
+                out.push((frame.to_bezpath(), FillRule::NonZero));
+            }
+            NodeKind::PlacedDocument(p) => {
+                let frame = shapes::rectangle(p.natural()).transformed(p.xf);
                 out.push((frame.to_bezpath(), FillRule::NonZero));
             }
             NodeKind::Blend { .. } | NodeKind::Envelope { .. } | NodeKind::Mesh(_) | NodeKind::Repeat(_) => {
@@ -1154,6 +1224,10 @@ pub struct ObjectAttributes {
     /// The note shown in the Attributes panel.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// The object's own data, in order: SVG's `data-*` attributes (`data-pivot="100,180"` is
+    /// `("pivot", "100,180")`), kept from import to export (`object.setProps {data}`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub data: Vec<(String, String)>,
 }
 
 /// The Attributes panel's Image Map shapes.
@@ -1197,7 +1271,7 @@ impl Node {
 
     /// Shapes drawn with the shape tools (live rectangles, ellipses and polygons) show their centre.
     pub fn shows_center_by_default(&self) -> bool {
-        matches!(&self.kind, NodeKind::Path { live: Some(l), .. } if !matches!(l, LiveShape::Line { .. }))
+        matches!(&self.kind, NodeKind::Path { live: Some(l), .. } if !matches!(l, LiveShape::Line { .. } | LiveShape::Path { .. }))
     }
 
     /// Change this object's attributes with `f`; all-default attributes are dropped.
@@ -1259,23 +1333,9 @@ mod tests {
     }
 
     #[test]
-    fn rectangle_corners_map_to_their_anchors() {
+    fn corner_kinds_save_only_when_some_corner_isnt_round() {
         let mut l = LiveShape::Rectangle { w: 100.0, h: 50.0, radii: [0.0, 10.0, 0.0, 0.0], kinds: Default::default(), xf: Affine::IDENTITY };
-        // Anchors: top-left, the top-right corner's two, bottom-right, bottom-left.
-        assert_eq!(l.anchor_corners(), [0, 1, 1, 2, 3]);
-        assert_eq!(l.to_path().anchor_count(), 5);
-        let set = |v: &[usize]| v.iter().map(|ai| (0, *ai)).collect::<BTreeSet<AnchorRef>>();
-        assert_eq!(l.corners_of(&set(&[2, 4])), [false, true, false, true]);
-        assert_eq!(l.corners_of(&set(&[9])), [false; 4], "out of range");
-        assert_eq!(l.corner_anchors([false, true, false, true]), set(&[1, 2, 4]));
-        // Partly selected: the corners of the selected anchors; wholly (or no anchor): all four.
-        assert_eq!(l.picked_corners(Some(&set(&[0]))), [true, false, false, false]);
-        assert_eq!(l.picked_corners(None), [true; 4]);
-        assert_eq!(l.picked_corners(Some(&set(&[]))), [true; 4]);
-        assert_eq!(l.corner_style([false, true, false, false]), (Some(10.0), Some(CornerKind::Round)));
-        assert_eq!(l.corner_style([true, true, false, false]), (None, Some(CornerKind::Round)));
-        assert_eq!(l.corner_style([true, false, true, true]), (Some(0.0), Some(CornerKind::Round)));
-        // Corner kinds save only when some corner isn't round, and older files read as round.
+        // Older files read as round.
         let json = serde_json::to_value(&l).unwrap();
         assert!(json.get("kinds").is_none(), "{json}");
         assert_eq!(serde_json::from_value::<LiveShape>(json).unwrap(), l);
@@ -1285,7 +1345,16 @@ mod tests {
         let json = serde_json::to_value(&l).unwrap();
         assert_eq!(json["kinds"], serde_json::json!(["round", "chamfer", "round", "round"]));
         assert_eq!(serde_json::from_value::<LiveShape>(json).unwrap(), l);
-        assert!(LiveShape::Ellipse { w: 1.0, h: 1.0, pie: (0.0, 360.0), xf: Affine::IDENTITY }.anchor_corners().is_empty());
+        // Polygons saved before Live Corners cut theirs read as sharp; a live path round-trips.
+        let p: LiveShape =
+            serde_json::from_value(serde_json::json!({"shape": "polygon", "radius": 10.0, "sides": 5, "xf": [1, 0, 0, 1, 0, 0]})).unwrap();
+        assert_eq!(p, LiveShape::Polygon { radius: 10.0, sides: 5, xf: Affine::IDENTITY, radii: vec![], kinds: vec![] });
+        let star = shapes::star(Point::new(0.0, 0.0), 20.0, 10.0, 5, 0.0);
+        let path = LiveShape::Path { base: star, radii: vec![2.0; 10], kinds: vec![] };
+        let json = serde_json::to_value(&path).unwrap();
+        assert_eq!((json["shape"].as_str(), json.get("kinds")), (Some("path"), None));
+        assert_eq!(serde_json::from_value::<LiveShape>(json).unwrap(), path);
+        assert_eq!(path.label(), "Path");
     }
 
     /// A node holding a live rectangle (`w` × `h`, all radii `r`, placed by `xf`) and its path.
@@ -1393,6 +1462,34 @@ mod tests {
         assert_live(&n, 400.0, 200.0, 20.0 * 2f64.sqrt() * 2.0);
         assert!(near(live_of(&n).3.determinant(), 1.0));
         assert_round_corners(&n, Affine::IDENTITY, 20.0 * 2f64.sqrt() * 2.0);
+    }
+
+    /// A rectangle saved with an uneven scale in `xf` (before #291) has elliptical corners; Live
+    /// Corners see and edit it in document units, with circular corners (#442).
+    #[test]
+    fn a_scale_left_in_the_transform_folds_into_the_size() {
+        let legacy = Affine::translate((5.0, 5.0)) * Affine::scale_non_uniform(4.0, 1.0);
+        let n = live_rect(50.0, 80.0, 20.0, legacy);
+        let NodeKind::Path { live: Some(live), .. } = &n.kind else { panic!("not live") };
+        let folded = live.folded();
+        assert_eq!(live_of(&n).3, legacy, "folded() leaves the shape alone");
+        let LiveShape::Rectangle { w, h, radii, xf, .. } = &folded else { panic!("not a rectangle") };
+        // Drawn 200 × 80 with 80 × 20 corners; folded, the corners are circles of the mean radius.
+        assert!(near(*w, 200.0) && near(*h, 80.0) && radii.iter().all(|r| near(*r, 40.0)), "{w} × {h} r {radii:?}");
+        assert!(near_xf(*xf, Affine::translate((5.0, 5.0))));
+        let (a, b) = (folded.to_path().bounds().unwrap(), live.to_path().bounds().unwrap());
+        assert!(near(a.x0, b.x0) && near(a.y0, b.y0) && near(a.x1, b.x1) && near(a.y1, b.y1), "same place and size: {a:?} {b:?}");
+        let corners = crate::LiveCorners::of(&n).unwrap();
+        assert_eq!(corners.style(&corners.all()).0, Some(40.0), "the radius in document units");
+        // Nothing to fold: a moved, rotated or reflected rectangle and a sheared one stay as they are.
+        let place = Affine::translate((5.0, 5.0)) * Affine::rotate(0.5) * Affine::scale_non_uniform(-1.0, 1.0);
+        let shear = Affine::new([1.0, 0.0, 0.5, 1.0, 0.0, 0.0]);
+        for xf in [place, shear] {
+            let mut l = live_rect(100.0, 160.0, 20.0, xf);
+            let NodeKind::Path { live: Some(live), .. } = &mut l.kind else { panic!("not live") };
+            assert!(!live.fold_scale());
+            assert_eq!(live_of(&l), (100.0, 160.0, [20.0; 4], xf));
+        }
     }
 
     #[test]
