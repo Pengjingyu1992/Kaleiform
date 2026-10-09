@@ -2,18 +2,18 @@
 
 ## 首版支持范围
 
-`0.4.0-kaleiform.1` 是早期预览版，提供 macOS **arm64 / Apple Silicon** 包，
+`0.4.0-kaleiform.2` 是早期预览版，提供 macOS **arm64 / Apple Silicon** 包，
 最低系统声明为 macOS 11，实际交互测试在维护者当前 macOS 上进行，未逐一测试所有系统版本。
 Intel Mac 不能直接使用此 arm64 包。Windows、Linux、FreeBSD 和 Web 暂无本项目已验证的下载包。
 
 ## macOS 安装
 
 1. 从 [本仓库 Releases](https://github.com/Pengjingyu1992/Kaleiform/releases) 下载
-   `kaleiform-0.4.0-kaleiform.1-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
+   `kaleiform-0.4.0-kaleiform.2-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
 2. 可在下载目录运行下面命令，将结果与 `SHA256SUMS.txt` 中同名文件比较：
 
    ```sh
-   shasum -a 256 kaleiform-0.4.0-kaleiform.1-macos-arm64.dmg
+   shasum -a 256 kaleiform-0.4.0-kaleiform.2-macos-arm64.dmg
    ```
 
 3. 双击 DMG，把 **虹构.app** 拖至窗口中的 **Applications** 文件夹。
@@ -35,7 +35,7 @@ SHA-256 只能检测文件与校验清单是否一致，不能代替开发者身
 
 ### ZIP 备选
 
-不能挂载 DMG 时，可下载 `kaleiform-0.4.0-kaleiform.1-macos-arm64.zip`，
+不能挂载 DMG 时，可下载 `kaleiform-0.4.0-kaleiform.2-macos-arm64.zip`，
 双击解压，把 **虹构.app** 移入“应用程序”。不要只移动 `.app` 内部的可执行文件。
 ZIP 与 DMG 包含同一份 App，签名与系统安全提示相同。
 

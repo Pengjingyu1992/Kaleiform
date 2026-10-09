@@ -17,7 +17,7 @@
 它不是从零编写的全新绘图引擎，也不是 VectorCraft / ArtCraft 的官方发行版。
 上游代码、作者和第三方资产的版权及许可声明均予以保留。
 
-**当前为早期预览版 `0.4.0-kaleiform.1`。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
+**当前为早期预览版 `0.4.0-kaleiform.2`。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 首版提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 安装包。
 源码继承了 Windows、Linux、FreeBSD 和 Web 构建入口，但本项目尚未为这些平台提供经验证的正式安装包。
 不要把“源码有构建支持”理解为“所有平台已完成测试”。
@@ -27,7 +27,7 @@
 ## 下载与安装
 
 1. 打开 [Releases](https://github.com/Pengjingyu1992/Kaleiform/releases)，选择最新的虹构预览版。
-2. Apple Silicon Mac 下载 `kaleiform-0.4.0-kaleiform.1-macos-arm64.dmg`。
+2. Apple Silicon Mac 下载 `kaleiform-0.4.0-kaleiform.2-macos-arm64.dmg`。
 3. 打开 DMG，将 **虹构.app** 拖入 **Applications / 应用程序**，从应用程序文件夹启动。
 4. 首版只有 ad-hoc 本地签名，**没有 Apple Developer ID 签名或公证**。如果 macOS 拦截，
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。
@@ -61,7 +61,7 @@
 
 | 方面 | 上游基础 | 虹构在本版本中的重点 |
 |---|---|---|
-| 项目品牌 | VectorCraft / ArtCraft | 虹构 · Kaleiform 名称、独立彩色 Logo、平台图标与中文 macOS 应用名称 |
+| 项目品牌 | VectorCraft / ArtCraft | 虹构 · Kaleiform 名称、红色小狗 Logo、平台图标与中文 macOS 应用名称 |
 | 中文界面 | 上游已包含简体中文和本地化框架 | 保留并整理中文文案、旧语言设置迁移，修复部分悬浮提示未翻译的问题 |
 | 中文字体 | 系统 / 可选内嵌字体回退 | 回退时匹配文字字重，区分普通与较粗 UI 字体，改善中西文字体基线一致性 |
 | 中文断行 | 已有禁则、Mojikumi 与字间排版 | 补充部分标点禁则，紧急断行保持整形簇边界，避免拆开组合字形 |

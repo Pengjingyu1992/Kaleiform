@@ -13,7 +13,7 @@
 
 | 改动 | 行为与实现位置 | 验证与边界 |
 |---|---|---|
-| 独立产品呈现 | `brand.rs`、`chrome.rs`、`titlebar.rs`、`assets/app-icon/` 与平台包装：虹构名称、Kaleiform Logo；macOS 图标在 1:1 画布上带透明安全边距和圆角 | 图标生成及 bundle 模板有自动检查；不包含上游 ArtCraft 商标图 |
+| 独立产品呈现 | `brand.rs`、`chrome.rs`、`titlebar.rs`、`assets/app-icon/` 与平台包装：虹构名称、红色小狗 Logo；macOS 图标在 1:1 画布上带透明安全边距和圆角；标题栏主页按钮与原生窗口按钮居中对齐 | 图标生成及 bundle 模板有自动检查；不包含上游 ArtCraft 商标图 |
 | 中文文案与旧设置 | `crates/ui-egui/src/i18n/`、`toolbar.rs`、`apps/vectorcraft/src/main.rs`：保持翻译表架构，翻译工具提示，兼容旧语言设置 | 简体中文跟随系统或手动选择；不强制覆盖用户已选的其他语言 |
 | 字体字重回退 | `crates/text/src/fontdb.rs`、`shape.rs`：优先沿用既有回退字体族，再选择最接近请求字重的非斜体字面 | 不提供系统没有的字体；不能保证所有生僻字、字体或变体都覆盖 |
 | UI 中西文一致性 | `crates/ui-egui/src/ui_fonts.rs`、`theme.rs`：按字体族记录缺字并接入对应回退，改善字重及基线 | 系统字体不同，实际视觉效果可能不同；并非所有排版问题已解决 |

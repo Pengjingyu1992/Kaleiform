@@ -1,9 +1,8 @@
 # Kaleiform logo and app icons
 
-The Kaleiform (虹构) logo is a square 1:1 electric-blue canvas with the approved glossy ribbon mark
-in coral, blush pink, yellow and green, plus its small Bézier anchor detail. The palette came from
-the project maintainer's reference photo; the artwork does not reproduce its person, fashion,
-sunglasses, lettering or composition.
+The Kaleiform (虹构) logo is the maintainer-supplied illustration of a smiling red puppy on a
+sky-blue rounded tile. The approved artwork is kept on a square 1:1 canvas, including its white
+outer border. Platform variants resize the supplied picture without redrawing it.
 
 `kaleiform-1024.png` is the approved square 1:1 master used by the interface, About dialog,
 README, and platform icon generators. `packaging/icons.sh` regenerates the 512 px UI texture and
@@ -15,7 +14,7 @@ for compatibility; they do not change the displayed name.
 | File | Use |
 |---|---|
 | `kaleiform-1024.png` | Square 1:1 master for all app logo uses |
-| `kaleiform-runtime.png` | 512x512 app-bar and About logo texture |
+| `kaleiform-runtime.png` | 512x512 About logo texture |
 | `kaleiform-macos-1024.png` | 1024x1024 rounded macOS tile with transparent margins |
 | `kaleiform-macos-512.png` | Runtime macOS window and Dock icon |
 | `kaleiform.icns` | macOS application bundle |
