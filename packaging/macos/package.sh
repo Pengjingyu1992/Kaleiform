@@ -40,7 +40,9 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$HOME=/build/home
 export CARGO_PROFILE_RELEASE_STRIP=debuginfo
 IDENTITY="${MACOS_SIGN_IDENTITY:--}"
 SHORT_VERSION="${VERSION%%-*}"
-WORK="$CARGO_TARGET_DIR/macos-package"
+# File-provider folders can attach FinderInfo to bundles while they are signed.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/kaleiform-macos-package.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
 APP="$WORK/虹构.app"
 DMG="$DIST/kaleiform-$VERSION-macos-$ARCH.dmg"
 CLI_ZIP="$DIST/kaleiform-cli-$VERSION-macos-$ARCH.zip"
@@ -64,7 +66,6 @@ if [ "$SKIP_BUILD" = 0 ]; then
   (cd "$ROOT" && cargo build --release --locked -p vectorcraft -p vectorcraft-cli "${args[@]}")
 fi
 
-rm -rf "$WORK"
 mkdir -p "$WORK/bin"
 for bin in vectorcraft vectorcraft-cli; do
   inputs=()
@@ -117,6 +118,8 @@ cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/NOTICE" "$APP/Contents/Reso
 # The licences of the craft-fonts fonts embedded in the binary (release builds).
 copy_docs "$APP/Contents/Resources"
 
+# Only the newly assembled bundle: copied Finder metadata invalidates code signatures.
+xattr -cr "$APP"
 # Sign inside-out: nested code first, then the bundle itself (no --deep on the final signature).
 # The CLI is bundled as a separate executable and signed before the outer app.
 sign --options runtime "$APP/Contents/MacOS/vectorcraft-cli"

@@ -47,7 +47,7 @@ struct Entry {
 /// typed.
 /// What the entries depend on: the language, the installed plug-ins and the shortcuts.
 fn cache_key(lang: crate::i18n::Lang) -> (&'static str, u64, u64) {
-    (lang.code(), menus::plugin_revision(), crate::shortcut_editor::GENERATION.load(std::sync::atomic::Ordering::Relaxed))
+    (lang.code(), menus::plugin_revision(), crate::shortcut_editor::generation().load(std::sync::atomic::Ordering::Relaxed))
 }
 
 fn entries(ctx: &egui::Context, lang: crate::i18n::Lang) -> Arc<Vec<Entry>> {
@@ -138,7 +138,7 @@ mod tests {
         let zh_entries = entries(&ctx, zh);
         assert!(!Arc::ptr_eq(&en, &zh_entries), "rebuilt for another language");
         // Editing a shortcut rebuilds them, so the palette shows the new one.
-        crate::shortcut_editor::GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::shortcut_editor::generation().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(!Arc::ptr_eq(&zh_entries, &entries(&ctx, zh)), "rebuilt after a shortcut edit");
         let group = zh_entries.iter().find(|e| e.id == "object.group").unwrap();
         assert!(group.shown.ends_with(crate::i18n::tr(zh, "Group")), "{}", group.shown);

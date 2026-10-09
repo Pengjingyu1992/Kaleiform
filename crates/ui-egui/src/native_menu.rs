@@ -523,6 +523,6 @@ fn state_hash(app: &VectorcraftApp, input: Option<u64>) -> u64 {
     }
     (app.system_paste, app.last_effect.is_some(), app.ui.recent_files.len(), app.ui.recent_files.first(), app.recent_fonts().len()).hash(&mut h);
     (crate::i18n::current().code(), menus::plugin_revision()).hash(&mut h);
-    crate::shortcut_editor::GENERATION.load(std::sync::atomic::Ordering::Relaxed).hash(&mut h);
+    crate::shortcut_editor::generation().load(std::sync::atomic::Ordering::Relaxed).hash(&mut h);
     h.finish()
 }

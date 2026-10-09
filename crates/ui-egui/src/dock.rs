@@ -293,8 +293,12 @@ pub(crate) fn panel_width(id: &str) -> f32 {
 /// Panel `id`'s contents in a popped-out or floating panel `width` wide; the tabbed group's panels
 /// fill (Layers) or scroll (Properties) `tall` points.
 pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width: f32, tall: f32) {
+    let available = ui.available_width().max(width);
     egui::Frame::NONE.inner_margin(egui::Margin::same(10)).show(ui, |ui| {
         ui.set_width(width - 20.0);
+        if DockTab::from_id(id).is_none() {
+            ui.set_max_width((available - 20.0).max(1.0));
+        }
         match DockTab::from_id(id) {
             Some(DockTab::Properties) => {
                 // At least `tall` when the sections are taller: the flyout's area keeps the size its
@@ -315,7 +319,7 @@ pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width:
             None => {
                 egui::ScrollArea::both()
                     .id_salt(("icon-panel-body", id))
-                    .max_width((width - 20.0).max(1.0))
+                    .max_width((available - 20.0).max(1.0))
                     .max_height(tall)
                     .min_scrolled_height(tall)
                     .auto_shrink([true, true])
@@ -367,6 +371,7 @@ mod tests {
                 assert!(area.right() <= rail, "{id}: panel overlaps the icon column");
                 if id == "stroke" && size.y >= 900.0 {
                     assert!(area.height() > 400.0, "a tall panel should use available height before scrolling: {area:?}");
+                    assert!(area.width() > 300.0, "use spare canvas width for the stroke controls before scrolling: {area:?}");
                 }
                 let header = out
                     .shapes

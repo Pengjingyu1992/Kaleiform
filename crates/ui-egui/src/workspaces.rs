@@ -224,7 +224,7 @@ pub fn sync(ui: &UiState) {
         if let Ok(mut v) = names_store().write() {
             *v = ui.custom_workspaces.iter().map(|w| crate::shortcut_editor::intern(&w.name)).collect();
         }
-        crate::shortcut_editor::GENERATION.fetch_add(1, Ordering::Relaxed);
+        crate::shortcut_editor::generation().fetch_add(1, Ordering::Relaxed);
     }
 }
 

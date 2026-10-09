@@ -32,8 +32,19 @@ pub fn deserialize_set_name<'de, D: serde::Deserializer<'de>>(d: D) -> Result<St
     <String as serde::Deserialize>::deserialize(d).map(|s| set_name(&s).to_string())
 }
 
-/// Bumped whenever overrides or the workspace list change (the native menu rebuilds on it).
-pub static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Version of the shortcut/workspace mirrors, with the same test-thread isolation as their data.
+pub fn generation() -> &'static AtomicU64 {
+    #[cfg(not(test))]
+    {
+        static GENERATION: AtomicU64 = AtomicU64::new(0);
+        &GENERATION
+    }
+    #[cfg(test)]
+    {
+        thread_local!(static GENERATION: &'static AtomicU64 = Box::leak(Box::new(AtomicU64::new(0))));
+        GENERATION.with(|g| *g)
+    }
+}
 
 /// Declares `fn $name() -> &'static RwLock<$t>`: a mirror of UI state for code without app access
 /// (menus, the shortcut dispatcher). One per process in the app; one per thread in unit tests,
@@ -82,7 +93,7 @@ pub fn sync(ui: &UiState) {
         if let Ok(mut m) = store().write() {
             *m = ui.shortcut_overrides.iter().map(|(k, v)| (k.clone(), intern(v))).collect();
         }
-        GENERATION.fetch_add(1, Ordering::Relaxed);
+        generation().fetch_add(1, Ordering::Relaxed);
     }
     crate::workspaces::sync(ui);
 }
@@ -841,9 +852,9 @@ mod tests {
         let mut ui = UiState::default();
         ui.shortcut_overrides.insert("test.nonexistent".into(), "Cmd+Alt+Shift+F9".into());
         ui.shortcut_overrides.insert("tool:measure".into(), "Shift+9".into());
-        let g = GENERATION.load(Ordering::Relaxed);
+        let g = generation().load(Ordering::Relaxed);
         sync(&ui);
-        assert!(GENERATION.load(Ordering::Relaxed) > g);
+        assert!(generation().load(Ordering::Relaxed) > g);
         assert_eq!(menus::shortcut_of("test.nonexistent"), Some("Cmd+Alt+Shift+F9"));
         assert_eq!(tool_shortcut("measure"), Some("Shift+9"));
         assert_eq!(tool_for_key("Shift+9"), Some("measure"));
