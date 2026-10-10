@@ -285,9 +285,17 @@ pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
 }
 
 /// The width of a popped-out or floating panel: the tabbed group's panels keep the width the dock
-/// gives them; icon panels are 256 points.
+/// gives them; wider controls have a compact preferred width and can grow when necessary.
 pub(crate) fn panel_width(id: &str) -> f32 {
-    if DockTab::from_id(id).is_some() { DOCK_WIDTH } else { 256.0 }
+    if DockTab::from_id(id).is_some() {
+        DOCK_WIDTH
+    } else {
+        match id {
+            "actions" | "stroke" | "imageTrace" => 320.0,
+            "align" => 300.0,
+            _ => 256.0,
+        }
+    }
 }
 
 /// Panel `id`'s contents in a popped-out or floating panel `width` wide; the tabbed group's panels
@@ -323,7 +331,11 @@ pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width:
                     .max_height(tall)
                     .min_scrolled_height(tall)
                     .auto_shrink([true, true])
-                    .show(ui, |ui| panels::show_icon_panel(app, ui, id));
+                    .show(ui, |ui| {
+                        // Lay out at the preferred width; only controls that need more space grow it.
+                        ui.set_width((width - 20.0).max(1.0));
+                        panels::show_icon_panel(app, ui, id);
+                    });
             }
         }
     });
@@ -372,6 +384,9 @@ mod tests {
                 if id == "stroke" && size.y >= 900.0 {
                     assert!(area.height() > 400.0, "a tall panel should use available height before scrolling: {area:?}");
                     assert!(area.width() > 300.0, "use spare canvas width for the stroke controls before scrolling: {area:?}");
+                }
+                if matches!(id, "align" | "actions" | "stroke" | "imageTrace") && size.y >= 900.0 {
+                    assert!(area.width() < 400.0, "{id}: compact controls must not stretch to the maximum flyout width: {area:?}");
                 }
                 let header = out
                     .shapes

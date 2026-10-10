@@ -13,6 +13,7 @@ macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 Ap
 2026-10-09 图标修订：以维护者提供的红色小狗图片统一替换项目 Logo、各平台 App 图标及应用内“关于”图片，保留 1:1 比例。
 2026-10-09 图标修复：去除主图自带的白色外沿，背景延伸至画布边缘；macOS 圆角外侧保持透明，不再出现白色边框。
 2026-10-10 上游集成：采用官方密集描摹保护、资源库、文字和文件兼容改进，保留虹构独有补丁；验证范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
+2026-10-10 界面修复：默认动作随界面语言翻译而不改写自定义动作；浮出面板按内容紧凑布局，长动作名称省略显示并保留完整悬浮提示，避免与步骤数重叠。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 

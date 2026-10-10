@@ -4,12 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::OnceLock;
 
 use crate::theme::Tokens;
 use crate::widgets::{self, dim_label};
 use crate::{VectorcraftApp, icons};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Action {
     pub name: String,
     pub steps: Vec<(String, Value)>,
@@ -23,6 +24,15 @@ pub struct ActionSet {
 
 /// Built-in actions (our own, handy defaults).
 pub fn default_sets() -> Vec<ActionSet> {
+    built_in_sets().to_vec()
+}
+
+fn built_in_sets() -> &'static [ActionSet] {
+    static SETS: OnceLock<Vec<ActionSet>> = OnceLock::new();
+    SETS.get_or_init(make_default_sets)
+}
+
+fn make_default_sets() -> Vec<ActionSet> {
     let step = |c: &str, p: Value| (c.to_string(), p);
     vec![ActionSet {
         name: "Default Actions".into(),
@@ -43,21 +53,35 @@ pub fn default_sets() -> Vec<ActionSet> {
     }]
 }
 
+fn is_built_in(action: &Action) -> bool {
+    built_in_sets().iter().flat_map(|set| &set.actions).any(|a| a == action)
+}
+
+fn action_label(action: &Action, lang: crate::i18n::Lang) -> &str {
+    crate::i18n::label_or_name(lang, &action.name, is_built_in(action))
+}
+
+fn set_label(set: &ActionSet, lang: crate::i18n::Lang) -> &str {
+    let built_in = built_in_sets().iter().any(|s| s.name == set.name && (set.actions.is_empty() || set.actions.iter().any(is_built_in)));
+    crate::i18n::label_or_name(lang, &set.name, built_in)
+}
+
 /// Run an action as a single undoable batch.
 pub fn play(app: &mut VectorcraftApp, set: usize, idx: usize) -> Result<Value, String> {
     let Some(a) = app.ui.action_sets.get(set).and_then(|s| s.actions.get(idx)).cloned() else { return Err("no such action".into()) };
     let commands: Vec<Value> = a.steps.iter().map(|(c, p)| json!({"command": c, "params": p})).collect();
-    app.run("command.batch", json!({"label": a.name, "commands": commands}))
+    app.run("command.batch", json!({"label": action_label(&a, crate::i18n::current()), "commands": commands}))
 }
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    let lang = crate::i18n::current();
     let selected_id = egui::Id::new("actions-selected");
     let mut selected: Option<(usize, usize)> = ui.data(|d| d.get_temp(selected_id));
     let mut play_req = None;
     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
         for (si, set) in app.ui.action_sets.iter().enumerate() {
-            ui.label(egui::RichText::new(format!("▾ {}", set.name)).color(t.text));
+            ui.label(egui::RichText::new(format!("▾ {}", set_label(set, lang))).color(t.text));
             for (ai, a) in set.actions.iter().enumerate() {
                 let sel = selected == Some((si, ai));
                 let (r, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), egui::Sense::click());
@@ -66,20 +90,21 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut egui::Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(r, 0.0, t.hover);
                 }
-                ui.painter().text(
-                    r.left_center() + egui::vec2(18.0, 0.0),
-                    egui::Align2::LEFT_CENTER,
-                    &a.name,
-                    egui::FontId::proportional(12.5),
-                    t.text_strong,
-                );
-                ui.painter().text(
-                    r.right_center() - egui::vec2(6.0, 0.0),
-                    egui::Align2::RIGHT_CENTER,
-                    crate::i18n::tn(a.steps.len() as u64, "{n} step", "{n} steps"),
+                let count = ui.painter().layout_no_wrap(
+                    crate::i18n::trn(lang, a.steps.len() as u64, "{n} step", "{n} steps"),
                     egui::FontId::proportional(11.0),
                     t.text_dim,
                 );
+                let name = action_label(a, lang);
+                let text_width = (r.width() - 18.0 - count.size().x - 18.0).max(0.0);
+                let mut job = egui::text::LayoutJob::simple(name.to_string(), egui::FontId::proportional(12.5), t.text_strong, text_width);
+                job.wrap.max_rows = 1;
+                let text = ui.painter().layout_job(job);
+                if text.elided {
+                    resp.clone().on_hover_text(name);
+                }
+                ui.painter().galley(r.left_center() + egui::vec2(18.0, -text.size().y / 2.0), text, t.text_strong);
+                ui.painter().galley(r.right_center() - egui::vec2(count.size().x + 6.0, count.size().y / 2.0), count, t.text_dim);
                 if resp.clicked() {
                     selected = Some((si, ai));
                 }
@@ -107,10 +132,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut egui::Ui) {
         if resp.on_hover_text(tl!("Begin Recording")).clicked() && !recording {
             let n = app.ui.action_sets.first().map(|s| s.actions.len()).unwrap_or(0) + 1;
             if app.ui.action_sets.is_empty() {
-                app.ui.action_sets.push(ActionSet { name: "Set 1".into(), actions: vec![] });
+                app.ui.action_sets.push(ActionSet { name: tl!("Set 1").into(), actions: vec![] });
             }
             let set = selected.map(|s| s.0).unwrap_or(0);
-            app.ui.recording = Some((set, format!("Action {n}"), app.session.journal.len()));
+            app.ui.recording = Some((set, crate::i18n::fmt(tl!("Action {n}"), &[("n", &n.to_string())]), app.session.journal.len()));
         }
         if widgets::icon_button(ui, "dc-actions", tl!("Play Current Selection"), false, 24.0).clicked()
             && let Some(s) = selected
@@ -152,6 +177,59 @@ mod tests {
                     assert!(vectorcraft_engine::find_command(&c).is_some(), "{c}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn built_in_labels_translate_after_preference_round_trip_without_changing_user_names() {
+        let stored = serde_json::to_value(default_sets()).unwrap();
+        let sets: Vec<ActionSet> = serde_json::from_value(stored.clone()).unwrap();
+        for code in ["zh-hans", "zh-hant"] {
+            let lang = crate::i18n::Lang::from_code(code).unwrap();
+            for set in &sets {
+                assert_ne!(set_label(set, lang), set.name);
+                for action in &set.actions {
+                    assert_ne!(action_label(action, lang), action.name);
+                }
+            }
+            let mut custom = sets[0].actions[0].clone();
+            custom.name = "My custom action".into();
+            assert_eq!(action_label(&custom, lang), custom.name);
+            custom.name = sets[0].actions[0].name.clone();
+            custom.steps = vec![("select.none".into(), json!({}))];
+            assert_eq!(action_label(&custom, lang), custom.name, "a matching name alone is not a built-in action");
+            let custom_set = ActionSet { name: sets[0].name.clone(), actions: vec![custom] };
+            assert_eq!(set_label(&custom_set, lang), custom_set.name);
+        }
+        assert_eq!(serde_json::to_value(sets).unwrap(), stored);
+    }
+
+    #[test]
+    fn long_action_names_are_elided_before_the_step_count() {
+        fn texts(shape: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+            match shape {
+                egui::Shape::Text(text) => out.push(text.clone()),
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let name = "A very long custom action name that must not overlap its step count";
+        for width in [180.0, 300.0] {
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), crate::Services::default());
+            app.ui.action_sets = vec![ActionSet { name: "Custom".into(), actions: vec![Action { name: name.into(), steps: vec![] }] }];
+            let raw =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 500.0))), ..Default::default() };
+            let mut output = ctx.run_ui(raw, |ui| show(&mut app, ui));
+            output.textures_delta.clear();
+            let mut rendered = vec![];
+            output.shapes.iter().for_each(|s| texts(&s.shape, &mut rendered));
+            let title = rendered.iter().find(|t| t.galley.text() == name).unwrap();
+            let count = rendered.iter().find(|t| t.galley.text().contains('0')).unwrap();
+            assert!(title.galley.elided);
+            assert!(title.visual_bounding_rect().right() + 4.0 <= count.visual_bounding_rect().left());
+            assert_eq!(app.ui.action_sets[0].actions[0].name, name);
         }
     }
 }
