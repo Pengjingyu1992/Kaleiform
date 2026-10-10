@@ -101,7 +101,11 @@ fn view_label(v: TraceView) -> &'static str {
 /// The View dropdown showing `current` → the view chosen.
 fn view_dropdown(ui: &mut Ui, current: TraceView, width: f32) -> Option<TraceView> {
     let labels = TraceView::ALL.map(view_label);
-    widgets::dropdown_names(ui, "trace-view", view_label(current), &labels, width).and_then(|i| TraceView::ALL.get(i).copied())
+    ui.scope(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        widgets::dropdown_names(ui, "trace-view", view_label(current), &labels, width).and_then(|i| TraceView::ALL.get(i).copied())
+    })
+    .inner
 }
 
 /// Show the selected Image Trace objects with `view` (no new trace).
@@ -114,7 +118,7 @@ fn set_view(app: &mut VectorcraftApp, view: TraceView) {
 /// The selected Image Trace object's View row (Control bar, Properties).
 pub(crate) fn view_row(app: &mut VectorcraftApp, ui: &mut Ui, current: TraceView, width: f32) {
     widgets::dim_label(ui, tl!("View:"));
-    if let Some(v) = view_dropdown(ui, current, width) {
+    if let Some(v) = view_dropdown(ui, current, width.min(ui.available_width())) {
         set_view(app, v);
     }
 }
@@ -122,7 +126,9 @@ pub(crate) fn view_row(app: &mut VectorcraftApp, ui: &mut Ui, current: TraceView
 /// Trace the selected image, or trace the selected Image Trace object again, with built-in `preset`.
 fn trace_with(app: &mut VectorcraftApp, preset: &str) {
     // A failure is reported in the status bar.
-    let _ = app.run("imageTrace.make", json!({ "preset": preset }));
+    if app.run("imageTrace.make", json!({ "preset": preset })).is_ok() {
+        app.ui.open_panel = Some("imageTrace".into());
+    }
 }
 
 /// The built-in presets to choose from (`current` highlighted) → the one chosen. Listed only
@@ -156,7 +162,13 @@ pub(crate) fn trace_button(app: &mut VectorcraftApp, ui: &mut Ui, width: f32) {
 /// The selected Image Trace object's preset (Control bar, Properties): choosing another traces it
 /// again with that preset.
 pub(crate) fn preset_dropdown(app: &mut VectorcraftApp, ui: &mut Ui, current: &str, width: f32) {
-    if let Some(p) = widgets::combo(ui, "trace-preset", tl!(current), width, false, |ui| preset_list(app, ui, current)) {
+    let chosen = ui
+        .scope(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            widgets::combo(ui, "trace-preset", tl!(current), width, false, |ui| preset_list(app, ui, current))
+        })
+        .inner;
+    if let Some(p) = chosen {
         trace_with(app, &p);
     }
 }
@@ -417,6 +429,57 @@ mod tests {
         app.run("file.place", json!({"name": "half.png", "dataBase64": data, "link": false})).unwrap();
         app.run("imageTrace.make", json!({"preset": "Default"})).unwrap();
         app
+    }
+
+    #[test]
+    fn traced_properties_keep_labels_inside_the_dock_across_frames() {
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1400.0, 1000.0));
+        for width in [230.0, 300.0, 520.0] {
+            let mut app = traced_app();
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            crate::theme::apply(&ctx, Default::default());
+            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                egui::Panel::right("dock").exact_size(width).show(ui, |_| {});
+            })
+            .textures_delta
+            .clear();
+            for view in TraceView::ALL {
+                app.run("imageTrace.setView", json!({"view": view.id()})).unwrap();
+                for k in 0..30 {
+                    let mut out =
+                        ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| crate::dock::show(&mut app, ui));
+                    out.textures_delta.clear();
+                    if k < 2 {
+                        continue;
+                    }
+                    for shape in &out.shapes {
+                        if let egui::Shape::Text(text) = &shape.shape
+                            && matches!(text.galley.text(), "Preset:" | "View:" | "Appearance" | "Fill" | "Stroke")
+                        {
+                            let rect = Rect::from_min_size(text.pos, text.galley.size());
+                            assert!(
+                                shape.clip_rect.contains_rect(rect),
+                                "{width}, {view:?}, frame {k}: {:?} at {rect:?} clipped by {:?}",
+                                text.galley.text(),
+                                shape.clip_rect
+                            );
+                        }
+                    }
+                    let dock = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("dock")).unwrap().outer_rect;
+                    assert!(dock.width() <= width + 1.0, "{view:?}, frame {k}: {width}-point dock keeps growing: {dock:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tracing_from_a_shortcut_opens_the_full_panel() {
+        let mut app = traced_app();
+        app.run("imageTrace.release", json!({})).unwrap();
+        trace_with(&mut app, "Default");
+        assert_eq!(app.ui.open_panel.as_deref(), Some("imageTrace"));
+        assert!(selected_trace(&app).is_some());
     }
 
     #[test]

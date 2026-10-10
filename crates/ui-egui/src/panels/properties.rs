@@ -168,7 +168,11 @@ fn trace_section(app: &mut VectorcraftApp, ui: &mut Ui, preset: &str, view: vect
     section_header(ui, tl!("Image Trace"));
     ui.horizontal(|ui| {
         dim_label(ui, tl!("Preset:"));
-        crate::panels::image_trace::preset_dropdown(app, ui, preset, ui.available_width());
+        let width = (ui.available_width() - 24.0 - ui.spacing().item_spacing.x).max(40.0);
+        crate::panels::image_trace::preset_dropdown(app, ui, preset, width);
+        if widgets::icon_button(ui, "image", tl!("Image Trace"), false, 24.0).clicked() {
+            app.ui.open_panel = Some("imageTrace".into());
+        }
     });
     ui.horizontal(|ui| crate::panels::image_trace::view_row(app, ui, view, ui.available_width()));
     let w = (ui.available_width() - 6.0) / 2.0;
@@ -408,11 +412,22 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     let rp = bx.reference_point(refi);
     section_header(ui, tl!("Transform"));
     let fw = super::field_width(ui);
+    let compact = ui.available_width() < 227.0;
+    if compact {
+        ui.horizontal(|ui| {
+            if let Some(i) = widgets::reference_point(ui, refi) {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
+            }
+            super::transform::constrain_link(app, ui);
+        });
+    }
     ui.horizontal(|ui| {
-        if let Some(i) = widgets::reference_point(ui, refi) {
-            ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
+        if !compact {
+            if let Some(i) = widgets::reference_point(ui, refi) {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
+            }
+            ui.add_space(6.0);
         }
-        ui.add_space(6.0);
         let link = app.session.prefs.constrain_proportions;
         egui::Grid::new("xf-grid").num_columns(4).spacing([4.0, 6.0]).min_col_width(0.0).show(ui, |ui| {
             dim_label(ui, "X:");
@@ -434,7 +449,9 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
             }
             ui.end_row();
         });
-        super::transform::constrain_link(app, ui);
+        if !compact {
+            super::transform::constrain_link(app, ui);
+        }
     });
     let fw = super::field_width(ui);
     ui.horizontal(|ui| {

@@ -938,9 +938,7 @@ impl Document {
     }
     /// Union of the geometric bounds of `ids`.
     pub fn bounds_of(&self, ids: &[NodeId], visual: bool) -> Option<Rect> {
-        ids.iter()
-            .filter_map(|id| self.node(*id))
-            .fold(None, |acc, n| vectorcraft_geom::union_opt(acc, if visual { n.visual_bounds() } else { n.geometric_bounds() }))
+        self.nodes(ids).iter().fold(None, |acc, n| vectorcraft_geom::union_opt(acc, if visual { n.visual_bounds() } else { n.geometric_bounds() }))
     }
     /// Bounds of all art.
     pub fn art_bounds(&self) -> Option<Rect> {

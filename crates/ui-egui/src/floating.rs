@@ -494,9 +494,9 @@ mod tests {
 
     use super::*;
 
-    const SCREEN: Vec2 = vec2(1400.0, 900.0);
+    const SCREEN: Vec2 = vec2(1400.0, 1000.0);
 
-    /// Frames of the whole window, 1400 × 900, with pointer input one event a frame (as the
+    /// Frames of the whole window, 1400 × 1000 (all panel icons visible), with pointer input one event a frame (as the
     /// control channel's `ui.drag` sends it).
     struct Harness {
         app: VectorcraftApp,

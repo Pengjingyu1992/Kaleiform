@@ -81,7 +81,7 @@ fn used_colors(d: &Document, ids: &[NodeId]) -> Vec<Used> {
     };
     // The patterns used as fills or strokes: their tiles count once each.
     let mut patterns: Vec<&str> = vec![];
-    for n in ids.iter().filter_map(|id| d.node(*id)) {
+    for n in d.nodes(ids) {
         node_colors(n, &mut count);
         n.walk(&mut |m| {
             let runs = match &m.kind {

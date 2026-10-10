@@ -69,3 +69,49 @@ fn menu_state_for_a_large_path_selection() {
     }
     assert!(menus::enabled(&app, "edit.copy"));
 }
+
+#[test]
+fn dense_ungroup_can_draw_the_next_complete_frame() {
+    let mut doc = Document::new(600.0, 400.0);
+    let count = std::env::var("VECTORCRAFT_MENU_TEST_OBJECTS").ok().and_then(|n| n.parse::<usize>().ok()).unwrap_or(50_000).min(50_000);
+    let mut children = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = doc.alloc_id();
+        children.push(Arc::new(Node::path(id, shapes::rectangle(Rect::new(10.0, 10.0, 30.0, 30.0)), Appearance::default_art())));
+    }
+    let group = doc.alloc_id();
+    doc.insert(doc.default_layer(), usize::MAX, Node::group(group, children)).unwrap();
+    let mut session = Session::new();
+    session.add_document(doc, None);
+    session.active_mut().unwrap().selection.set([group]);
+    let mut app = VectorcraftApp::new(session, Default::default());
+    let started = Instant::now();
+    app.run("object.ungroup", serde_json::json!({})).unwrap();
+    eprintln!("UI ungroup {count} paths: {:?}", started.elapsed());
+    let selected = app.session.active().unwrap().selection.objects.clone();
+    let before = app.session.active().unwrap().doc.clone();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    for frame in 0..3 {
+        let started = Instant::now();
+        let mut out = ctx.run_ui(
+            egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))), ..Default::default() },
+            |ui| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+        );
+        out.textures_delta.clear();
+        eprintln!("dense selection complete frame {frame}: {:?}", started.elapsed());
+        assert!(started.elapsed().as_secs_f64() < 10.0, "drawing a dense selection must not stall the UI for ten seconds");
+        assert!(!app.ui.status.starts_with("Internal error:"), "frame failed: {}", app.ui.status);
+        if frame > 0 {
+            assert!(out.shapes.len() > 50 && app.canvas_rect.is_some(), "the full window and canvas must be drawn");
+        }
+        if count > 25_000 {
+            assert!(out.shapes.len() < 4000, "selection highlights must stay bounded: {} shapes", out.shapes.len());
+        }
+        assert_eq!(app.session.active().unwrap().selection.objects, selected);
+        assert!(Arc::ptr_eq(&before, &app.session.active().unwrap().doc), "drawing must not modify the art");
+    }
+}

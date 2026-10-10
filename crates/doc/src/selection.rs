@@ -59,9 +59,8 @@ impl Selection {
     }
     pub fn set(&mut self, ids: impl IntoIterator<Item = NodeId>) {
         self.clear();
-        for id in ids {
-            self.add(id);
-        }
+        let mut seen = HashSet::new();
+        self.objects.extend(ids.into_iter().filter(|id| seen.insert(*id)));
     }
     pub fn add(&mut self, id: NodeId) {
         self.target = None;
@@ -108,12 +107,15 @@ impl Selection {
     }
     /// Drop ids that no longer exist or are no longer editable.
     pub fn prune(&mut self, doc: &Document) {
-        self.objects.retain(|id| doc.node(*id).is_some());
-        self.anchors.retain(|id, _| doc.node(*id).is_some());
-        if self.key.is_some_and(|k| doc.node(k).is_none()) {
+        // Ungrouping a dense trace selects all its paths; don't search the tree once per path.
+        let requested: Vec<_> = self.objects.iter().chain(self.anchors.keys()).chain(self.key.iter()).chain(self.target.iter()).copied().collect();
+        let existing: HashSet<_> = doc.nodes(&requested).iter().map(|n| n.id).collect();
+        self.objects.retain(|id| existing.contains(id));
+        self.anchors.retain(|id, _| existing.contains(id));
+        if self.key.is_some_and(|k| !existing.contains(&k)) {
             self.key = None;
         }
-        if self.target.is_some_and(|t| doc.node(t).is_none()) {
+        if self.target.is_some_and(|t| !existing.contains(&t)) {
             self.target = None;
         }
         self.slices.retain(|id| doc.is_slice(*id));
@@ -143,24 +145,7 @@ impl Selection {
 
     /// Existing selected nodes in selection order, found by one tree traversal.
     pub fn nodes<'a>(&self, doc: &'a Document) -> Vec<&'a Node> {
-        if self.is_empty() {
-            return vec![];
-        }
-        let mut remaining: HashSet<_> = self.objects.iter().copied().collect();
-        let mut found = HashMap::new();
-        let mut stack: Vec<_> = doc.layers.iter().rev().map(|n| n.as_ref()).collect();
-        while let Some(node) = stack.pop() {
-            if remaining.remove(&node.id) {
-                found.insert(node.id, node);
-                if remaining.is_empty() {
-                    break;
-                }
-            }
-            if let Some(children) = node.children() {
-                stack.extend(children.iter().rev().map(|n| n.as_ref()));
-            }
-        }
-        self.objects.iter().filter_map(|id| found.get(id).copied()).collect()
+        doc.nodes(&self.objects)
     }
 
     /// Closest matching nodes at or above the selected objects, in selection order, without
@@ -210,6 +195,30 @@ impl Selection {
             }
         }
         roots
+    }
+}
+
+impl Document {
+    /// Existing nodes in the requested order (including duplicates), found by one tree traversal.
+    pub fn nodes(&self, ids: &[NodeId]) -> Vec<&Node> {
+        if ids.is_empty() {
+            return vec![];
+        }
+        let mut remaining: HashSet<_> = ids.iter().copied().collect();
+        let mut found = HashMap::new();
+        let mut stack: Vec<_> = self.layers.iter().rev().map(|n| n.as_ref()).collect();
+        while let Some(node) = stack.pop() {
+            if remaining.remove(&node.id) {
+                found.insert(node.id, node);
+                if remaining.is_empty() {
+                    break;
+                }
+            }
+            if let Some(children) = node.children() {
+                stack.extend(children.iter().rev().map(|n| n.as_ref()));
+            }
+        }
+        ids.iter().filter_map(|id| found.get(id).copied()).collect()
     }
 }
 
@@ -299,6 +308,35 @@ mod tests {
         assert_eq!(s.objects, vec![NodeId(2)]);
         s.clear();
         assert!(s.is_empty());
+    }
+
+    #[test]
+    fn bulk_set_and_prune_keep_order_and_independent_anchor_targets() {
+        let doc = query_document();
+        let mut s = Selection::default();
+        s.set([NodeId(7), NodeId(4), NodeId(7), NodeId(999), NodeId(2)]);
+        assert_eq!(s.objects, vec![NodeId(7), NodeId(4), NodeId(999), NodeId(2)]);
+        s.anchors.insert(NodeId(6), BTreeSet::from([(0, 0)]));
+        s.anchors.insert(NodeId(999), BTreeSet::from([(0, 0)]));
+        s.key = Some(NodeId(5));
+        s.target = Some(NodeId(3));
+        s.prune(&doc);
+        assert_eq!(s.objects, vec![NodeId(7), NodeId(4), NodeId(2)]);
+        assert_eq!(s.anchors.keys().copied().collect::<Vec<_>>(), vec![NodeId(6)]);
+        assert_eq!(s.key, Some(NodeId(5)));
+        assert_eq!(s.target, Some(NodeId(3)));
+        s.key = Some(NodeId(998));
+        s.target = Some(NodeId(999));
+        s.prune(&doc);
+        assert_eq!((s.key, s.target), (None, None));
+    }
+
+    #[test]
+    fn bulk_nodes_preserve_duplicates_and_ignore_missing_ids() {
+        let doc = query_document();
+        let ids = [NodeId(7), NodeId(4), NodeId(999), NodeId(7), NodeId(2)];
+        assert_eq!(doc.nodes(&ids), ids.iter().filter_map(|id| doc.node(*id)).collect::<Vec<_>>());
+        assert!(doc.nodes(&[]).is_empty());
     }
 
     #[test]

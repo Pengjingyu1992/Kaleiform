@@ -112,21 +112,29 @@ impl Node {
 impl Document {
     /// The angle the bounding box of `ids` stands at: the `bbox_angle` they share, else 0.
     pub fn bbox_angle(&self, ids: &[NodeId]) -> f64 {
-        let mut angles = ids.iter().filter_map(|id| self.node(*id)).map(|n| n.bbox_angle);
-        let Some(first) = angles.next() else { return 0.0 };
-        if angles.all(|a| normalize_deg(a - first).abs() <= EPS_DEG) { first } else { 0.0 }
+        common_angle(&self.nodes(ids))
     }
     /// The bounding box of `ids` square to their shared angle ([`Document::bbox_angle`]):
     /// geometric bounds, or `visual` with their strokes.
     pub fn oriented_bounds(&self, ids: &[NodeId], visual: bool) -> Option<OrientedBox> {
-        let angle = self.bbox_angle(ids);
+        let nodes = self.nodes(ids);
+        let angle = common_angle(&nodes);
         if angle == 0.0 {
-            return self.bounds_of(ids, visual).map(OrientedBox::aligned);
+            return nodes
+                .iter()
+                .fold(None, |acc, n| union_opt(acc, if visual { n.visual_bounds() } else { n.geometric_bounds() }))
+                .map(OrientedBox::aligned);
         }
         let to_local = OrientedBox { angle, rect: Rect::ZERO }.to_doc().inverse();
-        let rect = ids.iter().filter_map(|id| self.node(*id)).fold(None, |acc, n| union_opt(acc, n.bounds_in(to_local, visual)))?;
+        let rect = nodes.iter().fold(None, |acc, n| union_opt(acc, n.bounds_in(to_local, visual)))?;
         Some(OrientedBox { angle, rect })
     }
+}
+
+fn common_angle(nodes: &[&Node]) -> f64 {
+    let mut angles = nodes.iter().map(|n| n.bbox_angle);
+    let Some(first) = angles.next() else { return 0.0 };
+    if angles.all(|a| normalize_deg(a - first).abs() <= EPS_DEG) { first } else { 0.0 }
 }
 
 #[cfg(test)]

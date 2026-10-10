@@ -522,6 +522,15 @@ mod tests {
     }
 
     #[test]
+    fn image_trace_icon_opens_its_panel() {
+        let mut h = Harness::new();
+        let index = ICON_PANEL_GROUPS.iter().flat_map(|g| g.iter()).position(|id| *id == "imageTrace").unwrap();
+        h.click(h.icons()[index].center());
+        assert_eq!(h.app.ui.open_panel.as_deref(), Some("imageTrace"));
+        assert!(h.ctx.memory(|m| m.area_rect(egui::Id::new("icon-panel"))).is_some());
+    }
+
+    #[test]
     fn the_double_arrow_collapses_the_dock_to_icons_and_back() {
         let mut h = Harness::new();
         assert!(!h.app.ui.dock_collapsed);

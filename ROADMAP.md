@@ -88,7 +88,9 @@ Ordered by how much each gap blocks someone from switching. Sizes are one-agent 
    rulers. 15–25 h.
 8. **Hardening at scale:** Offset Path now has cooperative work/deadline limits and cancellable desktop computation,
    including dialog previews. Cancelled/stale results keep the original art; exact reproduction
-   and algorithmic optimization of the earlier random slow case remain open. A corpus of real-world
+   and algorithmic optimization of the earlier random slow case remain open. Dense Ungroup's selection
+   sanity/pruning and the following frame's bounds, stroke, recolor, blend and path-type overlay
+   lookups now use bulk tree queries; other large-document commands still need profiling. A corpus of real-world
    SVG/PDF/EPS files and Affinity files from more versions and platforms
    (51 pinned files now include 28 original Affinity 3.2.3 feature probes; large interacting documents,
    complex typography and independently paired `.af`/PSD renders reopened in Affinity remain missing), idle-machine perf budgets, Windows, Linux and
@@ -109,6 +111,14 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Dense Ungroup and trace-panel fixes (2026-10-10):** selection setup, post-edit validation/pruning,
+  selection bounds, stroke summaries, recolor queries, blend-spine discovery and path-type brackets
+  no longer re-search the whole tree for every selected path. Non-text selections skip path-type
+  editability checks. Regression tests cover 50k-path Ungroup, Undo/Redo and
+  complete UI frames. The Image Trace panel has a dock icon and a Properties shortcut, and opens
+  after tracing from the shortcut controls. Its Properties dropdowns stay within the dock across
+  frames instead of growing the panel and clipping its labels. This is not a general guarantee
+  that every operation on dense artwork is asynchronous or bounded.
 - **Offset Path safety (2026-10-10):** desktop offsets and previews compute from a snapshot in a
   cancellable worker. Successful results commit through the engine as one undo/journal entry;
   edited documents/selections reject stale results. All offset entry points share a bounded

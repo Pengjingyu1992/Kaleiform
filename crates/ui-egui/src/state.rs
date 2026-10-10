@@ -145,6 +145,7 @@ pub const ICON_PANEL_GROUPS: &[&[&str]] = &[
     &["color", "colorGuide"],
     &["swatches", "brushes", "symbols", "patternOptions"],
     &["stroke", "gradient", "transparency"],
+    &["imageTrace"],
     &["appearance", "graphicStyles"],
     &["artboards"],
     &["transform", "align", "pathfinder"],

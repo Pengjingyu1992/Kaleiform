@@ -1642,12 +1642,13 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
         }
     }
     // The spine of each selected blend (or of the blend a selected key object belongs to).
-    let mut spines = vec![];
-    for id in &st.selection.objects {
-        let is_blend = |b: &vectorcraft_doc::NodeId| st.doc.node(*b).is_some_and(|n| matches!(n.kind, NodeKind::Blend { .. }));
-        let Some(b) = [Some(*id), st.doc.parent_of(*id)].into_iter().flatten().find(is_blend).filter(|b| !spines.contains(b)) else { continue };
-        spines.push(b);
+    let selected: std::collections::HashSet<_> = st.selection.objects.iter().copied().collect();
+    let spines = st.selection.matching_ancestors(&st.doc, |n| matches!(n.kind, NodeKind::Blend { .. }));
+    for b in spines {
         let Some(NodeKind::Blend { children, spec }) = st.doc.node(b).map(|n| &n.kind) else { continue };
+        if !selected.contains(&b) && !children.iter().any(|c| selected.contains(&c.id) && !matches!(c.kind, NodeKind::Blend { .. })) {
+            continue;
+        }
         let Some((path, _)) = vectorcraft_doc::live::blend_spine(children, spec) else { continue };
         let color = c32(st.doc.layer_color(b));
         stroke_path(p, &path.to_bezpath(), xf, Stroke::new(1.0, color));

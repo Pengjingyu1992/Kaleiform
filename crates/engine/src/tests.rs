@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::*;
+use vectorcraft_doc::Node;
 use vectorcraft_geom::Point;
 use vectorcraft_tools::{PointerEvent, PointerKind, ToolKey};
 
@@ -50,6 +51,58 @@ fn group_ungroup() {
     assert!(d.node(g).is_none());
     assert_eq!(d.parent_of(a), d.layers.first().map(|l| l.id));
     assert_eq!(s.doc().unwrap().selection.len(), 2);
+}
+
+#[test]
+fn ungroup_dense_art_keeps_all_paths_and_one_undo_step() {
+    let mut s = session();
+    let id = rect(&mut s, 0.0, 0.0, 10.0, 10.0);
+    let path = s.doc().unwrap().doc.node(id).unwrap().clone();
+    let count = 50_000;
+    let (group, ids) = s
+        .edit("Dense art", |doc, sel| {
+            doc.remove(id)?;
+            let mut children = Vec::with_capacity(count);
+            let mut ids = Vec::with_capacity(count);
+            for _ in 0..count {
+                let mut node = path.clone();
+                node.id = doc.alloc_id();
+                ids.push(node.id);
+                children.push(Arc::new(node));
+            }
+            let gid = doc.alloc_id();
+            doc.insert(doc.default_layer(), usize::MAX, Node::group(gid, children))?;
+            sel.set([gid]);
+            Ok((gid, ids))
+        })
+        .unwrap();
+    let undo = s.doc().unwrap().history.undo.len();
+    let started = std::time::Instant::now();
+    s.execute("object.ungroup", &json!({})).unwrap();
+    eprintln!("ungroup {count} paths: {:?}", started.elapsed());
+    let st = s.doc().unwrap();
+    assert_eq!(st.selection.objects, ids);
+    assert_eq!(st.history.undo.len(), undo + 1);
+    assert_eq!(st.doc.layers[0].children().unwrap().iter().map(|n| n.id).collect::<Vec<_>>(), ids);
+    assert!(st.doc.node(group).is_none());
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.doc().unwrap().selection.objects, vec![group]);
+    assert_eq!(s.doc().unwrap().doc.node(group).unwrap().children().unwrap().len(), count);
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert_eq!(s.doc().unwrap().selection.objects, ids);
+}
+
+#[test]
+fn bulk_sanity_check_still_rolls_back_out_of_range_art() {
+    let mut s = session();
+    let a = rect(&mut s, 0.0, 0.0, 10.0, 10.0);
+    let b = rect(&mut s, 20.0, 0.0, 10.0, 10.0);
+    s.execute("select.set", &json!({"ids": [a.0, b.0]})).unwrap();
+    let before = s.doc().unwrap().doc.clone();
+    let undo = s.doc().unwrap().history.undo.len();
+    assert!(s.execute("object.move", &json!({"dx": MAX_COORD * 2.0, "dy": 0})).is_err());
+    assert_eq!(s.doc().unwrap().doc, before);
+    assert_eq!(s.doc().unwrap().history.undo.len(), undo);
 }
 
 #[test]

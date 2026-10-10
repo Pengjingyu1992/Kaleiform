@@ -268,10 +268,8 @@ impl DocState {
     /// every frame cache it by revision.
     pub fn stroke_mixed(&self) -> StrokeMixed {
         let mut nodes = vec![];
-        for id in &self.selection.objects {
-            if let Some(n) = self.doc.node(*id) {
-                painted(n, true, &mut nodes);
-            }
+        for n in self.selection.nodes(&self.doc) {
+            painted(n, true, &mut nodes);
         }
         let mut strokes = vec![];
         let mut can_align = true;

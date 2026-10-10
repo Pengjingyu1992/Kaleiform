@@ -6,7 +6,7 @@
 //! draw the brackets from the same geometry they hit-test.
 
 use serde_json::{Map, Value, json};
-use vectorcraft_doc::{NodeId, NodeKind, TextKind};
+use vectorcraft_doc::{Node, NodeId, NodeKind, TextKind};
 use vectorcraft_geom::kurbo::{Line, ParamCurveNearest};
 use vectorcraft_geom::{Affine, ArcPath, Point, Vec2};
 
@@ -50,13 +50,16 @@ pub struct Brackets {
 impl Brackets {
     /// The brackets of the selected type on a path the tools can edit (outside perspective).
     pub fn of(cx: &ToolContext) -> Vec<Self> {
-        cx.selection.objects.iter().filter_map(|id| Self::of_node(cx, *id)).collect()
+        cx.selection.nodes(cx.doc).into_iter().filter_map(|node| Self::of_node(cx, node)).collect()
     }
 
-    fn of_node(cx: &ToolContext, id: NodeId) -> Option<Self> {
-        let n = cx.doc.node(id).filter(|n| n.perspective.is_none() && cx.doc.is_editable(id))?;
+    fn of_node(cx: &ToolContext, n: &Node) -> Option<Self> {
         let NodeKind::Text(t) = &n.kind else { return None };
         let TextKind::OnPath { path, end, .. } = &t.kind else { return None };
+        let id = n.id;
+        if n.perspective.is_some() || !cx.doc.is_editable(id) {
+            return None;
+        }
         let det = t.xf.determinant();
         let arc = ArcPath::new(path);
         if !det.is_finite() || det.abs() < 1e-12 || arc.is_empty() {
