@@ -1010,7 +1010,7 @@ impl<W: WindingNumber> Topology<W> {
     ///     /-x-\       /
     ///    /     \     /
     ///   /       \-x-/
-    ///  /           
+    ///  /
     /// ```
     ///
     /// `Segments` will turn it into three monotonic pieces (by splitting it at

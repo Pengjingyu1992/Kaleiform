@@ -163,10 +163,10 @@ CLI_DIR="$WORK/vectorcraft-cli-$VERSION-macos-$ARCH"
 mkdir -p "$CLI_DIR"
 cp "$WORK/bin/vectorcraft-cli" "$CLI_DIR/"
 copy_docs "$CLI_DIR"
+xattr -cr "$CLI_DIR"
 sign --options runtime "$CLI_DIR/vectorcraft-cli"
 codesign --verify --strict --verbose=2 "$CLI_DIR/vectorcraft-cli"
-rm -f "$CLI_ZIP"
-ditto -c -k --keepParent "$CLI_DIR" "$CLI_ZIP"
+python3 "$HERE/zip.py" "$CLI_DIR" "$CLI_ZIP"
 # A bare Mach-O can't carry a stapled ticket; Gatekeeper looks the notarization up online.
 if [ "$NOTARIZE" = 1 ]; then notarize "$CLI_ZIP"; fi
 
