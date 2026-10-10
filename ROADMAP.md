@@ -3,7 +3,7 @@
 > 来源说明：以下主体内容继承自 VectorCraft 固定提交 `21355945`，是上游功能盘点与开发估算，
 > 不是虹构独立实现这些功能的声明，也不是本项目的验收报告、性能保证或交付时间承诺。
 > 虹构的实际改动和平台验证边界以 [README](README.md)、[差异说明](docs/differences.md)
-> 和 [UPSTREAM.md](UPSTREAM.md) 为准。开发版 `0.7.0-kaleiform.4` 已同步该基线，尚未公开发布。
+> 和 [UPSTREAM.md](UPSTREAM.md) 为准。预览版 `0.7.0-kaleiform.4` 采用该固定基线。
 
 Kaleiform is an open-source derivative of VectorCraft, retaining its Rust vector illustration engine and platform entry points. Its local additions focus on Chinese-language workflows. See UPSTREAM.md for provenance and README.md for tested release platforms.
 

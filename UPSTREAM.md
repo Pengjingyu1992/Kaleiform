@@ -1,8 +1,8 @@
 # 上游来源与版本边界
 
 - 上游项目：[storytold/vectorcraft](https://github.com/storytold/vectorcraft)。
-- 当前开发基线：[`21355945ea2a4d1136da4deed36d07b6aca21c52`](https://github.com/storytold/vectorcraft/commit/21355945ea2a4d1136da4deed36d07b6aca21c52)，2026-10-10 同步，虹构开发版本 `0.7.0-kaleiform.4`。
-  这是官方 `main` 的固定提交，包含 `v0.7.0` 标签之后的改动，不等于仅同步官方发布包，也不代表已经公开发布虹构新版。
+- 当前版本基线：[`21355945ea2a4d1136da4deed36d07b6aca21c52`](https://github.com/storytold/vectorcraft/commit/21355945ea2a4d1136da4deed36d07b6aca21c52)，2026-10-10 同步，虹构预览版 `0.7.0-kaleiform.4`。
+  这是官方 `main` 的固定提交，包含 `v0.7.0` 标签之后的改动，不等于仅同步官方发布包。
 - 首版上游基线：[`8b2be144cc964f9ac26eb175484b887cef0e86db`](https://github.com/storytold/vectorcraft/commit/8b2be144cc964f9ac26eb175484b887cef0e86db)，工作区版本 `0.4.0`。
 - 同步前虹构快照：`42f04be96c59494639e9761c472acb1a1680845f`，预览版 `0.4.0-kaleiform.3`。
 - 2026-10-08 发布准备时检查到的上游 main：[`d9fc3b6505bb185c7ecce05ab4b60b86da12822f`](https://github.com/storytold/vectorcraft/commit/d9fc3b6505bb185c7ecce05ab4b60b86da12822f)，工作区版本 `0.5.0`。
