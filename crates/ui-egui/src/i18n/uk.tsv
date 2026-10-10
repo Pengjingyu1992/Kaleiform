@@ -3703,3 +3703,16 @@ axis	Both	Обидві
 	Artboard	Монтажна область
 	Exit	Вийти
 	MIT OR Apache-2.0. Third-party attributions are included in the notices.	MIT АБО Apache-2.0. Відомості про авторів сторонніх компонентів наведено в повідомленнях.
+	Cancel Offset Path	Скасувати зміщення контуру
+	Computing Offset Path…	Обчислення зміщення контуру…
+	Cancelling Offset Path…	Скасування зміщення контуру…
+@msg	Offset Path: another offset is still running	Зміщення контуру: попереднє обчислення ще триває
+@msg	Offset Path: cancelled; original artwork kept	Зміщення контуру: скасовано; початковий рисунок збережено
+@msg	Offset Path: document or selection changed; result discarded	Зміщення контуру: документ або виділення змінилися; результат відкинуто
+@msg	Offset Path: preview still running	Зміщення контуру: попередній перегляд ще обчислюється
+@msg	Offset Path: worker stopped	Зміщення контуру: обробник зупинено
+@msg	Offset Path: {e}	Зміщення контуру: {e}
+@msg	Offset Path: complete	Зміщення контуру: завершено
+@msg	path computation exceeded its work limit	перевищено ліміт обсягу обчислень
+@msg	path computation exceeded its time limit	перевищено ліміт часу обчислень
+@msg	path computation cancelled	обчислення скасовано

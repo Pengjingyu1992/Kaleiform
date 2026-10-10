@@ -3144,3 +3144,16 @@ theme	Appearance	外観
 	Draft	ドラフト
 	Good	標準
 	Best	高品質
+	Cancel Offset Path	パスのオフセットを中止
+	Computing Offset Path…	パスのオフセットを計算中…
+	Cancelling Offset Path…	パスのオフセットを中止中…
+@msg	Offset Path: another offset is still running	パスのオフセット: 前の計算がまだ実行中です
+@msg	Offset Path: cancelled; original artwork kept	パスのオフセット: 中止しました。元の図形は保持されています
+@msg	Offset Path: document or selection changed; result discarded	パスのオフセット: ドキュメントまたは選択が変わったため結果を破棄しました
+@msg	Offset Path: preview still running	パスのオフセット: プレビューの計算中です
+@msg	Offset Path: worker stopped	パスのオフセット: 計算処理が終了しました
+@msg	Offset Path: {e}	パスのオフセット: {e}
+@msg	Offset Path: complete	パスのオフセット: 完了
+@msg	path computation exceeded its work limit	計算量の上限に達しました
+@msg	path computation exceeded its time limit	計算時間の上限に達しました
+@msg	path computation cancelled	計算を中止しました

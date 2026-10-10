@@ -1,5 +1,16 @@
 # Traditional Chinese (zh-hant) catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
 #
+	Computing Offset Path…	正在計算路徑偏移…
+	Cancelling Offset Path…	正在取消路徑偏移…
+	Cancel Offset Path	取消路徑偏移
+@msg	Offset Path: complete	路徑偏移：已完成
+@msg	Offset Path: cancelled; original artwork kept	路徑偏移：已取消，原圖已保留
+@msg	Offset Path: path computation exceeded its work limit	路徑偏移：計算量過大，原圖已保留
+@msg	Offset Path: path computation exceeded its time limit	路徑偏移：計算逾時，原圖已保留
+@msg	Offset Path: path computation cancelled	路徑偏移：已取消，原圖已保留
+@msg	Offset Path: document or selection changed; result discarded	路徑偏移：文件或選取已改變，已捨棄舊結果
+@msg	Offset Path: preview still running	路徑偏移：預覽仍在計算，請稍候或取消
+@msg	Offset Path: another offset is still running	路徑偏移：上一項計算尚未結束
 #   context  empty                a plain UI string; `source` is the English text in the code
 #            @id                  a command id (e.g. file.saveAs): wins over the English text for
 #                                 that menu item, so one id can read differently from its twin
@@ -3177,3 +3188,5 @@ axis	Both	兩者
 	Draft	草稿
 	Good	良好
 	Best	最佳
+@msg	Offset Path: {e}	路徑偏移：{e}
+@msg	Offset Path: worker stopped	路徑偏移：計算執行緒已停止

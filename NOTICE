@@ -12,6 +12,10 @@ It is distributed under MIT OR Apache-2.0; see assets/app-icon/LICENSE.txt.
 
 Third-party material
 
+The vendored linesweeper 0.4.0 library (vendor/linesweeper), by Joe Neeman and contributors,
+is MIT OR Apache-2.0. Its license texts are retained there. Kaleiform adds opt-in cooperative
+computation limits; see vendor/linesweeper/KALEIFORM.md for the local patch.
+
 This product bundles third-party material under its own licenses, listed below. The per-file
 list (author, source, license) is in ASSETS.md.
 

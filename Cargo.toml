@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+exclude = ["vendor/linesweeper"]
 default-members = ["crates/*", "apps/vectorcraft", "apps/vectorcraft-cli", "xtask"]
 
 [workspace.package]
@@ -60,7 +61,7 @@ usvg = "0.48"
 krilla = "0.8"
 skrifa = "0.47"
 harfrust = "0.13"
-linesweeper = "0.4"
+linesweeper = { version = "=0.4.0", path = "vendor/linesweeper" }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # Zstandard decoder (pure Rust, builds for wasm32 too): the editing copy an EPS carries of its art.
 ruzstd = { version = "0.9", default-features = false, features = ["std"] }

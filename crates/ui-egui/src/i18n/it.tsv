@@ -3720,3 +3720,16 @@ axis	Both	Entrambi
 	Free Transform	Trasformazione libera
 	Perspective Distort	Distorsione prospettica
 	MIT OR Apache-2.0. Third-party attributions are included in the notices.	MIT O Apache-2.0. Le attribuzioni di terze parti sono incluse negli avvisi.
+	Cancel Offset Path	Annulla scostamento tracciato
+	Computing Offset Path…	Calcolo dello scostamento tracciato…
+	Cancelling Offset Path…	Annullamento dello scostamento tracciato…
+@msg	Offset Path: another offset is still running	Scostamento tracciato: un altro calcolo è ancora in corso
+@msg	Offset Path: cancelled; original artwork kept	Scostamento tracciato: annullato; originale conservato
+@msg	Offset Path: document or selection changed; result discarded	Scostamento tracciato: documento o selezione modificati; risultato scartato
+@msg	Offset Path: preview still running	Scostamento tracciato: anteprima ancora in corso
+@msg	Offset Path: worker stopped	Scostamento tracciato: processo arrestato
+@msg	Offset Path: {e}	Scostamento tracciato: {e}
+@msg	Offset Path: complete	Scostamento tracciato: completato
+@msg	path computation exceeded its work limit	il calcolo ha superato il limite di lavoro
+@msg	path computation exceeded its time limit	il calcolo ha superato il limite di tempo
+@msg	path computation cancelled	calcolo annullato

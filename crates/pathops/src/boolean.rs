@@ -276,6 +276,9 @@ impl Arrangement {
             Topology::<Multi>::from_paths(paths.iter().enumerate().map(|(i, (p, _))| (p, i)), eps)
         }));
         let top = sweep.map_err(|_| PathOpsError::Degenerate)?.map_err(|_| PathOpsError::OpenPath)?;
+        if !linesweeper::budget::checkpoint(0) {
+            return Err(PathOpsError::WorkLimit);
+        }
         let tidy = Tidy::keeping(DEFAULT_PRECISION, paths.iter().map(|p| &p.0));
         Ok(Self { top, rules: paths.iter().map(|p| p.1).collect(), tidy })
     }
@@ -322,6 +325,9 @@ impl Arrangement {
 pub(crate) fn contours_to_path(c: &Contours, idx: impl IntoIterator<Item = ContourIdx>, tidy: &Tidy) -> PathData {
     let mut subpaths = Vec::new();
     for i in idx {
+        if !linesweeper::budget::checkpoint(1) {
+            return PathData::default();
+        }
         if is_sliver(&c[i].path, tidy.precision) {
             continue;
         }
@@ -440,9 +446,15 @@ pub(crate) fn tidy_segments(segs: Vec<Seg>, closed: bool, tidy: &Tidy) -> Vec<Se
     let mut out: Vec<Seg> = Vec::with_capacity(n);
     let mut i = 0;
     while i < n {
+        if !linesweeper::budget::checkpoint(1) {
+            return Vec::new();
+        }
         let mut cur = segs[i];
         let mut j = i + 1;
         while j < n && mergeable(&segs[j - 1], &segs[j]) {
+            if !linesweeper::budget::checkpoint((j - i) as u64) {
+                return Vec::new();
+            }
             match try_merge(&segs[i..=j], tidy) {
                 Some(m) => {
                     cur = m;
@@ -533,6 +545,9 @@ pub(crate) fn normalize_bez(bp: &BezPath, rule: FillRule) -> Result<Contours, Pa
     let mut bp = bp.clone();
     snap_horizontals(&mut [&mut bp], eps);
     let top = Topology::<i32>::from_path(&bp, eps).map_err(|_| PathOpsError::OpenPath)?;
+    if !linesweeper::budget::checkpoint(0) {
+        return Err(PathOpsError::WorkLimit);
+    }
     Ok(top.contours(|w| inside(rule, *w)))
 }
 

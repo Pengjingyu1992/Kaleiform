@@ -18,7 +18,8 @@ pub use edit::{
     AverageAxis, SimplifyOptions, add_anchor_points, average, join, remove_anchor, remove_redundant_points, simplify, simplify_with, smooth,
     split_into_grid,
 };
-pub use offset::{Cap, Join, offset_path, outline_stroke, stroke_region};
+pub use linesweeper::budget::{Budget as ComputationBudget, Stop as ComputationStop};
+pub use offset::{Cap, Join, offset_path, outline_stroke, stroke_region, try_offset_path};
 pub use pathfinder::{FaceMerger, PathfinderOp, Region, Shape, merge_regions, pathfinder, region_at, regions};
 pub use planar::{BuilderArrangement, SHAPE_BUILDER_MAX_SEGMENTS, cut_out, encloses_area, interior_point, live_paint, shape_builder};
 
@@ -31,4 +32,25 @@ pub enum PathOpsError {
     OpenPath,
     #[error("the shapes are too degenerate to combine")]
     Degenerate,
+    #[error("path computation cancelled")]
+    Cancelled,
+    #[error("path computation exceeded its work limit")]
+    WorkLimit,
+    #[error("path computation exceeded its time limit")]
+    TimeLimit,
+}
+
+impl From<ComputationStop> for PathOpsError {
+    fn from(stop: ComputationStop) -> Self {
+        match stop {
+            ComputationStop::Cancelled => Self::Cancelled,
+            ComputationStop::WorkLimit => Self::WorkLimit,
+            ComputationStop::TimeLimit => Self::TimeLimit,
+        }
+    }
+}
+
+/// Per-command allowance, shared across every selected path. Precision is unchanged.
+pub fn offset_budget() -> ComputationBudget {
+    ComputationBudget::new(1_000_000, std::time::Duration::from_secs(10))
 }

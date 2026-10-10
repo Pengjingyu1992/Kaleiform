@@ -53,6 +53,8 @@ copy_docs() {
   copy_font_licences "$dest"
   mkdir -p "$dest/licenses"
   cp "$ROOT/NOTICE" "$dest/NOTICE"
+  cp "$ROOT/vendor/linesweeper/LICENSE-MIT" "$dest/licenses/LICENSE-linesweeper-MIT"
+  cp "$ROOT/vendor/linesweeper/LICENSE-APACHE" "$dest/licenses/LICENSE-linesweeper-APACHE"
   cp "$ROOT"/assets/fonts/OFL-*.txt "$ROOT/assets/icons/LICENSE-lucide.txt" "$dest/licenses/"
   if [ -n "${RUST_LICENSES_DIR:-}" ]; then
     cp -R "$RUST_LICENSES_DIR" "$dest/licenses/rust-dependencies"

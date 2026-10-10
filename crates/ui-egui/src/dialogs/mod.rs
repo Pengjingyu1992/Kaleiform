@@ -310,6 +310,9 @@ fn run_and_close(app: &mut VectorcraftApp, id: &str, params: Value) -> DialogRes
 
 /// Close the open dialog as Cancel does, rolling back a live preview (`ui.dialog.cancel`).
 pub fn cancel(app: &mut VectorcraftApp) {
+    if app.ui.dialog.as_ref().is_some_and(|d| d.kind == "offsetPath") {
+        app.geometry_job.cancel();
+    }
     if app.ui.dialog.take().is_some_and(|d| spec(&d.kind).preview) {
         let _ = app.session.cancel_interaction();
     }

@@ -405,29 +405,92 @@ fn join_param(p: &Value, key: &str) -> po::Join {
     }
 }
 
-fn offset_path(s: &mut Session, p: &Value) -> Result<Value> {
-    let delta = len_param(p, "offset").unwrap_or(10.0);
-    if delta.abs() > 1e5 {
-        return Err(bad("object.path.offsetPath", "offset out of range"));
+/// Immutable input for a background Offset Path command.
+#[derive(Clone)]
+pub struct OffsetTask {
+    doc: Arc<Document>,
+    selection: vectorcraft_doc::Selection,
+    uid: u64,
+    revision: u64,
+    roots: Vec<NodeId>,
+    params: Value,
+    delta: f64,
+    join: po::Join,
+    miter: f64,
+}
+
+/// Completed geometry, kept private until the original command commits it.
+pub struct OffsetResult {
+    task: OffsetTask,
+    doc: Document,
+    ids: Vec<NodeId>,
+}
+
+fn offset_error(e: po::PathOpsError) -> EngineError {
+    EngineError::Other(format!("Offset Path: {e}"))
+}
+
+impl OffsetTask {
+    /// Snapshot the selected objects. No geometry is computed here.
+    pub fn prepare(s: &Session, p: &Value) -> Result<Self> {
+        let delta = len_param(p, "offset").unwrap_or(10.0);
+        if !delta.is_finite() || delta.abs() > 1e5 {
+            return Err(bad("object.path.offsetPath", "offset out of range"));
+        }
+        let st = s.doc()?;
+        Ok(Self {
+            doc: st.doc.clone(),
+            selection: st.selection.clone(),
+            uid: st.uid,
+            revision: st.revision,
+            roots: selected_roots(s)?,
+            params: p.clone(),
+            delta,
+            join: join_param(p, "joins"),
+            miter: num_param(p, "miterLimit").unwrap_or(4.0).clamp(1.0, 500.0),
+        })
     }
-    let join = join_param(p, "joins");
-    let miter = num_param(p, "miterLimit").unwrap_or(4.0).clamp(1.0, 500.0);
-    let roots = selected_roots(s)?;
-    let ids = s.edit("Offset Path", |d, sel| {
+
+    /// Whether this result can still be applied to the active document.
+    pub fn is_current(&self, s: &Session) -> bool {
+        s.active()
+            .is_some_and(|st| st.uid == self.uid && st.revision == self.revision && Arc::ptr_eq(&st.doc, &self.doc) && st.selection == self.selection)
+    }
+
+    /// Compute with one allowance shared by all selected objects.
+    pub fn compute(self, budget: &po::ComputationBudget) -> Result<OffsetResult> {
+        budget.run(|| self.compute_inner(budget)).map_err(|e| offset_error(e.into()))?
+    }
+
+    fn compute_inner(self, budget: &po::ComputationBudget) -> Result<OffsetResult> {
+        let mut d = (*self.doc).clone();
+        let (delta, join, miter) = (self.delta, self.join, self.miter);
+        let roots = &self.roots;
         let mut out = vec![];
-        for id in &roots {
+        for id in roots {
             let Some(n) = d.node(*id).cloned() else { continue };
             let mut lv = vec![];
             leaves(&n, &mut lv);
             let mut made = vec![];
             for l in lv.iter().filter(|l| !matches!(l.kind, NodeKind::Text(_))) {
+                budget.check(1).map_err(|e| offset_error(e.into()))?;
                 let Some((path, rule)) = node_path(l) else { continue };
-                let base = if matches!(l.kind, NodeKind::Compound { .. }) && path.is_closed() { po::normalize(&path, rule) } else { path };
-                let off = po::offset_path(&base, delta, join, miter);
+                if path.anchor_count() > 50_000 {
+                    return Err(offset_error(po::PathOpsError::WorkLimit));
+                }
+                let base = if matches!(l.kind, NodeKind::Compound { .. }) && path.is_closed() {
+                    po::try_normalize(&path, rule).map_err(offset_error)?
+                } else {
+                    path
+                };
+                let off = po::try_offset_path(&base, delta, join, miter, budget).map_err(offset_error)?;
+                if off.anchor_count() > 100_000 {
+                    return Err(offset_error(po::PathOpsError::WorkLimit));
+                }
                 if off.is_empty() {
                     continue;
                 }
-                made.push(shape_node(d, off, Some(l)));
+                made.push(shape_node(&mut d, off, Some(l)));
             }
             if made.is_empty() {
                 continue;
@@ -447,8 +510,50 @@ fn offset_path(s: &mut Session, p: &Value) -> Result<Value> {
         if out.is_empty() {
             return Err(EngineError::Other("Offset Path: select paths".into()));
         }
-        sel.set(out.iter().copied());
-        Ok(out)
+
+        Ok(OffsetResult { task: self, doc: d, ids: out })
+    }
+}
+
+impl Session {
+    /// Apply completed geometry as the active offset dialog's live preview.
+    pub fn preview_offset(&mut self, result: OffsetResult) -> Result<Value> {
+        if !result.task.is_current(self) || !self.in_interaction() {
+            return Err(EngineError::Other("Offset Path: document or selection changed; result discarded".into()));
+        }
+        let params = result.task.params.clone();
+        self.pending_offset = Some(result);
+        let r = self.preview("object.path.offsetPath", &params);
+        self.pending_offset = None;
+        r
+    }
+
+    /// Commit a completed background offset through the normal command and journal.
+    pub fn finish_offset(&mut self, result: OffsetResult) -> Result<Value> {
+        if !result.task.is_current(self) || self.in_interaction() {
+            return Err(EngineError::Other("Offset Path: document or selection changed; result discarded".into()));
+        }
+        let params = result.task.params.clone();
+        self.pending_offset = Some(result);
+        let r = self.execute("object.path.offsetPath", &params);
+        self.pending_offset = None;
+        r
+    }
+}
+
+fn offset_path(s: &mut Session, p: &Value) -> Result<Value> {
+    let result = match s.pending_offset.take() {
+        Some(result) => result,
+        None => OffsetTask::prepare(s, p)?.compute(&po::offset_budget())?,
+    };
+    if !result.task.is_current(s) {
+        return Err(EngineError::Other("Offset Path: document or selection changed; result discarded".into()));
+    }
+    let ids = result.ids;
+    s.edit("Offset Path", |d, sel| {
+        *d = result.doc;
+        sel.set(ids.iter().copied());
+        Ok(())
     })?;
     Ok(ids_json(&ids))
 }

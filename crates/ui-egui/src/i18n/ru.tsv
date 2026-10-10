@@ -3718,3 +3718,16 @@ axis	Both	Оба
 	Artboard	Монтажная область
 	Exit	Выйти
 	MIT OR Apache-2.0. Third-party attributions are included in the notices.	MIT ИЛИ Apache-2.0. Сведения об авторах сторонних компонентов включены в уведомления.
+	Cancel Offset Path	Отменить смещение контура
+	Computing Offset Path…	Вычисление смещения контура…
+	Cancelling Offset Path…	Отмена смещения контура…
+@msg	Offset Path: another offset is still running	Смещение контура: предыдущее вычисление ещё выполняется
+@msg	Offset Path: cancelled; original artwork kept	Смещение контура: отменено; исходный рисунок сохранён
+@msg	Offset Path: document or selection changed; result discarded	Смещение контура: документ или выделение изменились; результат отброшен
+@msg	Offset Path: preview still running	Смещение контура: предпросмотр ещё вычисляется
+@msg	Offset Path: worker stopped	Смещение контура: обработчик остановлен
+@msg	Offset Path: {e}	Смещение контура: {e}
+@msg	Offset Path: complete	Смещение контура: завершено
+@msg	path computation exceeded its work limit	превышен предел объёма вычислений
+@msg	path computation exceeded its time limit	превышен предел времени вычислений
+@msg	path computation cancelled	вычисление отменено

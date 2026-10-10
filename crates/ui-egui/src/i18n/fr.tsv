@@ -3731,3 +3731,16 @@ axis	Both	Les deux
 	ICF Top/Right	ICF haut/droite
 	ICF Bottom/Left	ICF bas/gauche
 	MIT OR Apache-2.0. Third-party attributions are included in the notices.	MIT OU Apache-2.0. Les attributions de tiers figurent dans les notices.
+	Cancel Offset Path	Annuler le décalage du tracé
+	Computing Offset Path…	Calcul du décalage du tracé…
+	Cancelling Offset Path…	Annulation du décalage du tracé…
+@msg	Offset Path: another offset is still running	Décalage du tracé : un autre calcul est en cours
+@msg	Offset Path: cancelled; original artwork kept	Décalage du tracé : annulé ; illustration originale conservée
+@msg	Offset Path: document or selection changed; result discarded	Décalage du tracé : document ou sélection modifié ; résultat ignoré
+@msg	Offset Path: preview still running	Décalage du tracé : aperçu en cours de calcul
+@msg	Offset Path: worker stopped	Décalage du tracé : processus arrêté
+@msg	Offset Path: {e}	Décalage du tracé : {e}
+@msg	Offset Path: complete	Décalage du tracé : terminé
+@msg	path computation exceeded its work limit	le calcul a dépassé la limite de travail
+@msg	path computation exceeded its time limit	le calcul a dépassé la limite de temps
+@msg	path computation cancelled	calcul annulé

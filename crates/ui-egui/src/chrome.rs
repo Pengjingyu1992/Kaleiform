@@ -546,7 +546,15 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                         );
                     }
                     // Background saves and exports in progress, else the last message.
-                    if let Some(job) = app.background.jobs.first() {
+                    if app.geometry_job.running() {
+                        ui.label(crate::i18n::t(if app.geometry_job.cancelled() { "Cancelling Offset Path…" } else { "Computing Offset Path…" }));
+                        ui.add(egui::Spinner::new().size(12.0).color(t.accent));
+                        if widgets::icon_button_enabled(ui, "x", crate::i18n::t("Cancel Offset Path"), false, !app.geometry_job.cancelled(), 20.0)
+                            .clicked()
+                        {
+                            app.run("geometry.cancel", json!({})).ok();
+                        }
+                    } else if let Some(job) = app.background.jobs.first() {
                         let more = app.background.jobs.len() - 1;
                         let label = crate::i18n::msg(&job.label);
                         let text = if more > 0 { format!("{label}… (+{more})") } else { format!("{label}…") };

@@ -141,6 +141,7 @@ fn offset_path_joins_is_a_dropdown() {
     assert_eq!(app.ui.dialog.as_ref().unwrap().fields["joins"], json!("round"));
     // OK: the same result as the command with round joins (not miter).
     confirm(&mut app).unwrap();
+    wait_offset(&mut app);
     assert!(app.ui.dialog.is_none());
     let made = |app: &VectorcraftApp| {
         let st = app.session.doc().unwrap();
@@ -150,6 +151,7 @@ fn offset_path_joins_is_a_dropdown() {
         let mut app = app_with_selection();
         app.run("select.all", json!({})).unwrap();
         app.run("object.path.offsetPath", json!({"offset": 10, "joins": joins, "miterLimit": 4})).unwrap();
+        wait_offset(&mut app);
         made(&app)
     };
     assert_eq!(made(&app), direct("round"));
@@ -197,7 +199,38 @@ fn offset_path_previews() {
     let preview = texts.iter().find(|(t, _)| t == "Preview").map(|(_, r)| *r).expect("a Preview checkbox");
     click(&ctx, &mut app, preview.center());
     frame(&ctx, &mut app, vec![]);
+    wait_offset(&mut app);
     assert_eq!(count(&app), 2, "previewed");
     cancel(&mut app);
     assert_eq!(count(&app), 1, "rolled back");
+}
+
+fn wait_offset(app: &mut VectorcraftApp) {
+    let start = std::time::Instant::now();
+    while app.geometry_job.running() && start.elapsed() < std::time::Duration::from_secs(5) {
+        crate::geometry_job::poll(app);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(!app.geometry_job.running());
+}
+
+#[test]
+fn offset_preview_commits_once_and_replaces_changed_parameters() {
+    let (ctx, mut app) = (ctx(), app_with_selection());
+    app.run("select.all", json!({})).unwrap();
+    let original = app.session.doc().unwrap().doc.clone();
+    let undo = app.session.doc().unwrap().history.undo.len();
+    crate::menus::invoke(&mut app, "object.path.offsetPath", json!({}));
+    app.ui.dialog.as_mut().unwrap().fields.insert("preview".into(), json!(true));
+    frame(&ctx, &mut app, vec![]);
+    wait_offset(&mut app);
+    app.ui.dialog.as_mut().unwrap().fields.insert("offset".into(), json!(20));
+    frame(&ctx, &mut app, vec![]);
+    wait_offset(&mut app);
+    confirm(&mut app).unwrap();
+    assert!(app.ui.dialog.is_none());
+    assert_eq!(app.session.doc().unwrap().history.undo.len(), undo + 1);
+    assert_eq!(app.session.journal.last().unwrap().1["offset"], 20.0);
+    app.run("edit.undo", json!({})).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&original, &app.session.doc().unwrap().doc));
 }

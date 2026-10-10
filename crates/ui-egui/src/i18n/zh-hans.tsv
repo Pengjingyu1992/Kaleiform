@@ -3396,3 +3396,16 @@ axis	Both	两者
 	Draft	草稿
 	Good	良好
 	Best	最佳
+	Computing Offset Path…	正在计算路径偏移…
+	Cancelling Offset Path…	正在取消路径偏移…
+	Cancel Offset Path	取消路径偏移
+@msg	Offset Path: complete	路径偏移：已完成
+@msg	Offset Path: cancelled; original artwork kept	路径偏移：已取消，原图已保留
+@msg	Offset Path: path computation exceeded its work limit	路径偏移：计算量过大，原图已保留
+@msg	Offset Path: path computation exceeded its time limit	路径偏移：计算超时，原图已保留
+@msg	Offset Path: path computation cancelled	路径偏移：已取消，原图已保留
+@msg	Offset Path: document or selection changed; result discarded	路径偏移：文档或选择已改变，已丢弃旧结果
+@msg	Offset Path: preview still running	路径偏移：预览仍在计算，请稍候或取消
+@msg	Offset Path: another offset is still running	路径偏移：上一项计算尚未结束
+@msg	Offset Path: {e}	路径偏移：{e}
+@msg	Offset Path: worker stopped	路径偏移：计算线程已停止

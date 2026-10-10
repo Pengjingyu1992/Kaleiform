@@ -115,6 +115,8 @@ plutil -lint "$APP/Contents/Info.plist"
 printf 'APPL????' >"$APP/Contents/PkgInfo"
 # Keep the applicable licenses and inherited attribution with the installed app.
 cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/NOTICE" "$APP/Contents/Resources/"
+cp "$ROOT/vendor/linesweeper/LICENSE-MIT" "$APP/Contents/Resources/LICENSE-linesweeper-MIT"
+cp "$ROOT/vendor/linesweeper/LICENSE-APACHE" "$APP/Contents/Resources/LICENSE-linesweeper-APACHE"
 # The licences of the craft-fonts fonts embedded in the binary (release builds).
 copy_docs "$APP/Contents/Resources"
 

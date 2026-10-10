@@ -3716,3 +3716,16 @@ axis	Both	Ambos
 	Constrain	Restringir
 	Free Transform	Transformación libre
 	Perspective Distort	Distorsión de perspectiva
+	Cancel Offset Path	Cancelar desplazamiento de trazado
+	Computing Offset Path…	Calculando desplazamiento de trazado…
+	Cancelling Offset Path…	Cancelando desplazamiento de trazado…
+@msg	Offset Path: another offset is still running	Desplazamiento de trazado: otro cálculo sigue en curso
+@msg	Offset Path: cancelled; original artwork kept	Desplazamiento de trazado: cancelado; se conserva el original
+@msg	Offset Path: document or selection changed; result discarded	Desplazamiento de trazado: cambió el documento o la selección; resultado descartado
+@msg	Offset Path: preview still running	Desplazamiento de trazado: la previsualización sigue en curso
+@msg	Offset Path: worker stopped	Desplazamiento de trazado: se detuvo el proceso
+@msg	Offset Path: {e}	Desplazamiento de trazado: {e}
+@msg	Offset Path: complete	Desplazamiento de trazado: completado
+@msg	path computation exceeded its work limit	el cálculo superó el límite de trabajo
+@msg	path computation exceeded its time limit	el cálculo superó el límite de tiempo
+@msg	path computation cancelled	cálculo cancelado

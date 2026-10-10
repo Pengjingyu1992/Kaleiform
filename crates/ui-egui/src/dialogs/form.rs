@@ -425,8 +425,30 @@ pub(super) fn preview(app: &mut crate::VectorcraftApp, ui: &mut egui::Ui, d: &mu
         d.fields.insert("preview".into(), json!(on));
     }
     if !on {
+        if cmd == "object.path.offsetPath" && app.geometry_job.running() {
+            app.geometry_job.cancel();
+        }
         if d.fields.remove(LAST).is_some() {
             let _ = app.session.cancel_interaction();
+        }
+        return;
+    }
+    if cmd == "object.path.offsetPath" {
+        if d.fields.get(LAST) != Some(&params) {
+            if app.geometry_job.running() {
+                app.geometry_job.cancel();
+                return;
+            }
+            let _ = app.session.cancel_interaction();
+            d.fields.remove("__offsetReady");
+            match crate::geometry_job::start_preview(app, &params) {
+                Ok(result) if result["background"] != true => {
+                    d.fields.insert("__offsetReady".into(), params.clone());
+                }
+                Err(e) => app.status(e),
+                _ => {}
+            }
+            d.fields.insert(LAST.into(), params);
         }
         return;
     }
@@ -442,6 +464,22 @@ pub(super) fn preview(app: &mut crate::VectorcraftApp, ui: &mut egui::Ui, d: &mu
 /// OK of a dialog using [`preview`]: keep the previewed `cmd` as one undo step (or run it when no
 /// preview runs) and close. On an error the dialog stays open.
 pub(super) fn commit_preview(app: &mut crate::VectorcraftApp, cmd: &str, params: Value) -> Result<Value, String> {
+    if cmd == "object.path.offsetPath" {
+        if app.geometry_job.running() {
+            return Err("Offset Path: preview still running".into());
+        }
+        let ready = app.ui.dialog.as_ref().is_some_and(|d| d.fields.get("__offsetReady") == Some(&params));
+        let result = if ready && app.session.in_interaction() {
+            app.session.commit_interaction().map(|_| Value::Null).map_err(|e| e.to_string())
+        } else {
+            let _ = app.session.cancel_interaction();
+            app.run(cmd, params)
+        };
+        if result.is_ok() {
+            app.ui.dialog = None;
+        }
+        return result;
+    }
     let r = if app.session.in_interaction() {
         match app.session.preview(cmd, &params) {
             Ok(_) => app.session.commit_interaction().map(|_| Value::Null).map_err(|e| e.to_string()),

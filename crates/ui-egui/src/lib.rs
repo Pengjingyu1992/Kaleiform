@@ -27,6 +27,7 @@ pub mod find_font;
 pub mod floating;
 pub mod font_menu;
 mod free_transform;
+mod geometry_job;
 pub mod graphics;
 pub mod i18n;
 pub mod icon_data;
@@ -372,6 +373,7 @@ pub struct VectorcraftApp {
     pub(crate) paste_chord: shortcuts::PasteChord,
     /// Saves and exports running in the background (Preferences → File Handling).
     pub background: background::Background,
+    pub(crate) geometry_job: geometry_job::GeometryJob,
     /// Data Recovery's timer and startup question ([`recovery`]).
     pub recovery: recovery::Timer,
     /// Modifiers the keyboard holds (from the host's input), given back after synthetic input.
@@ -449,6 +451,7 @@ impl VectorcraftApp {
             font_check: None,
             paste_chord: Default::default(),
             background: Default::default(),
+            geometry_job: Default::default(),
             recovery: Default::default(),
             host_modifiers: Default::default(),
             synthetic_modifiers: false,
@@ -520,6 +523,13 @@ impl VectorcraftApp {
     /// [`Self::run`] it, inside what asks for file dialogs.
     fn run_now(&mut self, id: &str, params: Value) -> Result<Value, String> {
         self.run_count = self.run_count.wrapping_add(1);
+        if id == "object.path.offsetPath" && !self.session.in_interaction() {
+            let result = geometry_job::start(self, &params);
+            if let Err(e) = &result {
+                self.status(e);
+            }
+            return result;
+        }
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             return r;
         }
@@ -833,6 +843,10 @@ impl VectorcraftApp {
         self.poll_font_check(ctx);
         picks::poll(self, ctx);
         background::poll(self);
+        geometry_job::poll(self);
+        if self.geometry_job.running() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
         if !self.background.jobs.is_empty() {
             // Keep the status bar's progress moving and pick the result up when it arrives.
             ctx.request_repaint_after(std::time::Duration::from_millis(100));

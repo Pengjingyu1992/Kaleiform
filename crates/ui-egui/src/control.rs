@@ -97,6 +97,7 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "nativeMenuBar": app.services.native_menu.is_some(),
         // Saves and exports still being written in the background (Background Save / Export).
         "background": app.background.jobs.iter().map(|j| j.label.as_str()).collect::<Vec<_>>(),
+        "geometryJob": { "running": app.geometry_job.running(), "cancelled": app.geometry_job.cancelled() },
     })
 }
 

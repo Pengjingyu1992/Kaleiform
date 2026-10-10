@@ -14,6 +14,15 @@ fn run_sequence(ops: &[Op], full_checks_every: usize) -> Result<(), TestCaseErro
     let initial = doc_json(&s.doc().unwrap().doc);
     for (i, op) in ops.iter().enumerate() {
         let (id, params) = op.command(&s);
+        // Opt-in hang diagnostics: persist synthetic input before entering expensive geometry.
+        if id == "object.path.offsetPath"
+            && let Ok(path) = std::env::var("KALEIFORM_MODEL_TRACE")
+        {
+            let input = json!({"step": i, "command": id, "params": params,
+                "ops": format!("{ops:?}"), "document": doc_json(&s.doc().unwrap().doc),
+                "selection": s.doc().unwrap().selection});
+            std::fs::write(path, serde_json::to_vec(&input).unwrap()).unwrap();
+        }
         // Any result is fine; panics are not.
         let _ = s.execute(&id, &params);
         let check = if i % full_checks_every == 0 || i + 1 == ops.len() { check_all(&mut s) } else { check_session(&s) };

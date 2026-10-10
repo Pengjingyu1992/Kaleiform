@@ -23,6 +23,7 @@ use vectorcraft_tools::{PaintDefaults, Tool};
 pub use cmd::EyedropperOptions;
 pub use cmd::clipboard::Clipboard;
 pub use cmd::distortcmds::perspective_click;
+pub use cmd::pathops::{OffsetResult, OffsetTask};
 pub use cmd::rasterfx::{export_pdf, flatten_raster_effects};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
 pub use tooling::{UiRequest, ViewInfo};
@@ -777,6 +778,7 @@ impl Default for Prefs {
 }
 
 pub struct Session {
+    pending_offset: Option<OffsetResult>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub prefs: Prefs,
@@ -876,6 +878,7 @@ impl Session {
         vectorcraft_doc::placed_document::set_file_reader(cmd::place::document::read_file_again);
         Self {
             docs: vec![],
+            pending_offset: None,
             active: None,
             prefs: Prefs::default(),
             paint: PaintDefaults::default(),

@@ -77,9 +77,31 @@ pub fn stroke_region(outlines: &[BezPath]) -> PathData {
 /// Closed subpaths are treated as a non-zero filled region; open subpaths are outlined with a
 /// stroke of width `2|delta|` (butt caps).
 pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) -> PathData {
-    if !delta.is_finite() || path.is_empty() {
-        return PathData::default();
+    try_offset_path(path, delta, join, miter_limit, &crate::offset_budget()).unwrap_or_default()
+}
+
+/// Fallible offset with a shared cancellation/work allowance. No partial path is returned.
+pub fn try_offset_path(
+    path: &PathData,
+    delta: f64,
+    join: Join,
+    miter_limit: f64,
+    budget: &crate::ComputationBudget,
+) -> Result<PathData, crate::PathOpsError> {
+    budget.run(|| offset_inner(path, delta, join, miter_limit)).map_err(crate::PathOpsError::from)?
+}
+
+fn offset_inner(path: &PathData, delta: f64, join: Join, miter_limit: f64) -> Result<PathData, crate::PathOpsError> {
+    if !delta.is_finite() || !miter_limit.is_finite() {
+        return Err(crate::PathOpsError::NonFinite);
     }
+    if path.is_empty() {
+        return Ok(PathData::default());
+    }
+    if path.anchor_count() > 50_000 {
+        return Err(crate::PathOpsError::WorkLimit);
+    }
+    crate::boolean::eps_for([&path.to_bezpath()])?;
     let closed = PathData::new(path.subpaths.iter().filter(|s| s.closed && s.anchors.len() > 1).cloned().collect());
     let open: Vec<SubPath> = path.subpaths.iter().filter(|s| !s.closed && s.anchors.len() > 1).cloned().collect();
     let d = delta.abs();
@@ -90,10 +112,14 @@ pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) ->
     } else {
         BezPath::new()
     };
-    let Ok(arr) = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)]) else {
-        return PathData::default();
-    };
+    if fill.elements().len() + ring.elements().len() + open_bp.elements().len() > 100_000 {
+        return Err(crate::PathOpsError::WorkLimit);
+    }
+    let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
     let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) };
+    if !linesweeper::budget::checkpoint(0) {
+        return Err(crate::PathOpsError::WorkLimit);
+    }
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
     // true offset is bounded by arrangement edges, so a contour is spurious iff a point deep inside
@@ -103,10 +129,10 @@ pub fn offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64) ->
     let spurious: Vec<bool> =
         c.contours().map(|k| k.outer == drop_outer && deep_point(&k.path).is_some_and(|p| dist_to(&src, p) < d * (1.0 - 1e-4) - 1e-6)).collect();
     if !spurious.contains(&true) {
-        return all_contours_to_path(&c, &Tidy::free(DEFAULT_PRECISION));
+        return Ok(all_contours_to_path(&c, &Tidy::free(DEFAULT_PRECISION)));
     }
     let keep = (0..spurious.len()).filter(|&i| !has_marked_ancestor(&c, i, &spurious)).map(ContourIdx);
-    contours_to_path(&c, keep, &Tidy::free(DEFAULT_PRECISION))
+    Ok(contours_to_path(&c, keep, &Tidy::free(DEFAULT_PRECISION)))
 }
 
 fn has_marked_ancestor(c: &Contours, mut i: usize, marked: &[bool]) -> bool {
@@ -140,7 +166,7 @@ fn deep_point(bp: &BezPath) -> Option<kurbo::Point> {
                 xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
             }
         };
-        kurbo::flatten(bp.iter(), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
+        kurbo::flatten(bp.iter().take_while(|_| linesweeper::budget::checkpoint(1)), 0.01 * r.width().min(r.height()).max(1e-6), |el| match el {
             PathEl::MoveTo(p) => {
                 start = p;
                 prev = Some(p);
@@ -172,7 +198,14 @@ fn deep_point(bp: &BezPath) -> Option<kurbo::Point> {
 
 fn dist_to(bp: &BezPath, p: kurbo::Point) -> f64 {
     use kurbo::ParamCurveNearest;
-    bp.segments().map(|s| s.nearest(p, 1e-6).distance_sq).fold(f64::INFINITY, f64::min).sqrt()
+    let mut distance = f64::INFINITY;
+    for s in bp.segments() {
+        if !linesweeper::budget::checkpoint(1) {
+            return f64::INFINITY;
+        }
+        distance = distance.min(s.nearest(p, 1e-6).distance_sq);
+    }
+    distance.sqrt()
 }
 
 #[cfg(test)]

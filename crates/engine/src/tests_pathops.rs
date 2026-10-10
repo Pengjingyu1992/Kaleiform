@@ -13,6 +13,50 @@ fn session() -> Session {
     s
 }
 
+#[test]
+fn prepared_offset_is_atomic_journaled_and_one_undo() {
+    let mut s = session();
+    rect(&mut s, 10.0, 10.0, 40.0, 30.0);
+    s.execute("select.all", &json!({})).unwrap();
+    let before = s.doc().unwrap().doc.clone();
+    let selection = s.doc().unwrap().selection.clone();
+    let history = s.doc().unwrap().history.undo.len();
+    let task = OffsetTask::prepare(&s, &json!({"offset": 3.0})).unwrap();
+    let result = task.compute(&vectorcraft_pathops::offset_budget()).unwrap();
+    assert!(Arc::ptr_eq(&before, &s.doc().unwrap().doc));
+    s.finish_offset(result).unwrap();
+    assert_eq!(s.doc().unwrap().history.undo.len(), history + 1);
+    assert_eq!(s.journal.last().unwrap().0, "object.path.offsetPath");
+    let expected = s.doc().unwrap().doc.clone();
+    let mut replay = Session::new();
+    for (id, p) in &s.journal {
+        replay.execute(id, p).unwrap();
+    }
+    assert_eq!(serde_json::to_value(&*expected).unwrap(), serde_json::to_value(&*replay.doc().unwrap().doc).unwrap());
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(Arc::ptr_eq(&before, &s.doc().unwrap().doc));
+    assert_eq!(s.doc().unwrap().selection, selection);
+}
+
+#[test]
+fn failed_or_stale_offsets_keep_the_document_and_history() {
+    let mut s = session();
+    rect(&mut s, 0.0, 0.0, 40.0, 30.0);
+    s.execute("select.all", &json!({})).unwrap();
+    let task = OffsetTask::prepare(&s, &json!({"offset": 3.0})).unwrap();
+    let before = s.doc().unwrap().doc.clone();
+    let history = s.doc().unwrap().history.undo.len();
+    let budget = vectorcraft_pathops::ComputationBudget::new(1, std::time::Duration::from_secs(5));
+    assert!(task.clone().compute(&budget).is_err());
+    assert!(Arc::ptr_eq(&before, &s.doc().unwrap().doc));
+    assert_eq!(s.doc().unwrap().history.undo.len(), history);
+    let result = task.compute(&vectorcraft_pathops::offset_budget()).unwrap();
+    s.execute("select.none", &json!({})).unwrap();
+    assert!(s.finish_offset(result).is_err());
+    assert!(Arc::ptr_eq(&before, &s.doc().unwrap().doc));
+    assert_eq!(s.doc().unwrap().history.undo.len(), history);
+}
+
 fn rect(s: &mut Session, x: f64, y: f64, w: f64, h: f64) -> NodeId {
     let r = s.execute("shape.rectangle", &json!({"x": x, "y": y, "width": w, "height": h})).unwrap();
     NodeId(r["id"].as_u64().unwrap())

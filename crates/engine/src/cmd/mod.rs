@@ -45,7 +45,7 @@ mod package;
 mod paint;
 mod panelcmds;
 mod path;
-mod pathops;
+pub(crate) mod pathops;
 mod patterncmds;
 pub mod pdfcmds;
 pub mod perspgrid;
