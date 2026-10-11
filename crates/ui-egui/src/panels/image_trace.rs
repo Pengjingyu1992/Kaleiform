@@ -763,6 +763,40 @@ mod tests {
     }
 
     #[test]
+    fn trace_flyout_scrolls_above_the_status_bar_in_short_windows() {
+        for height in [500.0, 700.0] {
+            let mut app = traced_app();
+            app.ui.open_panel = Some("imageTrace".into());
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(950.0, height));
+            let frame = |app: &mut VectorcraftApp, events, time| {
+                let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, time: Some(time), ..Default::default() }, |ui| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                });
+                out.textures_delta.clear();
+                out
+            };
+            for k in 0..4 {
+                frame(&mut app, vec![], f64::from(k) * 0.1).textures_delta.clear();
+            }
+            let area = ctx.memory(|m| m.area_rect(egui::Id::new("icon-panel"))).unwrap();
+            assert!(area.bottom() <= app.canvas_rect.unwrap().bottom(), "trace panel overlaps the status bar: {area:?}");
+            let mut out = frame(&mut app, crate::toolbar::tests::wheel(area.center(), 2000.0), 0.4);
+            for k in 5..40 {
+                out = frame(&mut app, vec![], f64::from(k) * 0.1);
+            }
+            out.textures_delta.clear();
+            assert!(
+                out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Update Trace"
+                && s.clip_rect.contains_rect(Rect::from_min_size(t.pos, t.galley.size())))),
+                "scrolling reveals Update Trace"
+            );
+        }
+    }
+
+    #[test]
     fn full_trace_panel_fits_narrow_and_wide_layouts() {
         for width in [230.0, 280.0, 520.0] {
             for preset in ["Default", "6 Colors", "High Fidelity Photo"] {

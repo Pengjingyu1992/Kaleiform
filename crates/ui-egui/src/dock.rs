@@ -231,7 +231,9 @@ pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
     // that keeps the flyout on screen.
     let available = (right - screen.left() - 6.0).clamp(24.0, 520.0);
     let width = panel_width(id).min(available);
-    let tall = (screen.height() - FLYOUT_TOP - 26.0 - 20.0 - 12.0).max(1.0);
+    // Keep the trace controls above the hint/status bars, scrolling in shorter windows.
+    let bottom = if id == "imageTrace" { app.canvas_rect.map_or(screen.bottom(), |r| r.bottom().min(screen.bottom())) } else { screen.bottom() };
+    let tall = (bottom - FLYOUT_TOP - 26.0 - 20.0 - 12.0).max(1.0);
     let mut open = true;
     let mut torn = None;
     let area = egui::Area::new(egui::Id::new("icon-panel")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_TOP);

@@ -122,6 +122,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
   controls, common Ignore White, wrapped result counts, and Preview / explicit Update Trace.
   Staged parameters survive view changes; switching selection refreshes settings and statistics.
   The panel, Properties, control bar and native menus share the pending-settings expansion guard.
+  In short windows the trace flyout scrolls above the hint/status bars instead of covering them.
   Trace computation remains synchronous; this does not implement a global Auto-Smooth slider.
   Behaviour references: https://helpx.adobe.com/illustrator/using/tool-techniques/smooth-tool.html
   and https://helpx.adobe.com/illustrator/desktop/manage-objects/traces-mockups-symbols/image-trace-panel-options.html.
