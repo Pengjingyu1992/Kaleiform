@@ -304,7 +304,8 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
         return;
     }
     let t = Tokens::get(ctx);
-    let screen = ctx.content_rect();
+    let mut screen = ctx.content_rect();
+    screen.max.y = app.canvas_rect.map_or(screen.bottom(), |r| r.bottom().min(screen.bottom()));
     let pointer = ctx.input(|i| i.pointer.interact_pos());
     let mut action = None;
     for gi in 0..app.ui.floating_panels.len() {
@@ -314,12 +315,14 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
         let active = ids.get(g.active).copied().unwrap_or(first);
         let given = g.width.map(|w| w.min(screen.width() - 16.0));
         let area = area_id(first);
-        let size = ctx.memory(|m| m.area_rect(area)).map_or(vec2(dock::panel_width(active), 200.0), |r| r.size());
+        let mut size = ctx.memory(|m| m.area_rect(area)).map_or(vec2(dock::panel_width(active), 200.0), |r| r.size());
+        // Keep a usable scroll viewport when a group is placed against the bottom edge.
+        size.y = size.y.max((TITLE + STRIP + 60.0 + 120.0).min(screen.height()));
         let pos = clamp(g.pos, size, screen);
         // The tabbed group's panels fill (Layers) or scroll (Properties) to near the window's bottom,
         // leaving room for their margins (a group that only just fitted would creep up a little each
         // frame).
-        let tall = (screen.bottom() - pos.y - TITLE - STRIP - 60.0).clamp(120.0, 560.0);
+        let tall = (screen.bottom() - pos.y - TITLE - STRIP - 60.0).clamp(1.0, 560.0);
         let lone = ids.len() == 1;
         egui::Area::new(area).order(egui::Order::Middle).fixed_pos(pos).show(ctx, |ui| {
             crate::glass::frame(ui, |ui| {
@@ -769,6 +772,22 @@ mod tests {
         let screen = Rect::from_min_size(Pos2::ZERO, SCREEN);
         assert!(screen.contains_rect(g), "clamped into the window: {g:?}");
         assert!(h.dock_tabs().len() == 2 && h.app.ui.dock_tab == DockTab::Properties);
+    }
+
+    #[test]
+    fn floating_panels_near_the_bottom_keep_the_status_bars_clear() {
+        let mut h = Harness::new();
+        for (id, _) in all_panels() {
+            h.app.run("window.panel.float", json!({"panel": id, "x": SCREEN.x - 10.0, "y": SCREEN.y - 10.0})).unwrap();
+            h.settle();
+            let rect = h.group(id);
+            let bottom = h.app.canvas_rect.unwrap().bottom();
+            assert!(rect.bottom() <= bottom + 1.0, "{id} covers the status bars: {rect:?}, canvas ends at {bottom}");
+            if matches!(id, "properties" | "layers" | "imageTrace" | "glyphs" | "separations") {
+                assert!(rect.height() >= TITLE + STRIP + 120.0, "{id} has no usable body: {rect:?}");
+            }
+            h.app.run("window.panel.dock", json!({"panel": id})).unwrap();
+        }
     }
 
     #[test]

@@ -2428,7 +2428,7 @@
 	Shift to Color…	位移至顏色…
 	Shifts the tints of global and spot colors; other colors stay.	位移整體色與特別色的色調；其他顏色維持不變。
 	Show	顯示
-	Show Active Plane Widget	顯示作用中平面 Widget
+	Show Active Plane Widget	顯示作用中平面控制項
 	Show All	全部顯示
 	Show All Hidden Attributes	顯示所有隱藏屬性
 	Show All Layers	顯示所有圖層
@@ -2444,7 +2444,7 @@
 	Show Code	顯示程式碼
 	Show Color Groups	顯示顏色群組
 	Show Color Swatches	顯示顏色色票
-	Show Corner Widget	顯示轉角 Widget
+	Show Corner Widget	顯示轉角控制項
 	Show East Asian Options	顯示東亞選項
 	Show Edges	顯示邊緣
 	Show Embedded	顯示已嵌入
@@ -2972,7 +2972,7 @@
 	Welcome to Kaleiform	歡迎使用虹構
 	When pasting text	貼上文字時
 	White	白色
-	Widget Position:	Widget 位置：
+	Widget Position:	控制項位置：
 	Width	寬度
 	Width and Height	寬度與高度
 	Width Point	寬度點
@@ -3209,3 +3209,15 @@ axis	Both	兩者
 	Update Trace	更新描摹
 	Convert the trace to editable paths	轉換為可編輯的向量路徑
 	Apply tracing settings before expanding	請先套用描摹設定，再擴展
+
+# Tool option names and perspective widget corners.
+	Twirl	旋轉扭曲
+	Pucker	收縮
+	Bloat	膨脹
+	Scallop	扇貝
+	Crystallize	晶格化
+	Wrinkle	皺褶
+	Top Left	左上
+	Top Right	右上
+	Bottom Left	左下
+	Bottom Right	右下

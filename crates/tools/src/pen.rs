@@ -295,23 +295,28 @@ impl Tool for PenTool {
             PointerKind::DoubleClick => vec![],
         }
     }
-    fn key(&mut self, cx: &ToolContext, key: ToolKey, _m: Mods) -> Vec<Action> {
+    fn key(&mut self, _cx: &ToolContext, key: ToolKey, _m: Mods) -> Vec<Action> {
         match key {
             ToolKey::Enter | ToolKey::Escape => {
+                let pending = self.busy();
                 self.stop();
                 self.drag = None;
                 self.handle = None;
                 self.snap.clear();
-                // An Alt gesture under way ends as it stands.
-                self.convert.take().map(|mut t| t.deactivate(cx)).unwrap_or_default()
+                self.convert = None;
+                if pending { vec![if key == ToolKey::Escape { Action::Cancel } else { Action::Commit }] } else { vec![] }
             }
             _ => vec![],
         }
     }
     fn deactivate(&mut self, cx: &ToolContext) -> Vec<Action> {
+        let pending = self.busy();
         self.stop();
+        self.drag = None;
+        self.handle = None;
         self.snap.clear();
-        self.convert.take().map(|mut t| t.deactivate(cx)).unwrap_or_default()
+        let actions = self.convert.take().map(|mut t| t.deactivate(cx)).unwrap_or_default();
+        if pending && actions.is_empty() { vec![Action::Commit] } else { actions }
     }
     fn overlays(&self, cx: &ToolContext) -> Vec<Overlay> {
         if let Some(t) = &self.convert {

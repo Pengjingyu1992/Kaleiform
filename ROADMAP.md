@@ -114,6 +114,16 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Catalogue-wide QA and gesture cleanup (2026-10-12, M2.140):** safety sweeps now cover all
+  90 tools across empty/single/multiple-object fixtures, plain/Shift/Alt drags, release,
+  Escape and switching tools (2,430 cases), plus persistent tool settings. Selection,
+  Direct/Group Selection and Pen cancel pending drags without leaving an interaction open;
+  switching tools finishes leftover previews without stealing a batch's snapshot. Icon flyouts
+  and floating panels keep the hint/status bars clear, including long Glyphs and Separations
+  panels. Chinese tool names, perspective widget corners, brightness, document units and
+  process-plate labels are localized without translating user names or stored identifiers.
+  See [the QA scope and remaining gaps](docs/qa-2026-10-12.md). These checks do not implement
+  Touch Type, certify unused preferences or raise the feature-parity scores.
 - **Smooth and Image Trace usability (2026-10-12):** Smooth previews from the interaction snapshot,
   commits once per drag and cancels with Escape. Selections over 4,000 anchors compute on release
   to avoid repeated fitting on every move. Its brush has a zoom-independent radius and a

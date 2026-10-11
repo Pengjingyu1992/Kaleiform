@@ -2333,7 +2333,7 @@
 	Shift to Color…	偏移至颜色…
 	Shifts the tints of global and spot colors; other colors stay.	偏移全局色和专色的淡色；其他颜色保持不变。
 	Show	显示
-	Show Active Plane Widget	显示当前平面 Widget
+	Show Active Plane Widget	显示当前平面控件
 	Show All	显示全部
 	Show All Hidden Attributes	显示所有隐藏属性
 	Show All Plates	显示所有印版
@@ -2348,7 +2348,7 @@
 	Show Code	显示代码
 	Show Color Groups	显示颜色组
 	Show Color Swatches	显示颜色色板
-	Show Corner Widget	显示转角 Widget
+	Show Corner Widget	显示转角控件
 	Show East Asian Options	显示东亚文字选项
 	Show Edges	显示边缘
 	Show Embedded	显示已嵌入
@@ -2871,7 +2871,7 @@
 	Welcome to Kaleiform	欢迎使用虹构
 	When pasting text	粘贴文字时
 	White	白色
-	Widget Position:	Widget 位置：
+	Widget Position:	控件位置：
 	Width	宽度
 	Width and Height	宽度与高度
 	Width Point	宽度点
@@ -3428,3 +3428,15 @@ axis	Both	两者
 	Update Trace	更新描摹
 	Convert the trace to editable paths	转换为可编辑的矢量路径
 	Apply tracing settings before expanding	请先应用描摹设置，再扩展
+
+# Tool option names and perspective widget corners.
+	Twirl	旋转扭曲
+	Pucker	收缩
+	Bloat	膨胀
+	Scallop	扇贝
+	Crystallize	晶格化
+	Wrinkle	褶皱
+	Top Left	左上
+	Top Right	右上
+	Bottom Left	左下
+	Bottom Right	右下

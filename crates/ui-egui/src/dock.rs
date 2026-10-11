@@ -231,8 +231,8 @@ pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
     // that keeps the flyout on screen.
     let available = (right - screen.left() - 6.0).clamp(24.0, 520.0);
     let width = panel_width(id).min(available);
-    // Keep the trace controls above the hint/status bars, scrolling in shorter windows.
-    let bottom = if id == "imageTrace" { app.canvas_rect.map_or(screen.bottom(), |r| r.bottom().min(screen.bottom())) } else { screen.bottom() };
+    // Long panels scroll above the hint/status bars instead of covering them.
+    let bottom = app.canvas_rect.map_or(screen.bottom(), |r| r.bottom().min(screen.bottom()));
     let tall = (bottom - FLYOUT_TOP - 26.0 - 20.0 - 12.0).max(1.0);
     let mut open = true;
     let mut torn = None;
@@ -365,6 +365,7 @@ mod tests {
                 app.run("file.new", json!({"width": 300, "height": 300})).unwrap();
             }
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+            app.canvas_rect = Some(egui::Rect::from_min_max(screen.min, screen.max - vec2(0.0, 49.0)));
             for &(id, _, _) in ICON_PANELS {
                 app.ui.open_panel = Some(id.into());
                 app.ui.status.clear();
@@ -381,6 +382,7 @@ mod tests {
                 let area = egui::AreaState::load(&ctx, egui::Id::new("icon-panel")).unwrap().rect();
                 let rail = egui::containers::panel::PanelState::load(&ctx, egui::Id::new("icon_column")).unwrap().outer_rect.left();
                 assert!(screen.contains_rect(area), "{id}: {area:?} outside {screen:?}");
+                assert!(area.bottom() <= app.canvas_rect.unwrap().bottom() + 1.0, "{id}: {area:?} covers the status bars");
                 assert!(app.ui.status.is_empty(), "{id}: painting a panel reported an error: {}", app.ui.status);
                 assert!(area.right() <= rail, "{id}: panel overlaps the icon column");
                 if id == "stroke" && size.y >= 900.0 {

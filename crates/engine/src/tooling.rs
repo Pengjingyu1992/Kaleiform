@@ -88,6 +88,11 @@ impl Session {
         }
         let acts = self.with_tool_cx(view, |t, cx| t.deactivate(cx));
         self.apply_actions(acts)?;
+        // Some drawing tools have no deactivation actions. Never let their last preview
+        // become the next tool's interaction; an explicit batch still owns its snapshot.
+        if self.batch_stash.is_none() && self.in_interaction() {
+            self.commit_interaction()?;
+        }
         self.keep_tool_settings();
         self.tool = self.make_tool(id);
         if vectorcraft_tools::catalog::is_selection_tool(id) {

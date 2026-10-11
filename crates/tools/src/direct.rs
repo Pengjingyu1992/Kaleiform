@@ -37,7 +37,7 @@ use crate::meshedit::MeshEdit;
 use crate::pathtype::{self, BracketDrag, over_bracket};
 use crate::rulerguide::GuideEdit;
 use crate::select::{MoveSnap, is_area_type, matrix_json};
-use crate::{Action, Cursor, Mods, Overlay, PointerEvent, PointerKind, Tool, ToolContext};
+use crate::{Action, Cursor, Mods, Overlay, PointerEvent, PointerKind, Tool, ToolContext, ToolKey};
 
 #[derive(Clone, Debug)]
 enum State {
@@ -290,6 +290,18 @@ impl Tool for DirectSelectionTool {
     }
     fn busy(&self) -> bool {
         !matches!(self.state, State::Idle) || self.guide.busy()
+    }
+    fn key(&mut self, _cx: &ToolContext, key: ToolKey, _mods: Mods) -> Vec<Action> {
+        if key != ToolKey::Escape || !self.busy() {
+            return vec![];
+        }
+        *self = Self::new(self.group);
+        vec![Action::Cancel]
+    }
+    fn deactivate(&mut self, _cx: &ToolContext) -> Vec<Action> {
+        let busy = self.busy();
+        *self = Self::new(self.group);
+        if busy { vec![Action::Commit] } else { vec![] }
     }
     fn pointer(&mut self, cx: &ToolContext, ev: &PointerEvent) -> Vec<Action> {
         if let Some(out) = self.guide.pointer(cx, ev) {

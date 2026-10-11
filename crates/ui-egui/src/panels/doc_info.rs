@@ -79,6 +79,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 if value.is_empty() {
                     widgets::dim_name(ui, label);
                 } else {
+                    let value = if s["id"] == "document" && r[0] == "Units" && !named.contains(&k) { tl!(value) } else { value };
                     row(ui, label, value.into());
                 }
             }

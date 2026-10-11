@@ -132,7 +132,8 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     }
     ui.add_space(10.0);
     check(ui, d, "showBrush", tl!("Show Brush Size"));
-    let hint = crate::i18n::fmt(tl!("{shortcut} with the tool sizes the brush"), &[("shortcut", crate::menus::pretty_shortcut("Alt+Drag").as_str())]);
+    let shortcut = crate::menus::pretty_shortcut(&format!("Alt+{}", tl!("Drag")));
+    let hint = crate::i18n::fmt(tl!("{shortcut} with the tool sizes the brush"), &[("shortcut", shortcut.as_str())]);
     ui.label(egui::RichText::new(hint).size(11.5).color(Tokens::get(ui.ctx()).text_dim));
     false
 }
