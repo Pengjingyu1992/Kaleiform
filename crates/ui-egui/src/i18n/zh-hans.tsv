@@ -3421,3 +3421,10 @@ axis	Both	两者
 	Czech	捷克语
 	Russian	俄语
 	Chinese	中文
+
+# Image Trace staged settings.
+	Paths:	路径：
+	Unapplied settings	有尚未应用的设置
+	Update Trace	更新描摹
+	Convert the trace to editable paths	转换为可编辑的矢量路径
+	Apply tracing settings before expanding	请先应用描摹设置，再扩展

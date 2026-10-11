@@ -415,7 +415,9 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     let view_info = app.view_info();
     // View → Hide Gradient Annotator hides the Gradient tool's annotator.
-    if app.session.tool_id() != "gradient" || app.ui.view.gradient_annotator {
+    if (app.session.tool_id() != "gradient" || app.ui.view.gradient_annotator)
+        && (app.session.tool_id() != "smooth" || app.hover_doc.is_some() || app.session.tool_busy())
+    {
         let overlays = app.session.overlays(view_info);
         draw_overlays(&painter, &xf, &overlays, &t, HandleLook::of(&app.session.prefs));
     }

@@ -3158,3 +3158,9 @@ theme	Appearance	外観
 @msg	path computation exceeded its work limit	計算量の上限に達しました
 @msg	path computation exceeded its time limit	計算時間の上限に達しました
 @msg	path computation cancelled	計算を中止しました
+
+	Paths:	パス：
+	Unapplied settings	未適用の設定
+	Update Trace	トレースを更新
+	Convert the trace to editable paths	トレースを編集可能なパスに変換
+	Apply tracing settings before expanding	拡張する前にトレース設定を適用してください

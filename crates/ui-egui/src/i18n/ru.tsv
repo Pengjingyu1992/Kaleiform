@@ -3732,3 +3732,9 @@ axis	Both	Оба
 @msg	path computation exceeded its work limit	превышен предел объёма вычислений
 @msg	path computation exceeded its time limit	превышен предел времени вычислений
 @msg	path computation cancelled	вычисление отменено
+
+	Paths:	Контуры:
+	Unapplied settings	Неприменённые настройки
+	Update Trace	Обновить трассировку
+	Convert the trace to editable paths	Преобразовать трассировку в редактируемые контуры
+	Apply tracing settings before expanding	Примените настройки трассировки перед разбором

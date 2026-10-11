@@ -29,7 +29,7 @@ const ROWS: &[Row] = &[
     (&["rectangularGrid"], None, &["rows", "columns"]),
     (&["polarGrid"], None, &["concentric", "radial"]),
     (&["pencil", "paintbrush"], None, &["fidelity", "fill", "editWithin", "closeWithin"]),
-    (&["smooth"], None, &["fidelity"]),
+    (&["smooth"], None, &["fidelity", "radius"]),
     (&["blobBrush", "eraser"], None, &["size"]),
     (&["polygon"], None, &["sides"]),
     (&["star"], None, &["points"]),

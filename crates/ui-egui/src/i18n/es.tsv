@@ -3730,3 +3730,9 @@ axis	Both	Ambos
 @msg	path computation exceeded its work limit	el cálculo superó el límite de trabajo
 @msg	path computation exceeded its time limit	el cálculo superó el límite de tiempo
 @msg	path computation cancelled	cálculo cancelado
+
+	Paths:	Trazados:
+	Unapplied settings	Ajustes sin aplicar
+	Update Trace	Actualizar calco
+	Convert the trace to editable paths	Convertir el calco en trazados editables
+	Apply tracing settings before expanding	Aplica los ajustes del calco antes de expandir

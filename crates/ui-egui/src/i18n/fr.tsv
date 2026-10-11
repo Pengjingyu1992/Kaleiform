@@ -3745,3 +3745,9 @@ axis	Both	Les deux
 @msg	path computation exceeded its work limit	le calcul a dépassé la limite de travail
 @msg	path computation exceeded its time limit	le calcul a dépassé la limite de temps
 @msg	path computation cancelled	calcul annulé
+
+	Paths:	Tracés :
+	Unapplied settings	Réglages non appliqués
+	Update Trace	Actualiser la vectorisation
+	Convert the trace to editable paths	Convertir la vectorisation en tracés modifiables
+	Apply tracing settings before expanding	Appliquez les réglages avant de décomposer

@@ -5,8 +5,8 @@
 //! and commit on release; Alt on release (or ending near the start) closes the path, and starting
 //! near an end of a selected open path continues it. The Pencil's new path starts and ends on
 //! Smart Guides ([`DrawSnap`]: an anchor, a path, in line with the art), hovering too; the points
-//! between follow the hand. The other tools collect the drag polyline (shown as an overlay) and run
-//! one command on release.
+//! between follow the hand. Smooth previews the selected region from the snapshot (large
+//! selections fit on release). The other tools collect a polyline and run one command on release.
 
 use serde_json::{Value, json};
 use vectorcraft_doc::NodeId;
@@ -33,6 +33,10 @@ pub struct GestureTool {
     pub edit_within: f64,
     /// "Close paths when ends are within N pixels".
     pub close_within: f64,
+    /// Smooth brush radius in screen pixels, independent of document zoom.
+    pub radius: f64,
+    hover: Option<Point>,
+    live_smooth: bool,
     /// Smart Guides for the Pencil's ends.
     snap: DrawSnap,
 }
@@ -61,6 +65,9 @@ impl GestureTool {
             fill: false,
             edit_within: 12.0,
             close_within: 15.0,
+            radius: 12.0,
+            hover: None,
+            live_smooth: false,
             snap: DrawSnap::default(),
         }
     }
@@ -122,6 +129,10 @@ impl GestureTool {
         v
     }
 
+    fn smooth_params(&self, cx: &ToolContext) -> Value {
+        json!({"points": points_json(&self.points), "radius": cx.tol(self.radius), "fidelity": self.fidelity})
+    }
+
     fn finish(&mut self, cx: &ToolContext, m: Mods) -> Vec<Action> {
         let pts = &self.points;
         let has_sel = !cx.selection.is_empty();
@@ -139,7 +150,10 @@ impl GestureTool {
             "eraser" => vec![Action::Exec("path.eraseRegion".into(), json!({"points": points_json(pts), "size": self.size}))],
             "knife" if pts.len() >= 2 => vec![Action::Exec("path.knife".into(), json!({"points": points_json(pts)}))],
             "smooth" if has_sel && pts.len() >= 2 => {
-                vec![Action::Exec("path.smoothRegion".into(), json!({"points": points_json(pts), "radius": tol, "fidelity": self.fidelity}))]
+                if !self.began {
+                    return vec![Action::Exec("path.smoothRegion".into(), self.smooth_params(cx))];
+                }
+                vec![Action::Preview("path.smoothRegion".into(), self.smooth_params(cx)), Action::Commit]
             }
             "pathEraser" if has_sel => vec![Action::Exec("path.eraseSegments".into(), json!({"points": points_json(pts), "width": cx.tol(8.0)}))],
             "join" if pts.len() >= 2 => vec![Action::Exec("path.joinScrub".into(), json!({"points": points_json(pts), "tolerance": tol}))],
@@ -157,6 +171,7 @@ impl Tool for GestureTool {
     }
     fn pointer(&mut self, cx: &ToolContext, ev: &PointerEvent) -> Vec<Action> {
         let p = ev.pos;
+        self.hover = Some(p);
         match ev.kind {
             PointerKind::Move if self.snaps() => {
                 self.snap.hover(cx, p, &[], None);
@@ -165,6 +180,21 @@ impl Tool for GestureTool {
             PointerKind::Down => {
                 self.active = true;
                 self.began = false;
+                // Count once: large selections fit on release instead of on every UI move.
+                self.live_smooth = false;
+                if self.id == "smooth" {
+                    let mut anchors = 0usize;
+                    for id in &cx.selection.objects {
+                        if let Some(n) = cx.doc.node(*id) {
+                            n.walk(&mut |n| {
+                                if let Some(p) = n.path_data() {
+                                    anchors = anchors.saturating_add(p.anchor_count());
+                                }
+                            });
+                        }
+                    }
+                    self.live_smooth = anchors > 0 && anchors <= 4000;
+                }
                 self.extend = if self.draws_path() { self.find_extend(cx, p) } else { None };
                 // A path continued starts at its end; a new one where it snaps.
                 let start = if self.snaps() && self.extend.is_none() { self.snap.press(cx, p, &[], None) } else { p };
@@ -179,11 +209,12 @@ impl Tool for GestureTool {
                     // Where the stroke would end: shown, taken on release.
                     self.snap.drag(cx, p, None);
                 }
-                if self.points.last().is_some_and(|l| l.distance(p) < cx.tol(1.0)) {
+                if self.points.last().is_some_and(|l| l.distance(p) < cx.tol(if self.id == "smooth" { 3.0 } else { 1.0 })) {
                     return vec![];
                 }
                 self.points.push(p);
-                if !self.draws_path() {
+                let smooth = self.id == "smooth" && self.live_smooth;
+                if !self.draws_path() && !smooth {
                     return vec![];
                 }
                 let mut out = vec![];
@@ -191,7 +222,11 @@ impl Tool for GestureTool {
                     self.began = true;
                     out.push(Action::Begin(self.label().into()));
                 }
-                out.push(Action::Preview("path.freehand".into(), self.freehand_params(false)));
+                out.push(if smooth {
+                    Action::Preview("path.smoothRegion".into(), self.smooth_params(cx))
+                } else {
+                    Action::Preview("path.freehand".into(), self.freehand_params(false))
+                });
                 out
             }
             PointerKind::Up => {
@@ -237,12 +272,21 @@ impl Tool for GestureTool {
                 self.size = (self.size + 1.0).min(1000.0);
                 vec![]
             }
+            ToolKey::BracketLeft if self.id == "smooth" => {
+                self.radius = (self.radius - 1.0).max(1.0);
+                vec![]
+            }
+            ToolKey::BracketRight if self.id == "smooth" => {
+                self.radius = (self.radius + 1.0).min(100.0);
+                vec![]
+            }
             _ => vec![],
         }
     }
     fn deactivate(&mut self, _cx: &ToolContext) -> Vec<Action> {
         let began = self.began;
         self.snap.clear();
+        self.hover = None;
         self.active = false;
         self.began = false;
         self.points.clear();
@@ -250,6 +294,19 @@ impl Tool for GestureTool {
     }
     fn overlays(&self, cx: &ToolContext) -> Vec<Overlay> {
         let mut o = self.snap.guides().to_vec();
+        if self.id == "smooth"
+            && let Some(p) = self.hover
+        {
+            let points: Vec<_> = (0..32)
+                .map(|i| {
+                    let angle = i as f64 * std::f64::consts::TAU / 32.0;
+                    p + vectorcraft_geom::Vec2::new(angle.cos(), angle.sin()) * cx.tol(self.radius)
+                })
+                .collect();
+            let mut ring = polyline(&points);
+            ring.close_path();
+            o.push(Overlay::Path { path: ring, color: FEEDBACK, width: 1.0, dashed: false });
+        }
         if !self.active || self.points.len() < 2 || self.began {
             return o;
         }
@@ -269,7 +326,7 @@ impl Tool for GestureTool {
             "pencil" | "paintbrush" => {
                 json!({"fidelity": self.fidelity, "fill": self.fill, "editWithin": self.edit_within, "closeWithin": self.close_within})
             }
-            "smooth" => json!({"fidelity": self.fidelity}),
+            "smooth" => json!({"fidelity": self.fidelity, "radius": self.radius}),
             "blobBrush" | "eraser" => json!({"size": self.size}),
             _ => Value::Null,
         }
@@ -281,6 +338,7 @@ impl Tool for GestureTool {
             "fill" => self.fill = v.as_bool().unwrap_or(self.fill),
             "editWithin" => self.edit_within = v.as_f64().unwrap_or(self.edit_within).clamp(0.0, 100.0),
             "closeWithin" => self.close_within = v.as_f64().unwrap_or(self.close_within).clamp(0.0, 100.0),
+            "radius" => self.radius = v.as_f64().unwrap_or(self.radius).clamp(1.0, 100.0),
             _ => {}
         }
     }
@@ -385,5 +443,11 @@ mod tests {
         let mut b = GestureTool::new("blobBrush");
         b.key(&cx, ToolKey::BracketRight, Mods::default());
         assert_eq!(b.options()["size"], 11.0);
+        t.key(&cx, ToolKey::BracketRight, Mods::default());
+        assert_eq!(t.options()["radius"], 13.0);
+        t.set_option("radius", &json!(500));
+        assert_eq!(t.options()["radius"], 100.0);
+        t.pointer(&cx, &PointerEvent::new(PointerKind::Move, 100.0, 200.0));
+        assert_eq!(t.overlays(&cx).len(), 1, "a visible brush ring also appears while hovering");
     }
 }

@@ -3202,3 +3202,10 @@ axis	Both	兩者
 	Czech	捷克文
 	Russian	俄文
 	Chinese	中文
+
+# Image Trace staged settings.
+	Paths:	路徑：
+	Unapplied settings	有尚未套用的設定
+	Update Trace	更新描摹
+	Convert the trace to editable paths	轉換為可編輯的向量路徑
+	Apply tracing settings before expanding	請先套用描摹設定，再擴展

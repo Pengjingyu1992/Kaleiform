@@ -4,7 +4,7 @@
 //!
 //! Fields: `tool`; `fidelity` (points; Pencil, Paintbrush and Smooth), `fill` (Pencil and
 //! Paintbrush), `closeWithin` and `editWithin` (screen pixels, 0 turns it off; Pencil and
-//! Paintbrush) and `size` (points; Blob Brush and Eraser).
+//! Paintbrush), `radius` (screen pixels; Smooth) and `size` (points; Blob Brush and Eraser).
 
 use serde_json::{Map, Value, json};
 
@@ -23,7 +23,7 @@ pub(super) const SPEC: DialogSpec = DialogSpec { heading, body, confirm, min_wid
 pub const TOOLS: [&str; 5] = ["pencil", "paintbrush", "smooth", "blobBrush", "eraser"];
 
 /// The options the dialog edits, in the order it shows them (a tool has those it reports).
-const KEYS: [&str; 5] = ["fidelity", "size", "fill", "closeWithin", "editWithin"];
+const KEYS: [&str; 6] = ["fidelity", "radius", "size", "fill", "closeWithin", "editWithin"];
 
 /// Width of the label column: wide enough for the tolerances' labels when there are any.
 fn label_w(d: &Dialog) -> f32 {
@@ -96,6 +96,9 @@ fn body(_app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     if d.fields.contains_key("size") {
         number(ui, d, ("size", tl!("Size:")), "pt", 1, (0.1, 1000.0));
     }
+    if d.fields.contains_key("radius") {
+        number(ui, d, ("radius", tl!("Radius:")), "px", 0, (1.0, 100.0));
+    }
     if d.fields.contains_key("fill") {
         check(ui, d, "fill", tl!("Fill new strokes"));
         ui.add_space(6.0);
@@ -166,11 +169,15 @@ mod tests {
         let d = app.ui.dialog.as_ref().unwrap();
         assert_eq!((d.f64("fidelity", 0.0), d.bool("fill")), (1.5, false));
         assert!(painted(&mut app).contains("Paintbrush Tool Options"));
-        // Smooth has Fidelity only, the Blob Brush and the Eraser Size only.
+        // Smooth has Fidelity and its screen-space radius; the other brushes have Size only.
         app.run("tool.options", json!({"tool": "smooth"})).unwrap();
         let text = painted(&mut app);
         assert!(text.contains("Smooth Tool Options") && text.contains("Fidelity:"), "{text}");
         assert!(!text.contains("Fill new strokes") && !text.contains("Size:"), "{text}");
+        assert!(text.contains("Radius:"), "{text}");
+        app.ui.dialog.as_mut().unwrap().fields.insert("radius".into(), json!(24));
+        super::super::confirm(&mut app).unwrap();
+        assert_eq!(app.session.tool_options_of("smooth")["radius"].as_f64(), Some(24.0));
         for tool in ["blobBrush", "eraser"] {
             app.run("tool.options", json!({"tool": tool})).unwrap();
             let text = painted(&mut app);

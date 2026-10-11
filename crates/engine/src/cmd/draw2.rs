@@ -888,10 +888,60 @@ fn refit_run(anchors: &[Anchor], tol: f64) -> Vec<Anchor> {
     out
 }
 
-fn smooth_subpath(sp: &SubPath, near: &dyn Fn(Point) -> bool, tol: f64) -> Option<SubPath> {
+/// Test the curve, not just its anchors: a brush can cross a long segment between distant ends.
+fn smooth_marks(sp: &SubPath, pts: &[Point], radius: f64) -> Vec<bool> {
+    let mut marked: Vec<bool> = sp.anchors.iter().map(|a| dist_to_polyline(pts, a.p) <= radius).collect();
+    let area = poly_bounds(pts, radius + 0.01);
+    let brush: Vec<_> =
+        if pts.len() == 1 { vec![kurbo::Line::new(pts[0], pts[0])] } else { pts.windows(2).map(|w| kurbo::Line::new(w[0], w[1])).collect() };
+    for i in 0..sp.segment_count() {
+        let c = sp.segment(i);
+        let bounds = Rect::from_points(c.p0, c.p3).union_pt(c.p1).union_pt(c.p2);
+        if marked[i] && marked[(i + 1) % marked.len()] {
+            continue;
+        }
+        if bounds.inflate(radius + 0.01, radius + 0.01).intersect(area).is_zero_area() {
+            continue;
+        }
+        let mut curve = BezPath::new();
+        curve.move_to(c.p0);
+        curve.curve_to(c.p1, c.p2, c.p3);
+        let tolerance = (radius * 0.1).clamp(0.01, 0.5);
+        let mut last = c.p0;
+        let mut hit = false;
+        kurbo::flatten(curve, tolerance, |el| {
+            if let kurbo::PathEl::LineTo(q) = el {
+                if !hit {
+                    let line = kurbo::Line::new(last, q);
+                    hit = brush.iter().any(|b| {
+                        let distance = line
+                            .nearest(b.p0, 1e-6)
+                            .distance_sq
+                            .min(line.nearest(b.p1, 1e-6).distance_sq)
+                            .min(b.nearest(last, 1e-6).distance_sq)
+                            .min(b.nearest(q, 1e-6).distance_sq);
+                        distance <= (radius + tolerance).powi(2) || !kurbo::PathSeg::Line(line).intersect_line(*b).is_empty()
+                    });
+                }
+                last = q;
+            }
+        });
+        if hit {
+            let next = (i + 1) % marked.len();
+            marked[i] = true;
+            marked[next] = true;
+        }
+    }
+    marked
+}
+
+fn smooth_subpath(sp: &SubPath, pts: &[Point], radius: f64, tol: f64) -> Option<SubPath> {
     let n = sp.anchors.len();
-    let marked: Vec<bool> = sp.anchors.iter().map(|a| near(a.p)).collect();
-    if n < 3 || !marked.iter().any(|m| *m) {
+    if n < 3 {
+        return None;
+    }
+    let marked = smooth_marks(sp, pts, radius);
+    if !marked.iter().any(|m| *m) {
         return None;
     }
     if sp.closed {
@@ -949,10 +999,13 @@ fn smooth_open(anchors: &[Anchor], marked: &[bool], tol: f64) -> Vec<Anchor> {
 fn smooth_region(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "path.smoothRegion";
     let pts = points_param(p, "points", C)?;
-    let radius = f64_or(p, "radius", 12.0).max(0.0);
-    let tol = f64_or(p, "fidelity", 2.5).clamp(0.05, 100.0);
+    let radius = f64_or(p, "radius", 12.0);
+    let tol = f64_or(p, "fidelity", 2.5);
+    if !radius.is_finite() || radius < 0.0 || !tol.is_finite() || tol <= 0.0 {
+        return Err(bad(C, "radius must be non-negative and fidelity positive, both finite"));
+    }
+    let tol = tol.clamp(0.05, 100.0);
     let st = s.doc()?;
-    let near = |q: Point| dist_to_polyline(&pts, q) <= radius;
     let mut plan = vec![];
     let (mut before, mut after) = (0, 0);
     for id in target_paths(&st.doc, &st.selection, poly_bounds(&pts, radius)) {
@@ -961,7 +1014,7 @@ fn smooth_region(s: &mut Session, p: &Value) -> Result<Value> {
         let subs: Vec<SubPath> = pd
             .subpaths
             .iter()
-            .map(|sp| match smooth_subpath(sp, &near, tol) {
+            .map(|sp| match smooth_subpath(sp, &pts, radius, tol) {
                 Some(n) if n != *sp && n.anchors.len() >= 2 => {
                     changed = true;
                     n

@@ -351,6 +351,89 @@ fn smooth_tool_reduces_jagged_path() {
 }
 
 #[test]
+fn smooth_live_preview_cancels_and_commits_one_undo() {
+    let mut s = session();
+    let anchors: Vec<_> = (0..=40).map(|i| json!({"x": 100.0 + i as f64 * 5.0, "y": 200.0 + (i % 2) as f64 * 1.5})).collect();
+    let r = s.execute("path.create", &json!({"anchors": anchors})).unwrap();
+    let id = NodeId(r["id"].as_u64().unwrap());
+    let original = path(&s, id);
+    let before = undo_steps(&s);
+    s.select_tool("smooth", view()).unwrap();
+    s.pointer(&PointerEvent::new(PointerKind::Down, 90.0, 200.0), view()).unwrap();
+    s.pointer(&PointerEvent::new(PointerKind::Drag, 310.0, 200.0), view()).unwrap();
+    assert!(path(&s, id).anchor_count() < original.anchor_count(), "preview changes the path before release");
+    assert_eq!(undo_steps(&s), before, "preview doesn't add history");
+    s.tool_key(ToolKey::Escape, Mods::default(), view()).unwrap();
+    assert_eq!(path(&s, id), original, "Escape restores the snapshot exactly");
+    assert_eq!(undo_steps(&s), before);
+    assert_eq!(gesture(&mut s, &[(90.0, 200.0), (200.0, 200.0), (310.0, 200.0)], Mods::default()), 1);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(path(&s, id), original);
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert!(path(&s, id).anchor_count() < original.anchor_count());
+}
+
+#[test]
+fn smooth_hits_segment_middle_and_preserves_remote_anchors() {
+    let mut s = session();
+    let r = s
+        .execute(
+            "path.create",
+            &json!({"anchors": [
+                {"x": 0, "y": 100}, {"x": 200, "y": 101}, {"x": 400, "y": 100},
+                {"x": 600, "y": 150}, {"x": 800, "y": 150}
+            ]}),
+        )
+        .unwrap();
+    let id = NodeId(r["id"].as_u64().unwrap());
+    let original = path(&s, id);
+    // Neither the brush's samples nor the curve's anchors meet; the segments cross.
+    let r = s.execute("path.smoothRegion", &json!({"points": [[100, 50], [100, 150]], "radius": 2})).unwrap();
+    assert!(r["after"].as_u64().unwrap() < r["before"].as_u64().unwrap());
+    let smoothed = path(&s, id);
+    assert_eq!(&smoothed.subpaths[0].anchors[smoothed.anchor_count() - 2..], &original.subpaths[0].anchors[3..]);
+    assert_eq!(smoothed.subpaths[0].anchors[0].p, original.subpaths[0].anchors[0].p);
+    let r = s.execute("path.smoothRegion", &json!({"points": [[100, 400], [500, 400]], "radius": 2})).unwrap();
+    assert_eq!(r["ids"], json!([]));
+    assert_eq!(path(&s, id), smoothed, "a missed stroke doesn't modify the path");
+    assert!(s.execute("path.smoothRegion", &json!({"points": [[100, 100]], "fidelity": 0})).is_err());
+}
+
+#[test]
+fn smooth_partial_closed_path_keeps_closure_and_remote_corner() {
+    let mut s = session();
+    let mut anchors: Vec<_> = (0..=20).map(|i| json!({"x": 100 + i * 10, "y": 100.0 + (i % 2) as f64})).collect();
+    anchors.extend([json!({"x":300,"y":300}), json!({"x":100,"y":300})]);
+    let r = s.execute("path.create", &json!({"anchors": anchors, "closed": true})).unwrap();
+    let id = NodeId(r["id"].as_u64().unwrap());
+    let original = path(&s, id);
+    drag(&mut s, "smooth", &[(140.0, 100.0), (260.0, 100.0)], Mods::default());
+    let smoothed = path(&s, id);
+    assert!(smoothed.is_closed());
+    assert!(smoothed.anchor_count() < original.anchor_count());
+    for remote in &original.subpaths[0].anchors[21..] {
+        assert!(smoothed.subpaths[0].anchors.contains(remote));
+    }
+}
+
+#[test]
+fn smooth_large_selection_defers_fitting_until_release() {
+    let mut s = session();
+    let anchors: Vec<_> = (0..=4000).map(|i| json!({"x": i, "y": 200.0 + (i % 2) as f64})).collect();
+    let r = s.execute("path.create", &json!({"anchors": anchors})).unwrap();
+    let id = NodeId(r["id"].as_u64().unwrap());
+    let original = path(&s, id);
+    let before = undo_steps(&s);
+    s.select_tool("smooth", view()).unwrap();
+    s.pointer(&PointerEvent::new(PointerKind::Down, 90.0, 200.0), view()).unwrap();
+    s.pointer(&PointerEvent::new(PointerKind::Drag, 310.0, 200.0), view()).unwrap();
+    assert_eq!(path(&s, id), original, "large selections don't repeatedly fit while dragging");
+    s.pointer(&PointerEvent::new(PointerKind::Up, 310.0, 200.0), view()).unwrap();
+    assert!(path(&s, id).anchor_count() < original.anchor_count());
+    assert_eq!(undo_steps(&s), before + 1);
+}
+
+#[test]
 fn join_tool_joins_two_lines() {
     let mut s = session();
     let a = line(&mut s, 100.0, 100.0, 200.0, 100.0);
