@@ -26,9 +26,7 @@ fn heading_label(d: &Dialog) -> String {
     if vectorcraft_plugins::effect::plugin_id(&d.str("__effect")).is_some() {
         return label;
     }
-    let dotted = format!("{label}…");
-    let shown = tl!(&dotted);
-    if shown != dotted { shown.trim_end_matches('…').to_string() } else { tl!(&label).to_string() }
+    crate::i18n::tr_action_name(crate::i18n::current(), &label)
 }
 
 /// The dialog kind asking whether to edit an effect that is already applied or add another.

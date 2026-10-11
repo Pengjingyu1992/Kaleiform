@@ -3191,3 +3191,14 @@ axis	Both	兩者
 	Best	最佳
 @msg	Offset Path: {e}	路徑偏移：{e}
 @msg	Offset Path: worker stopped	路徑偏移：計算執行緒已停止
+
+# Document Setup > Type: display names only; saved language values stay English.
+	German: Swiss	德文：瑞士
+	Danish	丹麥文
+	Swedish	瑞典文
+	Finnish	芬蘭文
+	Norwegian	挪威文
+	Polish	波蘭文
+	Czech	捷克文
+	Russian	俄文
+	Chinese	中文

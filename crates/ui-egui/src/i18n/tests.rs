@@ -95,6 +95,34 @@ fn lookups_fall_back_to_english() {
 }
 
 #[test]
+fn effect_names_translate_before_stripping_the_dialog_ellipsis() {
+    for code in ["zh-hans", "zh-hant"] {
+        let lang = Lang::from_code(code).unwrap();
+        for effect in vectorcraft_effects::effect_catalog() {
+            let base = effect.label.trim_end_matches('…');
+            let shown = tr_action_name(lang, base);
+            assert_ne!(shown, base, "{code}: {}", effect.id);
+            assert_eq!(shown, tr_action_name(lang, effect.label), "with or without an ellipsis");
+            assert!(!shown.ends_with('…'), "headings and appearance rows omit the ellipsis");
+            assert_eq!(tr_action_name(Lang::EN, effect.label), base);
+        }
+    }
+    let lang = Lang::from_code("zh-hans").unwrap();
+    assert_eq!(tr_action_name(lang, "Arc"), "弧形");
+    assert_eq!(tr_action_name(lang, "Unknown action…"), "Unknown action");
+}
+
+#[test]
+fn every_document_typography_language_has_a_chinese_display_name() {
+    for code in ["zh-hans", "zh-hant"] {
+        let lang = Lang::from_code(code).unwrap();
+        for (name, _) in vectorcraft_doc::setup::LANGUAGES {
+            assert_ne!(tr(lang, name), *name, "{code}: {name}");
+        }
+    }
+}
+
+#[test]
 fn catalog_kinds_are_parsed_and_looked_up() {
     let c = Catalog::parse("# c\n\tHello\t你好\n@id\tfile.save\t儲存\nmenu\tWindows\t視窗們\n@plural\t{n} file|{n} files\t{n} 個檔案\n\n");
     assert_eq!(c.plain("Hello"), Some("你好"));

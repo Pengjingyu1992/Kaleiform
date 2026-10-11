@@ -6,6 +6,23 @@
 <dict>
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
+  <!-- UI catalogs are compiled into Rust rather than .lproj folders. Declare them so AppKit
+       can localize its own window tiling menus and other system-provided controls.
+       https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundlelocalizations -->
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>ja</string>
+    <string>cs</string>
+    <string>es</string>
+    <string>fr</string>
+    <string>it</string>
+    <string>ru</string>
+    <string>uk</string>
+    <string>pt-BR</string>
+    <string>zh-Hant</string>
+    <string>zh-Hans</string>
+  </array>
   <key>CFBundleDisplayName</key>
   <string>虹构</string>
   <key>CFBundleName</key>

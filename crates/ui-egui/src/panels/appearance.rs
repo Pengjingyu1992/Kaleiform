@@ -163,7 +163,7 @@ fn built_in_effect(id: &str) -> bool {
 /// [`effect_label`] as shown: a built-in effect's in the UI language, a plug-in's as it is.
 fn shown_effect_label(id: &str) -> String {
     match catalog().iter().find(|c| c.0 == id) {
-        Some(c) => tl!(&c.1).to_string(),
+        Some(c) => crate::i18n::tr_action_name(crate::i18n::current(), &c.1),
         None => effect_label(id),
     }
 }
@@ -889,12 +889,12 @@ pub(crate) fn fx_menu(app: &mut VectorcraftApp, ui: &mut Ui) {
     let mut groups: Vec<(String, Vec<(String, String)>)> = vec![];
     let plugins: Vec<_> = vectorcraft_effects::plugin_effects().into_iter().map(catalog_entry).collect();
     // Built-in effects in the UI language; a plug-in's by the name it gives.
-    let built_in = catalog().iter().map(|(id, label, menu)| (id, tl!(label), menu));
-    for (id, label, menu) in built_in.chain(plugins.iter().map(|(id, label, menu)| (id, label.as_str(), menu))) {
+    let built_in = catalog().iter().map(|(id, label, menu)| (id, crate::i18n::tr_action_name(crate::i18n::current(), label), menu));
+    for (id, label, menu) in built_in.chain(plugins.iter().map(|(id, label, menu)| (id, label.clone(), menu))) {
         let g = menu.get(1).cloned().unwrap_or_else(|| "Other".into());
         match groups.iter_mut().find(|(n, _)| *n == g) {
-            Some((_, v)) => v.push((id.clone(), label.to_string())),
-            None => groups.push((g, vec![(id.clone(), label.to_string())])),
+            Some((_, v)) => v.push((id.clone(), label)),
+            None => groups.push((g, vec![(id.clone(), label)])),
         }
     }
     for (g, items) in groups {

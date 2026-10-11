@@ -73,6 +73,44 @@ fn app_with_selection() -> VectorcraftApp {
     app
 }
 
+#[test]
+fn document_language_choice_preserves_the_engine_value_and_updates_quotes() {
+    let (ctx, mut app) = (ctx(), app_with_selection());
+    app.run("file.documentSetup", json!({})).unwrap();
+    app.ui.dialog.as_mut().unwrap().fields.insert("tab".into(), json!("Type"));
+    settle(&ctx, &mut app);
+    let texts = frame(&ctx, &mut app, vec![]);
+    let current = texts.iter().find(|(s, _)| s == "English: USA").unwrap().1;
+    let mut texts = click(&ctx, &mut app, current.center());
+    let list = texts.iter().find(|(s, _)| s == "English: UK").expect("the language list is open").1.center();
+    // Chinese is the last item in this scrollable list.
+    for _ in 0..12 {
+        if texts.iter().any(|(s, _)| s == "Chinese") {
+            break;
+        }
+        texts = frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(list),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -100.0),
+                    modifiers: Default::default(),
+                    phase: egui::TouchPhase::Move,
+                },
+            ],
+        );
+    }
+    let chinese = texts.iter().find(|(s, _)| s == "Chinese").expect("Chinese is reachable by scrolling").1;
+    click(&ctx, &mut app, chinese.center());
+    let dialog = app.ui.dialog.as_ref().unwrap();
+    assert_eq!(dialog.str("language"), "Chinese");
+    assert_eq!(dialog.fields["quotes"]["double"], "“”");
+    confirm(&mut app).unwrap();
+    assert_eq!(app.run("document.setup", json!({})).unwrap()["language"], "Chinese");
+}
+
 fn close_to(a: Vec2, b: Vec2) -> bool {
     (a - b).length() < 1.5
 }

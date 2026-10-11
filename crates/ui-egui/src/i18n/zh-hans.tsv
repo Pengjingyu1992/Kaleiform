@@ -3410,3 +3410,14 @@ axis	Both	两者
 @msg	Offset Path: another offset is still running	路径偏移：上一项计算尚未结束
 @msg	Offset Path: {e}	路径偏移：{e}
 @msg	Offset Path: worker stopped	路径偏移：计算线程已停止
+
+# Document Setup > Type: display names only; saved language values stay English.
+	German: Swiss	德语：瑞士
+	Danish	丹麦语
+	Swedish	瑞典语
+	Finnish	芬兰语
+	Norwegian	挪威语
+	Polish	波兰语
+	Czech	捷克语
+	Russian	俄语
+	Chinese	中文

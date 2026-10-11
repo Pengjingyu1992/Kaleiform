@@ -635,4 +635,13 @@ mod tests {
         assert!(types > 1 && plist.matches("<key>LSHandlerRank</key>").count() == types, "every document type has a rank");
         assert_eq!(plist.matches("<string>Owner</string>").count(), 2, "only Kaleiform documents and templates are owned");
     }
+
+    #[test]
+    fn the_macos_bundle_declares_every_compiled_ui_language() {
+        let plist = include_str!("../../../packaging/macos/Info.plist.in");
+        let array = plist.split_once("<key>CFBundleLocalizations</key>").unwrap().1.split_once("</array>").unwrap().0.to_lowercase();
+        for language in vectorcraft_ui_egui::i18n::LANGUAGES.iter() {
+            assert!(array.contains(&format!("<string>{}</string>", language.code)), "AppKit cannot select {}", language.code);
+        }
+    }
 }

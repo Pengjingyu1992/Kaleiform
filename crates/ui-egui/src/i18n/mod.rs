@@ -380,6 +380,15 @@ pub fn tr(lang: Lang, s: &str) -> &str {
     lang.catalog().plain(s).unwrap_or(s)
 }
 
+/// An action name without its dialog ellipsis. Catalogs may store either spelling; look up
+/// the full menu label before removing the ellipsis for a heading or an appearance row.
+pub(crate) fn tr_action_name(lang: Lang, label: &str) -> String {
+    let base = label.trim_end_matches('…');
+    let dotted = format!("{base}…");
+    let shown = tr(lang, &dotted);
+    if shown != dotted { shown.trim_end_matches('…').to_string() } else { tr(lang, base).to_string() }
+}
+
 /// Like [`tr`], for an English string that needs a disambiguating `context`.
 pub fn tr_ctx<'a>(lang: Lang, context: &str, s: &'a str) -> &'a str {
     lang.catalog().contextual(context, s).unwrap_or_else(|| tr(lang, s))
