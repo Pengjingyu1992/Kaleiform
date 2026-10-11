@@ -178,7 +178,7 @@ fn trace_section(app: &mut VectorcraftApp, ui: &mut Ui, preset: &str, view: vect
     let w = (ui.available_width() - 6.0) / 2.0;
     ui.horizontal(|ui| {
         for (label, id) in [(tl!("Expand"), "imageTrace.expand"), (tl!("Release"), "imageTrace.release")] {
-            if widgets::flat_button(ui, label, w).clicked() {
+            if ui.add_enabled_ui(crate::menus::enabled(app, id), |ui| widgets::flat_button(ui, label, w)).inner.clicked() {
                 app.run(id, json!({})).ok();
             }
         }

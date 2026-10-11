@@ -376,6 +376,8 @@ pub struct VectorcraftApp {
     /// Saves and exports running in the background (Preferences → File Handling).
     pub background: background::Background,
     pub(crate) geometry_job: geometry_job::GeometryJob,
+    /// UI-only staged trace settings; document identity prevents blocking another selection.
+    pub(crate) pending_trace: Option<(u64, vectorcraft_doc::NodeId)>,
     /// Data Recovery's timer and startup question ([`recovery`]).
     pub recovery: recovery::Timer,
     /// Modifiers the keyboard holds (from the host's input), given back after synthetic input.
@@ -455,6 +457,7 @@ impl VectorcraftApp {
             paste_chord: Default::default(),
             background: Default::default(),
             geometry_job: Default::default(),
+            pending_trace: None,
             recovery: Default::default(),
             host_modifiers: Default::default(),
             synthetic_modifiers: false,
@@ -513,6 +516,10 @@ impl VectorcraftApp {
         })
     }
 
+    pub(crate) fn trace_settings_pending(&self) -> bool {
+        self.session.active().is_some_and(|s| self.pending_trace.is_some_and(|(uid, id)| s.uid == uid && s.selection.objects.as_slice() == [id]))
+    }
+
     /// Run a UI or engine command by id. The single entry point for every frontend path.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
         // A file dialog it shows off the UI thread runs it again with the path picked.
@@ -526,6 +533,11 @@ impl VectorcraftApp {
     /// [`Self::run`] it, inside what asks for file dialogs.
     fn run_now(&mut self, id: &str, params: Value) -> Result<Value, String> {
         self.run_count = self.run_count.wrapping_add(1);
+        if id == "imageTrace.expand" && self.trace_settings_pending() {
+            let error = tl!("Apply tracing settings before expanding").to_string();
+            self.status(&error);
+            return Err(error);
+        }
         if id == "object.path.offsetPath" && !self.session.in_interaction() {
             let result = geometry_job::start(self, &params);
             if let Err(e) = &result {

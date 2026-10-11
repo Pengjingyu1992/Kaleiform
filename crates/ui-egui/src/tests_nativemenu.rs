@@ -363,6 +363,22 @@ fn key_equivalents_run_through_the_normal_shortcut_path_once() {
     assert_eq!(crate::control::inspect(&m.app, &m.ctx)["nativeMenuBar"], json!(true));
 }
 
+#[test]
+fn staged_trace_settings_invalidate_the_native_menu_cache() {
+    let mut m = Mac::new(true);
+    m.frame(vec![]);
+    let synced = m.fake.synced();
+    let s = m.app.session.active().unwrap();
+    m.app.pending_trace = Some((s.uid, s.selection.objects[0]));
+    m.frame(vec![]);
+    assert_eq!(m.fake.synced(), synced + 1);
+    m.frame(vec![]);
+    assert_eq!(m.fake.synced(), synced + 1, "idle frames keep the cache");
+    m.app.pending_trace = None;
+    m.frame(vec![]);
+    assert_eq!(m.fake.synced(), synced + 2, "applying settings refreshes the menu too");
+}
+
 /// A click runs its command like an in-window click, and the menus follow: View › Show Rulers
 /// reads Hide Rulers afterwards; the app menu's Appearance items run with their params.
 #[test]

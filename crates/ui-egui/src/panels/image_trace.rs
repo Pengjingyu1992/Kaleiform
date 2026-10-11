@@ -206,7 +206,7 @@ pub fn control_bar(app: &mut VectorcraftApp, ui: &mut Ui) -> bool {
     if widgets::icon_button(ui, "image", tl!("Image Trace"), false, 24.0).clicked() {
         app.ui.open_panel = Some("imageTrace".into());
     }
-    if widgets::flat_button(ui, tl!("Expand"), 64.0).clicked() {
+    if ui.add_enabled_ui(crate::menus::enabled(app, "imageTrace.expand"), |ui| widgets::flat_button(ui, tl!("Expand"), 64.0)).inner.clicked() {
         app.run("imageTrace.expand", json!({})).ok();
     }
     ui.separator();
@@ -490,6 +490,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     if apply || retrace && st.preview && (is_trace || is_image) {
         trace(app, &mut st);
     }
+    app.pending_trace = st.dirty.then_some(st.document.zip(st.target)).flatten();
     set_pstate(ui.ctx(), "image-trace", st);
 }
 
@@ -717,6 +718,9 @@ mod tests {
         assert_eq!(app.session.active().unwrap().history.undo.len(), steps);
         let st: TraceUi = pstate(&ctx, "image-trace");
         assert!(st.dirty && st.params["ignoreWhite"] == true && st.params["snapCurvesToLines"] == true);
+        assert!(app.trace_settings_pending());
+        assert!(!crate::menus::enabled(&app, "imageTrace.expand"), "native menus and all buttons share the guard");
+        assert!(app.run("imageTrace.expand", json!({})).is_err(), "other UI and control entries cannot bypass pending settings");
         click(&mut app, &ctx, "Expand");
         assert!(selected_trace(&app).is_some(), "pending settings can't be expanded accidentally");
         click(&mut app, &ctx, "Tracing Result");
@@ -732,6 +736,7 @@ mod tests {
         assert_eq!(stored["params"]["snapCurvesToLines"], true);
         assert_eq!(selected_trace(&app).unwrap().1, TraceView::Source);
         assert!(!pstate::<TraceUi>(&ctx, "image-trace").dirty);
+        assert!(!app.trace_settings_pending());
         assert!(pstate::<TraceUi>(&ctx, "image-trace").info.is_some());
         app.run("edit.undo", json!({})).unwrap();
         frame(&mut app, &ctx, vec![]);

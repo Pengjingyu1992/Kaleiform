@@ -1828,6 +1828,9 @@ pub(crate) fn waits_for_ime(app: &VectorcraftApp, id: &str) -> bool {
 }
 
 pub fn enabled(app: &VectorcraftApp, id: &str) -> bool {
+    if id == "imageTrace.expand" && app.trace_settings_pending() {
+        return false;
+    }
     if waits_for_ime(app, id) {
         return false;
     }
