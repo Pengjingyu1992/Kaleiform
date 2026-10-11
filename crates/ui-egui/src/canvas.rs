@@ -264,7 +264,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     if let Some(done) = app.canvas.worker.as_mut().and_then(|w| w.poll())
         && done.key.doc == key.doc
     {
-        upload(app, ui.ctx(), &done.img, done.key.pixel.is_some());
+        upload(app, ui.ctx(), &done.img, &done.key);
         app.canvas.key = Some(done.key);
         app.perf.render_ms = done.ms;
         app.canvas.last_ms = done.ms;
@@ -309,7 +309,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             _ => {
                 let t0 = now_ms();
                 let img = app.canvas.renderer.render(&doc, w, h, view, &opts);
-                upload(app, ui.ctx(), &img, pixel.is_some());
+                upload(app, ui.ctx(), &img, &key);
                 app.canvas.key = Some(key.clone());
                 app.perf.render_ms = now_ms() - t0;
                 app.canvas.last_ms = app.perf.render_ms;
@@ -340,6 +340,9 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             }
             None => {}
         }
+    }
+    if t.glass && (app.ui.open_panel.is_some() || !app.ui.floating_panels.is_empty() || app.ui.toolbar_pos.is_some()) {
+        app.canvas.glass.publish(ui.ctx(), &xf, key.doc);
     }
     if let Some(look) = grid_look.filter(|_| !grids_in_back) {
         grid(&painter, &xf, doc.grid.spacing, doc.grid.subdivisions, look);
@@ -1857,9 +1860,10 @@ fn kurbo_flatten(p: &BezPath, tol: f64, f: &mut impl FnMut(PathEl)) {
 }
 
 /// Upload the art's raster; Pixel Preview's document pixels keep hard edges when magnified.
-fn upload(app: &mut VectorcraftApp, ctx: &egui::Context, img: &vectorcraft_render::Rendered, pixel: bool) {
+fn upload(app: &mut VectorcraftApp, ctx: &egui::Context, img: &vectorcraft_render::Rendered, key: &CacheKey) {
+    crate::glass::capture(app, ctx, img, key);
     let color = egui::ColorImage::from_rgba_premultiplied([img.width as usize, img.height as usize], &img.pixels);
-    let options = if pixel { egui::TextureOptions::NEAREST } else { egui::TextureOptions::LINEAR };
+    let options = if key.pixel.is_some() { egui::TextureOptions::NEAREST } else { egui::TextureOptions::LINEAR };
     match &mut app.canvas.texture {
         Some(tex) => tex.set(color, options),
         None => app.canvas.texture = Some(ctx.load_texture("canvas", color, options)),

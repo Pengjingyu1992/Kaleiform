@@ -17,6 +17,7 @@ pub const UI_FIELDS: &[(&str, &str, &str)] = &[
     ("__smartGuides", "Smart Guides", "Smart Guides (View → Smart Guides)"),
     ("__snapToGrid", "Guides & Grid", "Snap to Grid"),
     ("__taskBar", "General", "Enable Contextual Task Bar"),
+    ("__glass", "User Interface", "Frosted Glass"),
 ];
 
 pub fn open(app: &mut VectorcraftApp, category: Option<&str>) {
@@ -32,6 +33,7 @@ pub fn open(app: &mut VectorcraftApp, category: Option<&str>) {
     fields.insert("__smartGuides".into(), json!(app.ui.view.smart_guides));
     fields.insert("__snapToGrid".into(), json!(app.ui.view.snap_to_grid));
     fields.insert("__taskBar".into(), json!(app.ui.task_bar));
+    fields.insert("__glass".into(), json!(app.ui.glass));
     app.ui.dialog = Some(Dialog { kind: "preferences".into(), fields });
 }
 
@@ -43,6 +45,7 @@ pub fn confirm(app: &mut VectorcraftApp) -> Result<Value, String> {
     app.ui.view.smart_guides = d.fields.get("__smartGuides").and_then(Value::as_bool).unwrap_or(app.ui.view.smart_guides);
     app.ui.view.snap_to_grid = d.fields.get("__snapToGrid").and_then(Value::as_bool).unwrap_or(app.ui.view.snap_to_grid);
     app.ui.task_bar = d.fields.get("__taskBar").and_then(Value::as_bool).unwrap_or(app.ui.task_bar);
+    app.ui.glass = d.fields.get("__glass").and_then(Value::as_bool).unwrap_or(app.ui.glass);
     app.ui.dialog = None;
     app.ui.engine_prefs = app.session.prefs.to_json();
     Ok(Value::Null)
@@ -80,6 +83,8 @@ pub fn restore(app: &mut VectorcraftApp) {
 #[derive(Clone, Copy, PartialEq)]
 struct Applied {
     brightness: Brightness,
+    glass: bool,
+    native_material: bool,
     /// User Interface › Canvas Color, unless it matches the interface brightness.
     canvas: Option<egui::Color32>,
     threads: i32,
@@ -110,6 +115,8 @@ pub fn apply_runtime(app: &mut VectorcraftApp, ctx: &egui::Context) {
     }
     let want = Applied {
         brightness: app.ui.brightness,
+        glass: app.ui.glass,
+        native_material: crate::glass::native_material(ctx),
         canvas: canvas_color(&p.canvas_color),
         threads: p.render_threads,
         tool_tips: p.show_tool_tips,
@@ -119,7 +126,10 @@ pub fn apply_runtime(app: &mut VectorcraftApp, ctx: &egui::Context) {
     let id = egui::Id::new("dc-applied-prefs");
     let prev: Option<Applied> = ctx.data(|d| d.get_temp::<Option<Applied>>(id)).flatten();
     if prev != Some(want) {
-        theme::apply(ctx, want.brightness);
+        theme::apply_material(ctx, want.brightness, want.glass);
+        if !want.glass {
+            app.canvas.glass = Default::default();
+        }
         // General › Show Tool Tips: off, no button or field shows its tool tip (they never come
         // due), whichever widget asks for one.
         let delay = if want.tool_tips { egui::style::Interaction::default().tooltip_delay } else { f32::INFINITY };

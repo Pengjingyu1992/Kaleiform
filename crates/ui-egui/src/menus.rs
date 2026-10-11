@@ -258,6 +258,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{collapsed?: bool} collapse the dock's Properties | Layers | Libraries group to icons (true), expand it (false) or toggle (omitted), as the double arrow at the top of the dock does; returns the new state",
     ),
     ("window.brightness", "UI Brightness", "", "{brightness: dark|mediumDark|mediumLight|light}"),
+    ("window.glass", "Frosted Glass", "", "{enabled?: bool} toggle frosted glass chrome"),
     ("window.workspace", "Workspace", "", "{name} switch workspace (Essentials, Essentials Classic, Painting, …)"),
     ("window.workspace.reset", "Reset Essentials", "", "{} reset the current workspace"),
     ("window.workspace.new", "New Workspace…", "", "{name?} save the current layout"),
@@ -1130,6 +1131,10 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
                 (None, _) => Err(format!("unknown panel `{raw}`")),
             }
         }
+        "window.glass" => {
+            app.ui.glass = p.get("enabled").and_then(Value::as_bool).unwrap_or(!app.ui.glass);
+            Ok(json!(app.ui.glass))
+        }
         "window.brightness" => match s("brightness").as_deref().and_then(Brightness::parse) {
             Some(b) => {
                 app.ui.brightness = b;
@@ -1434,6 +1439,7 @@ pub fn checked(app: &VectorcraftApp, id: &str, p: &Value) -> Option<bool> {
         "window.collapseDock" => app.ui.dock_collapsed,
         "window.workspace" => p.get("name").and_then(Value::as_str) == Some(app.ui.workspace.as_str()),
         "window.brightness" => p.get("brightness").and_then(Value::as_str).and_then(Brightness::parse) == Some(app.ui.brightness),
+        "window.glass" => app.ui.glass,
         "view.slices.lock" => app.session.slices_locked(),
         "object.slice.clipToArtboard" => app.session.active().is_some_and(|d| d.doc.slices_clip_to_artboard),
         "view.proofColors" => vectorcraft_render::proof::view().proof_colors,
@@ -1919,7 +1925,12 @@ pub fn menu_tree() -> Vec<(&'static str, Vec<Item>)> {
                         .collect(),
                 ),
                 Sep,
-                sub("UI Brightness", Brightness::ALL.iter().map(|b| cp(b.label(), "window.brightness", json!({"brightness": b.id()}))).collect()),
+                sub("UI Brightness", {
+                    let mut items: Vec<_> =
+                        Brightness::ALL.iter().map(|b| cp(b.label(), "window.brightness", json!({"brightness": b.id()}))).collect();
+                    items.extend([Sep, c("Frosted Glass", "window.glass")]);
+                    items
+                }),
                 Sep,
                 c("Quit Kaleiform", "app.quit"),
             ],

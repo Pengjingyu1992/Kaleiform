@@ -143,10 +143,17 @@ fn language_and_appearance_are_in_the_app_menu() {
             assert_eq!(crate::i18n::tr_id(ui, "app.language", l.name()), l.name(), "{} in {}", l.name(), ui.code());
         }
     }
-    let appearance: Vec<(&'static str, Option<bool>)> = items(submenu(app_menu, "Appearance")).iter().map(|it| (it.source, it.checked)).collect();
+    let appearance_items = items(submenu(app_menu, "Appearance"));
+    let appearance: Vec<(&'static str, Option<bool>)> =
+        appearance_items.iter().filter(|it| it.command == Some("window.brightness")).map(|it| (it.source, it.checked)).collect();
     assert_eq!(appearance.len(), crate::theme::Brightness::ALL.len());
     assert_eq!(appearance.iter().filter(|(_, c)| *c == Some(true)).count(), 1, "{appearance:?}");
     assert!(appearance.iter().all(|(_, c)| c.is_some()));
+    let glass = appearance_items.iter().find(|it| it.command == Some("window.glass")).expect("glass toggle in Appearance");
+    assert_eq!(glass.checked, Some(true));
+    app.run("window.glass", json!({"enabled": false})).unwrap();
+    let updated = self::bar(&app);
+    assert_eq!(updated.items().iter().find(|it| it.command == Some("window.glass")).unwrap().checked, Some(false));
     assert_eq!(crate::i18n::tr_ctx(Lang::from_code("ja").unwrap(), "theme", "Appearance"), "外観", "the theme, not the Appearance panel");
 }
 

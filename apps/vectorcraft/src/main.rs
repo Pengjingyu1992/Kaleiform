@@ -23,6 +23,8 @@ mod control_server;
 mod gpu;
 mod logging;
 #[cfg(target_os = "macos")]
+mod mac_material;
+#[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]
 mod open_documents;
@@ -45,10 +47,43 @@ struct App {
     graphics_lost: bool,
     /// Frames the UI has run (see [`end_before_teardown`]).
     frames: u64,
+    #[cfg(target_os = "macos")]
+    window: Option<std::sync::Arc<winit::window::Window>>,
+    #[cfg(target_os = "macos")]
+    material: Option<(bool, bool)>,
+    #[cfg(target_os = "macos")]
+    material_view: Option<mac_material::Material>,
+}
+
+#[cfg(target_os = "macos")]
+impl App {
+    fn sync_material(&mut self, ctx: &egui::Context) {
+        let dark = vectorcraft_ui_egui::theme::Tokens::for_brightness(self.app.ui.brightness).dark;
+        let want = (self.app.ui.glass, dark);
+        if self.material == Some(want) {
+            return;
+        }
+        let Some(window) = &self.window else { return };
+        window.set_theme(Some(if dark { winit::window::Theme::Dark } else { winit::window::Theme::Light }));
+        self.material_view = None;
+        if want.0 {
+            match mac_material::Material::attach(window) {
+                Ok(material) => self.material_view = Some(material),
+                Err(e) => {
+                    log::warn!("window material unavailable; using opaque chrome: {e}");
+                }
+            }
+        }
+        vectorcraft_ui_egui::glass::set_native_material(ctx, self.material_view.is_some());
+        self.material = Some(want);
+        ctx.request_repaint();
+    }
 }
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(target_os = "macos")]
+        self.sync_material(ctx);
         self.frames = ctx.cumulative_frame_nr();
         if let Some(why) = self.graphics_loss.take() {
             // eframe can't give a window a new device: the user saves and starts again.
@@ -86,6 +121,9 @@ impl eframe::App for App {
         if self.app.take_ime_discard() {
             discard_marked_text();
         }
+    }
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if cfg!(target_os = "macos") { [0.0; 4] } else { visuals.panel_fill.to_normalized_gamma_f32() }
     }
     #[cfg(not(feature = "windows7"))]
     fn on_exit(&mut self) {
@@ -441,6 +479,7 @@ fn main() -> std::process::ExitCode {
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
             .with_title_shown(false)
+            .with_transparent(cfg!(target_os = "macos"))
             .with_icon(app_icon())
             .with_app_id("ai.storyteller.vectorcraft"),
         #[cfg(feature = "windows7")]
@@ -536,7 +575,18 @@ fn main() -> std::process::ExitCode {
                 #[cfg(not(target_os = "macos"))]
                 let _ = in_window_menus;
                 open_files(&mut app, files);
-                Ok(Box::new(App { app, graphics_loss, graphics_lost: false, frames: 0 }))
+                Ok(Box::new(App {
+                    app,
+                    graphics_loss,
+                    graphics_lost: false,
+                    frames: 0,
+                    #[cfg(target_os = "macos")]
+                    window: cc.winit_window().cloned(),
+                    #[cfg(target_os = "macos")]
+                    material: None,
+                    #[cfg(target_os = "macos")]
+                    material_view: None,
+                }))
             }),
         )
     });

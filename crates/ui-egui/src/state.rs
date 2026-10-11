@@ -243,6 +243,8 @@ pub struct UiState {
     #[serde(rename = "language", alias = "locale", skip_serializing)]
     pub legacy_language: Option<String>,
     pub brightness: Brightness,
+    #[serde(default = "yes")]
+    pub glass: bool,
     pub dock_tab: DockTab,
     /// The dock's tabbed group (Properties | Layers | Libraries) is collapsed to icons at the top of
     /// the icon column (the dock's double arrow, `window.collapseDock`).
@@ -478,6 +480,7 @@ impl Default for UiState {
         Self {
             legacy_language: None,
             brightness: Brightness::MediumDark,
+            glass: true,
             dock_tab: DockTab::Properties,
             dock_collapsed: false,
             open_panel: None,

@@ -96,7 +96,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let edge = ui.available_rect_before_wrap();
     ui.ctx().data_mut(|d| d.insert_temp(crate::floating::tools_zone_id(), egui::Rect::from_min_size(edge.min, vec2(WIDTH, edge.height()))));
     let frame =
-        egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 4 }).stroke(Stroke::new(1.5, t.border));
+        egui::Frame::NONE.fill(t.surface).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 4 }).stroke(Stroke::new(1.0, t.border));
     match app.ui.toolbar_pos {
         None => {
             egui::Panel::left("toolbar").resizable(false).exact_size(w).frame(frame).show(ui, |ui| body(app, ui, cols, None));

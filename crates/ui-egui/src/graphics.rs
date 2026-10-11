@@ -115,6 +115,7 @@ impl VectorcraftApp {
             self.fonts_ready = false;
             self.ui_fonts = Default::default();
             self.canvas.texture = None;
+            self.canvas.glass = Default::default();
             self.canvas.key = None;
             self.place.forget_textures();
         }

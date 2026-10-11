@@ -81,7 +81,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             .resizable(true)
             .default_size(DOCK_WIDTH)
             .size_range(230.0..=520.0)
-            .frame(egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.5, t.border)))
+            .frame(egui::Frame::NONE.fill(t.surface).stroke(Stroke::new(1.0, t.border)))
             .show(ui, |ui| {
                 if collapse_header(ui, false) {
                     toggle(app, true);
@@ -108,7 +108,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let column = egui::Panel::right("icon_column")
         .resizable(false)
         .exact_size(ICON_COL)
-        .frame(egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.5, t.border)))
+        .frame(egui::Frame::NONE.fill(t.surface).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             let bounds = ui.max_rect();
             if collapsed && collapse_header(ui, true) {
@@ -236,7 +236,7 @@ pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
     let mut torn = None;
     let area = egui::Area::new(egui::Id::new("icon-panel")).order(egui::Order::Foreground).pivot(egui::Align2::RIGHT_TOP);
     area.fixed_pos(egui::pos2(right, FLYOUT_TOP)).show(ctx, |ui| {
-        egui::Frame::popup(ui.style()).fill(t.panel).corner_radius(CornerRadius::same(4)).inner_margin(egui::Margin::ZERO).show(ui, |ui| {
+        crate::glass::frame(ui, |ui| {
             ui.set_min_width(width);
             ui.set_max_width(available);
             let (mut strip, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());

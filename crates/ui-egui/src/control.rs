@@ -77,6 +77,10 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "tool": app.session.tool_id(),
         "toolOptions": app.session.tool_options(),
         "ui": serde_json::to_value(&app.ui).unwrap_or_default(),
+        "glass": {
+            "nativeMaterial": crate::glass::native_material(ctx),
+            "backdrop": app.canvas.glass.inspect(),
+        },
         // Not saved with the UI state, so not in `ui`: 0 normal … 3 Presentation Mode.
         "screenMode": app.ui.screen_mode,
         // The Contextual Task Bar: pinned (not saved either) and where it shows.
@@ -243,6 +247,9 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context, req: &ControlReques
             let mut r = Ok(Value::Null);
             if let Some(b) = s("brightness") {
                 r = app.run("window.brightness", json!({"brightness": b}));
+            }
+            if let Some(enabled) = p.get("glass").and_then(Value::as_bool) {
+                r = app.run("window.glass", json!({"enabled": enabled}));
             }
             if let Some(pn) = s("panel") {
                 r = app.run("window.panel", json!({"panel": pn}));

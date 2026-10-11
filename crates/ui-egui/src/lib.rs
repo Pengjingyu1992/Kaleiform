@@ -28,6 +28,7 @@ pub mod floating;
 pub mod font_menu;
 mod free_transform;
 mod geometry_job;
+pub mod glass;
 pub mod graphics;
 pub mod i18n;
 pub mod icon_data;
@@ -250,6 +251,7 @@ pub struct Services {
 pub struct CanvasCache {
     pub renderer: vectorcraft_render::Renderer,
     pub texture: Option<egui::TextureHandle>,
+    pub glass: glass::BackdropCache,
     pub key: Option<CacheKey>,
     pub last_ms: f64,
     pub worker: Option<render_worker::Worker>,
@@ -409,6 +411,7 @@ impl VectorcraftApp {
             canvas: CanvasCache {
                 renderer: vectorcraft_render::Renderer::new(),
                 texture: None,
+                glass: Default::default(),
                 key: None,
                 last_ms: 0.0,
                 worker: None,
@@ -811,7 +814,7 @@ impl VectorcraftApp {
             self.font_language = Some(self.ui_language().code());
             self.fonts_ready = false;
             self.ui_fonts = Default::default();
-            theme::apply(ctx, self.ui.brightness);
+            theme::apply_material(ctx, self.ui.brightness, self.ui.glass);
             egui_extras::install_image_loaders(ctx);
             self.styled = true;
         } else {
@@ -1027,6 +1030,7 @@ impl VectorcraftApp {
             return;
         }
         let t0 = now_ms();
+        glass::begin_frame(&ctx);
         scrub::begin_frame(self, &ctx);
         font_menu::end_stale_preview(self, &ctx);
         floating::track(self, &ctx);

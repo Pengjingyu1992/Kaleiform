@@ -41,6 +41,11 @@ impl Brightness {
 #[derive(Clone, Copy, Debug)]
 pub struct Tokens {
     pub dark: bool,
+    pub glass: bool,
+    /// Chrome over the native window material; controls keep an opaque backing.
+    pub surface: Color32,
+    pub glass_tint: Color32,
+    pub glass_edge: Color32,
     pub app_bar: Color32,
     pub panel: Color32,
     pub panel_darker: Color32,
@@ -96,6 +101,10 @@ impl Tokens {
         let hex = |s: u32| Color32::from_rgb((s >> 16) as u8, (s >> 8) as u8, s as u8);
         let base = Tokens {
             dark: true,
+            glass: false,
+            surface: hex(0x323232),
+            glass_tint: hex(0x323232),
+            glass_edge: hex(0x464646),
             app_bar: hex(0x262626),
             panel: hex(0x323232),
             panel_darker: hex(0x282828),
@@ -217,6 +226,79 @@ impl Tokens {
     pub fn get(ctx: &egui::Context) -> Tokens {
         ctx.data(|d| d.get_temp::<Tokens>(egui::Id::NULL)).unwrap_or_else(|| Tokens::for_brightness(Brightness::MediumDark))
     }
+
+    fn with_glass(mut self, brightness: Brightness) -> Self {
+        self.glass = true;
+        let rgb = |r, g, b| Color32::from_rgb(r, g, b);
+        let rgba = |r, g, b, a| Color32::from_rgba_unmultiplied(r, g, b, a);
+        if self.dark {
+            self.app_bar = rgba(30, 32, 37, 135);
+            self.surface = rgba(40, 42, 47, 185);
+            self.panel = rgb(47, 49, 54);
+            self.panel_darker = rgb(35, 37, 42);
+            self.tab_strip = rgba(24, 26, 31, 110);
+            self.glass_tint = rgba(35, 37, 43, 205);
+            self.glass_edge = rgba(255, 255, 255, 45);
+            self.input = rgb(30, 32, 37);
+            self.input_border = rgb(83, 85, 93);
+            self.border = rgba(0, 0, 0, 90);
+            self.divider = rgba(235, 239, 246, 22);
+            self.text = rgb(231, 233, 237);
+            self.text_strong = rgb(250, 250, 252);
+            self.text_dim = rgb(188, 191, 199);
+            self.text_disabled = rgb(128, 132, 141);
+            self.icon = rgb(218, 222, 229);
+            self.hover = rgb(66, 69, 76);
+            self.tool_active = rgb(26, 28, 33);
+            self.row_selected = rgb(64, 88, 113);
+            self.button = rgb(58, 61, 68);
+            self.button_border = rgb(100, 104, 114);
+        } else {
+            self.app_bar = rgba(244, 246, 250, 130);
+            self.surface = rgba(236, 239, 244, 185);
+            self.panel = rgb(238, 240, 244);
+            self.panel_darker = rgb(221, 225, 232);
+            self.tab_strip = rgba(210, 215, 224, 110);
+            self.glass_tint = rgba(242, 244, 248, 210);
+            self.glass_edge = rgba(255, 255, 255, 170);
+            self.input = rgb(252, 252, 254);
+            self.input_border = rgb(170, 176, 186);
+            self.border = rgba(65, 71, 82, 70);
+            self.divider = rgba(30, 35, 45, 28);
+            self.text = rgb(35, 38, 44);
+            self.text_strong = rgb(20, 23, 29);
+            self.text_dim = rgb(78, 83, 93);
+            self.text_disabled = rgb(132, 137, 146);
+            self.icon = rgb(54, 59, 69);
+            self.hover = rgb(218, 224, 233);
+            self.tool_active = rgb(200, 210, 224);
+            self.button = rgb(228, 232, 239);
+            self.button_border = rgb(159, 166, 178);
+        }
+        let adjustment: i16 = match brightness {
+            Brightness::MediumDark => 14,
+            Brightness::MediumLight => -18,
+            _ => 0,
+        };
+        for color in [
+            &mut self.app_bar,
+            &mut self.surface,
+            &mut self.panel,
+            &mut self.panel_darker,
+            &mut self.tab_strip,
+            &mut self.glass_tint,
+            &mut self.input,
+            &mut self.hover,
+            &mut self.tool_active,
+            &mut self.button,
+        ] {
+            let [r, g, b, a] = color.to_srgba_unmultiplied();
+            let shift = |v: u8| (v as i16 + adjustment).clamp(0, 255) as u8;
+            *color = rgba(shift(r), shift(g), shift(b), a);
+        }
+        self.radius = 5;
+        self
+    }
     pub fn cr(&self) -> CornerRadius {
         CornerRadius::same(self.radius)
     }
@@ -286,7 +368,19 @@ fn add_craft_fonts(fonts: &mut FontDefinitions) {
 
 /// Apply tokens to egui's global style.
 pub fn apply(ctx: &egui::Context, b: Brightness) {
-    let t = Tokens::for_brightness(b);
+    apply_material(ctx, b, false);
+}
+
+pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
+    let mut t = Tokens::for_brightness(b);
+    t.surface = t.panel;
+    if glass {
+        t = t.with_glass(b);
+        if !crate::glass::native_material(ctx) {
+            t.app_bar = t.panel_darker;
+            t.surface = t.panel;
+        }
+    }
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
     let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.panel;
