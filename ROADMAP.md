@@ -115,6 +115,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Compact New Document (2026-10-12, M14.143):** caps the preset dialog's content at 880 × 500
+  points instead of 1020 × 636 and uses 118 × 126 preset cards. Details keep their field sizes
+  and scroll independently of the fixed Create/Close footer, including Advanced/Save Preset;
+  categories still scroll horizontally. Home cards and More Settings keep their existing layout.
+  Regression tests cover the dialog bounds, short-screen footer, preset selection/double-click,
+  category changes and document creation. UI-only polish; no parity-score increase.
 - **Compact macOS titlebar (2026-10-12, M14.142):** removes the centered brand label and moves
   documents into rounded titlebar tabs with a New button, dirty indicator, trailing Close and
   an overflow document picker. Long names elide; full names, zoom and preview mode remain in

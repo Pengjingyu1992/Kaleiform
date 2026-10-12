@@ -63,7 +63,8 @@ const COLOR_MODES: [(&str, &str); 2] = [("rgb", "RGB Color"), ("cmyk", "CMYK Col
 /// Width of the Preset Details column.
 const DETAILS: f32 = 292.0;
 /// Height of the dialog's content.
-const HEIGHT: f32 = 600.0;
+const HEIGHT: f32 = 464.0;
+const WIDTH: f32 = 880.0;
 
 /// Open New Document on the most recent settings (or Letter), named after the next untitled
 /// document.
@@ -181,7 +182,7 @@ fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     sync(app, &mut d);
     let t = Tokens::get(ctx);
     let mut b = Buttons::default();
-    let width = (ctx.content_rect().width() - 36.0).clamp(360.0, 1020.0);
+    let width = (ctx.content_rect().width() - 36.0).clamp(360.0, WIDTH);
     let height = (ctx.content_rect().height() - 48.0).clamp(200.0, HEIGHT + 36.0);
     window(ctx, KIND, 0, |ui| {
         super::modal::drag_band(ui, ui.max_rect().top() + 44.0);
@@ -221,7 +222,7 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
         d.fields.insert("category".into(), json!(names[i]));
     }
     let list = names.get(cat).and_then(|c| newdoc::category(&app.session, c)).unwrap_or_default();
-    ui.add_space(14.0);
+    ui.add_space(10.0);
     let heading = if cat == 0 {
         tl!("RECENT")
     } else if cat == 1 {
@@ -239,11 +240,11 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     let mut create = false;
     egui::ScrollArea::vertical().id_salt(("newdoc-presets", cat)).max_height(ui.available_height()).auto_shrink([false, false]).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
+            ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             let (w, h, preset) = (d.f64("width", 0.0), d.f64("height", 0.0), d.str("preset"));
             for s in &list {
                 let selected = d.fields.contains_key(APPLIED) && s.name == preset && s.width == w && s.height == h;
-                let card = preset_card(ui, s, selected);
+                let card = preset_card_impl(ui, s, selected, true);
                 if card.clicked() || card.double_clicked() {
                     apply(d, s);
                 }
@@ -268,17 +269,22 @@ pub(crate) fn preset_name(name: &str) -> &str {
 /// A preset card: a page-proportioned thumbnail, the name and the size (New Document, the Home
 /// screen). Returns the card's response.
 pub fn preset_card(ui: &mut egui::Ui, s: &DocSettings, selected: bool) -> egui::Response {
+    preset_card_impl(ui, s, selected, false)
+}
+
+fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, selected: bool, compact: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
     let label = preset_name(&s.name);
-    let (r, resp) = ui.allocate_exact_size(egui::vec2(146.0, 150.0), egui::Sense::click());
+    let size = if compact { egui::vec2(118.0, 126.0) } else { egui::vec2(146.0, 150.0) };
+    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let p = ui.painter();
     p.rect_filled(r, egui::CornerRadius::same(6), if resp.hovered() || selected { t.hover } else { t.panel_darker });
     if selected {
         p.rect_stroke(r, egui::CornerRadius::same(6), egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     }
-    let k = (60.0 / s.width.max(s.height).max(1e-9)) as f32;
+    let k = ((if compact { 50.0 } else { 60.0 }) / s.width.max(s.height).max(1e-9)) as f32;
     let page = egui::Rect::from_center_size(
-        r.center_top() + egui::vec2(0.0, 48.0),
+        r.center_top() + egui::vec2(0.0, if compact { 42.0 } else { 48.0 }),
         egui::vec2((s.width as f32 * k).max(4.0), (s.height as f32 * k).max(4.0)),
     );
     p.rect_filled(page.translate(egui::vec2(2.0, 2.0)), 0.0, egui::Color32::from_black_alpha(80));
@@ -292,8 +298,13 @@ pub fn preset_card(ui: &mut egui::Ui, s: &DocSettings, selected: bool) -> egui::
     job.wrap = egui::text::TextWrapping { max_width: r.width() - 14.0, max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
     let name = ui.fonts_mut(|f| f.layout_job(job));
     let name_h = name.size().y;
-    p.galley(egui::pos2(r.center().x, r.top() + 94.0), name, t.text_strong);
-    p.text(egui::pos2(r.center().x, r.top() + 98.0 + name_h), egui::Align2::CENTER_TOP, s.size_label(), egui::FontId::proportional(11.0), t.text_dim);
+    let name_top = r.top() + if compact { 80.0 } else { 94.0 };
+    p.galley(egui::pos2(r.center().x, name_top), name, t.text_strong);
+    let mut job = egui::text::LayoutJob::simple(s.size_label(), egui::FontId::proportional(11.0), t.text_dim, r.width() - 12.0);
+    job.halign = egui::Align::Center;
+    job.wrap.max_rows = 1;
+    let size = ui.fonts_mut(|f| f.layout_job(job));
+    p.galley(egui::pos2(r.center().x, name_top + 4.0 + name_h), size, t.text_dim);
     resp.on_hover_text(label)
 }
 
@@ -596,6 +607,41 @@ mod tests {
     use vectorcraft_engine::Session;
 
     use crate::VectorcraftApp;
+
+    #[test]
+    fn the_default_dialog_is_compact_and_advanced_fields_do_not_expand_it() {
+        for advanced in [false, true] {
+            for saving in [false, true] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx, Default::default());
+                let mut app = VectorcraftApp::new(Session::new(), Default::default());
+                app.run("file.newDialog", json!({})).unwrap();
+                set(&mut app, "advanced", json!(advanced));
+                set(&mut app, super::SAVING, json!(saving));
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 1000.0));
+                for _ in 0..4 {
+                    let mut out =
+                        ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| crate::dialogs::show(&mut app, ui.ctx()));
+                    out.textures_delta.clear();
+                }
+                let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", super::KIND)))).unwrap();
+                assert!(rect.width() <= 890.0 && rect.height() <= 510.0, "{advanced}/{saving}: {rect:?}");
+                assert!(screen.contains_rect(rect));
+                let cards: Vec<_> = ctx.viewport(|vp| {
+                    vp.prev_pass
+                        .widgets
+                        .layers()
+                        .flat_map(|(_, widgets)| widgets.iter())
+                        .filter(|w| w.sense.senses_click() && w.rect.size() == egui::vec2(118.0, 126.0))
+                        .map(|w| w.rect)
+                        .collect()
+                });
+                assert!(!cards.is_empty());
+                assert!(cards.iter().all(|card| rect.contains_rect(*card)), "cards stay in the preset pane");
+            }
+        }
+    }
 
     #[test]
     fn create_controls_stay_visible_on_short_screens() {
