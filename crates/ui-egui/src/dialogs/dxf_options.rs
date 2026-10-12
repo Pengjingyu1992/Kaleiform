@@ -84,7 +84,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     let rasters: Vec<(&str, &str)> = RasterFormat::ALL.iter().map(|r| (r.id(), r.label())).collect();
     choice(ui, d, "rasterFormat", tl!("Raster File Format:"), &rasters);
     ui.add_space(10.0);
-    widgets::subheader(ui, tl!("Export Option"));
+    widgets::subheader(ui, if d.fields.contains_key("__save") { tl!("Options") } else { tl!("Export Option") });
     let preserve = Preserve::from_id(&d.str("preserve")).unwrap_or_default();
     ui.horizontal(|ui| {
         for p in Preserve::ALL {
