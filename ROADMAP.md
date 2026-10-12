@@ -17,6 +17,7 @@ macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 Ap
 2026-10-11 开发分支：新增可关闭的磨砂玻璃界面，macOS 原生窗口材质与浮动面板的有界画布模糊；保留四档亮度、实色输入框与不透明画板。不改变绘图引擎或文件格式，其他平台原生窗口透明尚未实现。见 [界面说明](docs/glass-interface.md)。
 
 2026-10-11 本地化修复：效果子菜单、外观效果名称与对话框统一处理带省略号的翻译键；补齐文档文字语言的简繁中文名称。macOS 包声明全部已编译界面语言，让系统窗口菜单按系统应用语言选择本地化，不替换系统窗口操作。
+2026-10-12 顶栏修订：去掉居中的应用名，macOS 文档标签并入顶栏，使用圆角标签、新建入口、未保存圆点及右侧缩放按钮；其他平台保留独立标签栏。不调整功能成熟度评分。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 
@@ -114,6 +115,13 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Compact macOS titlebar (2026-10-12, M14.142):** removes the centered brand label and moves
+  documents into rounded titlebar tabs with a New button, dirty indicator, trailing Close and
+  an overflow document picker. Long names elide; full names, zoom and preview mode remain in
+  tooltips/the picker. Fit/actual-size/zoom buttons share the right side with search and workspace;
+  narrow windows collapse controls. Classic strips remain for other platforms and fullscreen
+  without the app bar, and isolation/pattern breadcrumbs stay above the canvas. Existing close
+  confirmation and view commands are reused. UI-only polish; no parity-score increase.
 - **EPS/DXF direct save (2026-10-12, M4.141):** both formats now participate in Save, Save As
   and Save a Copy, with their existing format-specific dialogs on desktop and web. EPS saves
   carry the complete native document, even for empty/hidden-only art. DXF saves default to

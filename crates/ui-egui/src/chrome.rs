@@ -12,6 +12,8 @@ use crate::theme::{self, Tokens};
 use crate::widgets;
 use crate::{VectorcraftApp, icons, menus, titlebar};
 
+mod top_tabs;
+
 /// The application bar: Home, menus, search and the workspace switcher
 /// at the right. With [`VectorcraftApp::custom_titlebar`] it is also the window's title bar
 /// ([`titlebar`]): the caption buttons take the right end and the rest of the bar drags the window.
@@ -33,13 +35,7 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             }
             ui.add_space(2.0);
             // With the macOS menu bar the menus are at the top of the screen instead.
-            let menus_end = if app.services.native_menu.is_some() {
-                let full = ui.max_rect();
-                ui.painter().text(full.center(), egui::Align2::CENTER_CENTER, tl!("Kaleiform"), egui::FontId::proportional(13.5), t.text);
-                ui.cursor().min.x
-            } else {
-                menus::menu_bar(app, ui)
-            };
+            let menus_end = if app.services.native_menu.is_some() { ui.cursor().min.x } else { menus::menu_bar(app, ui) };
             // The right-side group fills the space after the menus from the right; when it runs
             // short, the search box becomes an
             // icon, then the workspace switcher narrows.
@@ -53,15 +49,38 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             let ws = ui.painter().layout_no_wrap(ws_name, egui::FontId::proportional(12.0), t.text);
             let ws_w = (ws.size().x + 36.0).clamp(112.0, 190.0);
             let gap = ui.spacing().item_spacing.x;
-            let with_search = ws_w + 8.0 + gap + 200.0;
+            let compact = top_tabs::enabled(app);
+            let tabs_min = if compact { 160.0 } else { 0.0 };
+            let zoom_w = if compact && room >= 420.0 { top_tabs::ZOOM_WIDTH + 8.0 } else { 0.0 };
+            let with_search = ws_w + 8.0 + gap + 200.0 + tabs_min + zoom_w;
             let search_full = room >= with_search;
-            let ws_w = if search_full { ws_w } else { ws_w.min(room - 8.0 - gap - 24.0).max(64.0) };
+            let ws_w = if search_full { ws_w } else { ws_w.min(room - 8.0 - gap - 24.0 - tabs_min - zoom_w).max(64.0) };
+            let right = if compact {
+                let controls = ws_w + 8.0 + gap + if search_full { 200.0 } else { 24.0 } + zoom_w;
+                let edge = (right.right() - controls).max(right.left());
+                let tabs = egui::Rect::from_min_max(egui::pos2(menus_end + 4.0, full.top()), egui::pos2(edge - 8.0, full.bottom()));
+                top_tabs::show(app, ui, tabs);
+                egui::Rect::from_min_max(egui::pos2(edge, full.top()), right.max)
+            } else {
+                right
+            };
             let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));
             let ui = &mut rui;
+            if compact {
+                ui.spacing_mut().item_spacing.x = 0.0;
+            }
+            if zoom_w > 0.0 {
+                top_tabs::zoom_controls(app, ui);
+                ui.add_space(8.0);
+            }
             // Workspace switcher: shows the current workspace, opens Window → Workspace.
             let (wr, wresp) = ui.allocate_exact_size(vec2(ws_w, 24.0), Sense::click());
             ui.painter().rect_filled(wr, CornerRadius::same(4), if wresp.hovered() { t.hover } else { t.panel });
-            ui.painter().with_clip_rect(wr.shrink2(vec2(4.0, 0.0))).galley(wr.left_center() + vec2(10.0, -ws.size().y / 2.0), ws, t.text);
+            ui.painter().with_clip_rect(egui::Rect::from_min_max(wr.min + vec2(4.0, 0.0), wr.max - vec2(24.0, 0.0))).galley(
+                wr.left_center() + vec2(10.0, -ws.size().y / 2.0),
+                ws,
+                t.text,
+            );
             icons::paint(ui, "chevron-down", egui::Rect::from_center_size(wr.right_center() - vec2(12.0, 0.0), vec2(12.0, 12.0)), t.text_dim);
             let wresp = wresp.on_hover_text(tl!("Switch workspace"));
             egui::Popup::menu(&wresp).show(|ui| crate::workspaces::popup(app, ui));
@@ -328,10 +347,16 @@ fn first_tab_shown(widths: &[f32], active: Option<usize>, room: f32) -> usize {
     first
 }
 
-/// Document tab strip: "Name* @ 66.67% (RGB/Preview)". User Interface › Large Tabs makes the tabs
-/// taller, with larger titles. Tabs that don't fit are reached from a » button at the strip's
-/// right end, which lists every open document, and the active tab is always in view (#746).
+/// Classic document strip outside the integrated macOS titlebar. Breadcrumbs are always shown
+/// here, even when the compact titlebar owns the tabs.
 pub fn doc_tabs(app: &mut VectorcraftApp, ui: &mut Ui) {
+    if !top_tabs::enabled(app) {
+        document_strip(app, ui);
+    }
+    isolation_bar(app, ui);
+}
+
+fn document_strip(app: &mut VectorcraftApp, ui: &mut Ui) {
     /// The width of the » button.
     const MORE: f32 = 30.0;
     let t = Tokens::get(ui.ctx());
@@ -411,6 +436,10 @@ pub fn doc_tabs(app: &mut VectorcraftApp, ui: &mut Ui) {
         app.ui.home = None;
         app.session.set_active(i);
     }
+}
+
+fn isolation_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
     // Isolation mode breadcrumb bar.
     if let Some(st) = app.session.active()
         && let Some(iso) = st.isolation
