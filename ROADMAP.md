@@ -115,6 +115,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Titlebar spacing and dialog corners (2026-10-12, M14.145):** insets macOS titlebar wells to
+  20 points in the 32-point bar while retaining the larger click targets. New/tab/zoom wells,
+  Home, search and workspace now leave consistent vertical space. The New Document details
+  pane follows the inner radius of the window border instead of painting square right corners
+  over it. Layout regression coverage includes narrow titlebars and short dialogs at multiple
+  display scales. UI-only polish; no parity-score increase.
 - **One New Document interface (2026-10-12, M14.144):** removes the classic More Settings form
   and its navigation button. Multi-artboard layout, spacing, columns and right-to-left controls
   move into the compact dialog's Advanced Options; a footer icon retains New from Template.

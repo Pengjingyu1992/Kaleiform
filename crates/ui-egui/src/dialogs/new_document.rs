@@ -198,7 +198,11 @@ fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
                     b.create |= presets(app, ui, &mut d);
                 });
             });
-            egui::Frame::NONE.fill(t.panel_darker).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
+            // This pane touches the window's edge: match the inside of its rounded stroke.
+            let outer = ui.visuals().window_corner_radius;
+            let border = ui.visuals().window_stroke().width.ceil() as u8;
+            let corners = egui::CornerRadius { ne: outer.ne.saturating_sub(border), se: outer.se.saturating_sub(border), ..egui::CornerRadius::ZERO };
+            egui::Frame::NONE.fill(t.panel_darker).corner_radius(corners).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.set_width(DETAILS);
                     ui.set_height(height - 36.0);
@@ -529,6 +533,47 @@ mod tests {
     use vectorcraft_engine::Session;
 
     use crate::VectorcraftApp;
+
+    #[test]
+    fn split_pane_background_follows_the_windows_rounded_inside_edge() {
+        for scale in [1.0, 1.25, 2.0] {
+            for height in [500.0, 900.0] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx, Default::default());
+                ctx.global_style_mut(|style| style.animation_time = 0.0);
+                let mut app = VectorcraftApp::new(Session::new(), Default::default());
+                app.run("file.newDialog", json!({})).unwrap();
+                set(&mut app, "advanced", json!(true));
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, height));
+                let mut last = None;
+                for _ in 0..4 {
+                    let mut input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                    input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(scale);
+                    let mut out = ctx.run_ui(input, |ui| crate::dialogs::show(&mut app, ui.ctx()));
+                    out.textures_delta.clear();
+                    last = Some(out);
+                }
+                let outer = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", super::KIND)))).unwrap();
+                let t = crate::theme::Tokens::get(&ctx);
+                let pane = last
+                    .unwrap()
+                    .shapes
+                    .into_iter()
+                    .find_map(|s| match s.shape {
+                        egui::Shape::Rect(r) if r.fill == t.panel_darker && r.rect.width() > super::DETAILS && r.rect.height() > 200.0 => Some(r),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert!(outer.contains_rect(pane.rect));
+                assert!((pane.rect.right() - (outer.right() - 1.0)).abs() < 1.0 / scale);
+                assert!((pane.rect.top() - (outer.top() + 1.0)).abs() < 1.0 / scale);
+                assert!((pane.rect.bottom() - (outer.bottom() - 1.0)).abs() < 1.0 / scale);
+                assert!(pane.corner_radius.ne >= 4 && pane.corner_radius.se >= 4, "square pane covers the window's right corners");
+                assert_eq!((pane.corner_radius.nw, pane.corner_radius.sw), (0, 0), "the internal divider stays straight");
+            }
+        }
+    }
 
     #[test]
     fn the_default_dialog_is_compact_and_advanced_fields_do_not_expand_it() {

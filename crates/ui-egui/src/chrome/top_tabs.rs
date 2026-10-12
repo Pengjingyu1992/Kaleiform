@@ -8,9 +8,15 @@ use crate::theme::Tokens;
 use crate::{VectorcraftApp, icons, theme, widgets};
 
 const HEIGHT: f32 = 26.0;
+const SURFACE_HEIGHT: f32 = 20.0;
 const GAP: f32 = 6.0;
 const MORE: f32 = 26.0;
 pub(super) const ZOOM_WIDTH: f32 = 144.0;
+
+/// Inset the visible well without reducing the titlebar's click targets.
+pub(super) fn surface(rect: Rect) -> Rect {
+    rect.shrink((HEIGHT - SURFACE_HEIGHT) / 2.0)
+}
 
 pub(super) fn enabled(app: &VectorcraftApp) -> bool {
     app.integrated_titlebar && app.services.native_menu.is_some() && app.ui.screen_mode < 2
@@ -29,9 +35,9 @@ pub(super) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
     let new = Rect::from_min_size(rect.min, vec2(HEIGHT, HEIGHT));
     let response = ui.interact(new, id("new", 0), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("New…")));
-    ui.painter().rect_filled(new, CornerRadius::same(13), if response.hovered() { t.hover } else { t.panel });
-    ui.painter().rect_stroke(new, CornerRadius::same(13), Stroke::new(1.0, t.divider), StrokeKind::Inside);
-    icons::paint(ui, "plus", Rect::from_center_size(new.center(), vec2(14.0, 14.0)), t.text);
+    ui.painter().rect_filled(surface(new), CornerRadius::same(10), if response.hovered() { t.hover } else { t.panel });
+    ui.painter().rect_stroke(surface(new), CornerRadius::same(10), Stroke::new(1.0, t.divider), StrokeKind::Inside);
+    icons::paint(ui, "plus", Rect::from_center_size(new.center(), vec2(13.0, 13.0)), t.text);
     if response.on_hover_text(tl!("New…")).clicked()
         && let Err(e) = app.run("file.newDialog", json!({}))
     {
@@ -80,8 +86,13 @@ pub(super) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
         } else {
             t.panel
         };
-        ui.painter().rect_filled(r, CornerRadius::same(13), fill);
-        ui.painter().rect_stroke(r, CornerRadius::same(13), Stroke::new(1.0, if selected { t.input_border } else { t.divider }), StrokeKind::Inside);
+        ui.painter().rect_filled(surface(r), CornerRadius::same(10), fill);
+        ui.painter().rect_stroke(
+            surface(r),
+            CornerRadius::same(10),
+            Stroke::new(1.0, if selected { t.input_border } else { t.divider }),
+            StrokeKind::Inside,
+        );
         let ink = if selected { t.text_strong } else { t.text_dim };
         if *dirty {
             ui.painter().circle_filled(r.left_center() + vec2(10.0, 0.0), 2.3, ink);
@@ -110,7 +121,7 @@ pub(super) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
         let r = Rect::from_min_size(pos2(rect.right() - MORE, rect.top()), vec2(MORE, HEIGHT));
         let response = ui.interact(r, id("more", 0), Sense::click());
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Show all open documents")));
-        ui.painter().rect_filled(r, CornerRadius::same(13), if response.hovered() { t.hover } else { t.panel });
+        ui.painter().rect_filled(surface(r), CornerRadius::same(10), if response.hovered() { t.hover } else { t.panel });
         icons::paint(ui, "chevrons-right", r.shrink(6.0), t.text);
         let response = response.on_hover_text(tl!("Show all open documents"));
         egui::Popup::menu(&response).show(|ui| {
@@ -148,10 +159,10 @@ pub(super) fn zoom_controls(app: &mut VectorcraftApp, ui: &mut Ui) {
         let r = Rect::from_min_size(pos2(right - width, group.top()), vec2(width, HEIGHT));
         let resp = ui.interact(r, id(key, 0), if enabled { Sense::click() } else { Sense::hover() });
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tl!(tip)));
-        ui.painter().rect_filled(r, CornerRadius::same(13), if enabled && resp.hovered() { t.hover } else { t.panel });
+        ui.painter().rect_filled(surface(r), CornerRadius::same(10), if enabled && resp.hovered() { t.hover } else { t.panel });
         let ink = if enabled { t.text } else { t.text_disabled };
         if let Some(icon) = icon {
-            icons::paint(ui, icon, Rect::from_center_size(r.center(), vec2(15.0, 15.0)), ink);
+            icons::paint(ui, icon, Rect::from_center_size(r.center(), vec2(13.0, 13.0)), ink);
         } else {
             ui.painter().text(r.center(), Align2::CENTER_CENTER, "100%", FontId::proportional(11.5), ink);
         }
@@ -255,6 +266,11 @@ mod tests {
                     let tab = w.rect("tab", 0);
                     assert!((tab.center().y - 16.0).abs() <= 1.0 / scale);
                     assert_eq!(tab.height(), HEIGHT);
+                    let new = w.rect("new", 0);
+                    assert_eq!(new.size(), vec2(26.0, 26.0), "keep the click target");
+                    let visible = surface(new);
+                    assert_eq!(visible.size(), vec2(20.0, 20.0));
+                    assert!(visible.top() >= 5.0 && visible.bottom() <= 28.0, "space above and below the visible well: {visible:?}");
                     assert!(tab.width() >= 64.0 && tab.width() <= 240.0);
                     assert!(tab.contains_rect(w.rect("close", 0)));
                     assert!(w.rect("new", 0).right() < tab.left());
@@ -264,6 +280,15 @@ mod tests {
                         assert!(w.rect("out", 0).right() < width);
                     }
                     for shape in out.shapes {
+                        if let egui::Shape::Rect(r) = &shape.shape
+                            && r.fill != egui::Color32::TRANSPARENT
+                            && r.rect.height() > 10.0
+                            && r.rect.height() < 32.0
+                            && r.rect.width() < 300.0
+                            && r.rect.top() < 32.0
+                        {
+                            assert!(r.rect.top() >= 5.0 && r.rect.bottom() <= 28.0, "oversized titlebar well: {r:?}");
+                        }
                         if let egui::Shape::Text(text) = shape.shape {
                             assert_ne!(text.galley.text(), "Kaleiform", "no centered brand label");
                             if text.galley.text().starts_with("很长") {

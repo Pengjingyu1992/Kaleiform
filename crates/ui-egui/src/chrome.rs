@@ -29,8 +29,11 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             titlebar::drag_area(ui, ui.max_rect());
         }
         ui.horizontal_centered(|ui| {
+            let compact = top_tabs::enabled(app);
             let on_home = menus::home_showing(app);
-            if widgets::icon_button(ui, "house", tl!("Home"), on_home, 24.0).clicked() {
+            let (_, home) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+            let home = if compact { egui::Response { rect: home.rect.shrink(2.0), ..home } } else { home };
+            if widgets::paint_icon_button(ui, home, "house", tl!("Home"), on_home).clicked() {
                 app.run("app.home", json!({})).ok();
             }
             ui.add_space(2.0);
@@ -49,7 +52,6 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             let ws = ui.painter().layout_no_wrap(ws_name, egui::FontId::proportional(12.0), t.text);
             let ws_w = (ws.size().x + 36.0).clamp(112.0, 190.0);
             let gap = ui.spacing().item_spacing.x;
-            let compact = top_tabs::enabled(app);
             let tabs_min = if compact { 160.0 } else { 0.0 };
             let zoom_w = if compact && room >= 420.0 { top_tabs::ZOOM_WIDTH + 8.0 } else { 0.0 };
             let with_search = ws_w + 8.0 + gap + 200.0 + tabs_min + zoom_w;
@@ -75,7 +77,8 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             }
             // Workspace switcher: shows the current workspace, opens Window → Workspace.
             let (wr, wresp) = ui.allocate_exact_size(vec2(ws_w, 24.0), Sense::click());
-            ui.painter().rect_filled(wr, CornerRadius::same(4), if wresp.hovered() { t.hover } else { t.panel });
+            let well = if compact { wr.shrink2(vec2(0.0, 2.0)) } else { wr };
+            ui.painter().rect_filled(well, CornerRadius::same(4), if wresp.hovered() { t.hover } else { t.panel });
             ui.painter().with_clip_rect(egui::Rect::from_min_max(wr.min + vec2(4.0, 0.0), wr.max - vec2(24.0, 0.0))).galley(
                 wr.left_center() + vec2(10.0, -ws.size().y / 2.0),
                 ws,
@@ -88,13 +91,10 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             // Search box → command palette.
             let open_palette = if search_full {
                 let (r, resp) = ui.allocate_exact_size(vec2(200.0, 24.0), Sense::click());
-                ui.painter().rect_filled(r, CornerRadius::same(12), t.input);
-                ui.painter().rect_stroke(
-                    r,
-                    CornerRadius::same(12),
-                    Stroke::new(1.0, if resp.hovered() { t.input_border } else { t.divider }),
-                    StrokeKind::Inside,
-                );
+                let well = if compact { r.shrink2(vec2(0.0, 2.0)) } else { r };
+                let radius = CornerRadius::same(if compact { 10 } else { 12 });
+                ui.painter().rect_filled(well, radius, t.input);
+                ui.painter().rect_stroke(well, radius, Stroke::new(1.0, if resp.hovered() { t.input_border } else { t.divider }), StrokeKind::Inside);
                 icons::paint(ui, "search", egui::Rect::from_center_size(r.left_center() + vec2(14.0, 0.0), vec2(13.0, 13.0)), t.text_dim);
                 ui.painter().text(
                     r.left_center() + vec2(26.0, 0.0),
@@ -105,7 +105,9 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                 );
                 resp.clicked()
             } else {
-                widgets::icon_button(ui, "search", tl!("Search commands and tools"), false, 24.0).clicked()
+                let (_, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                let resp = if compact { egui::Response { rect: resp.rect.shrink(2.0), ..resp } } else { resp };
+                widgets::paint_icon_button(ui, resp, "search", tl!("Search commands and tools"), false).clicked()
             };
             if open_palette {
                 app.ui.palette_open = true;
