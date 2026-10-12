@@ -12,7 +12,7 @@ Generated-in-code art is original and has no file to list. This covers the defau
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
-| `docs/images/kaleiform-interface.png` | Kaleiform project maintainer | Captured from Kaleiform for this release | MIT OR Apache-2.0 | Chinese welcome screen, no open personal document |
+| `docs/images/kaleiform-interface.png` | Kaleiform project maintainer | Captured from Kaleiform for preview 6 | MIT OR Apache-2.0 | Chinese welcome screen at functional commit 116493f7, isolated without preferences or personal documents; no embedded metadata |
 | `assets/app-icon/LICENSE.txt` | (licence text) | Kaleiform project | MIT OR Apache-2.0 |  |
 | `assets/app-icon/README.md` | (asset documentation) | Kaleiform project | MIT OR Apache-2.0 |  |
 | `assets/app-icon/hicolor/128x128/apps/ai.storyteller.vectorcraft.png` | Kaleiform project | Resized from the square logo canvas by `packaging/icons.sh` | MIT OR Apache-2.0 (`assets/app-icon/LICENSE.txt`) | Linux theme icon |
