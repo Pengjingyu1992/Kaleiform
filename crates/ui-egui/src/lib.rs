@@ -42,6 +42,7 @@ pub mod picks;
 pub mod place;
 pub mod prefs_dialog;
 pub mod print;
+mod recent;
 pub mod recovery;
 pub mod render_worker;
 mod scrub;
@@ -178,6 +179,8 @@ impl FilePick {
 pub type PickOpen = Box<dyn FnMut(&FilePick) -> Option<String>>;
 pub type PickSave = Box<dyn FnMut(&FilePick) -> Option<String>>;
 pub type ReadFn = Box<dyn Fn(&str) -> Result<Vec<u8>, String>>;
+/// Read at most `limit` bytes on a preview worker; reject larger or non-regular files.
+pub type PreviewReadFn = Arc<dyn Fn(&str, u64) -> Result<Vec<u8>, String> + Send + Sync>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 pub type Inbox = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 pub type DownloadFn = Box<dyn FnMut(&str, &[u8])>;
@@ -196,6 +199,8 @@ pub struct Services {
     /// Show a save dialog (suggested name, folder, file types); returns a path.
     pub pick_save: Option<PickSave>,
     pub read: Option<ReadFn>,
+    /// Desktop-only, bounded file reads for Home's background thumbnails.
+    pub read_preview: Option<PreviewReadFn>,
     pub write: Option<WriteFn>,
     /// Files that arrived asynchronously (web open / drops): (name, bytes).
     pub inbox: Option<Inbox>,
@@ -357,6 +362,7 @@ pub struct VectorcraftApp {
     pub graphics_adapter: Option<String>,
     /// File → Place: picked files, the place cursor's thumbnails, the Control bar's image details.
     pub place: place::PlaceState,
+    pub(crate) recent: recent::Previews,
     /// The Paste commands can paste from the system clipboard alone: it holds something to paste
     /// (SVG without a `system_clipboard`) while the internal clipboard is empty. It enables the
     /// Paste menu items.
@@ -449,6 +455,7 @@ impl VectorcraftApp {
             custom_titlebar: false,
             graphics_adapter: None,
             place: Default::default(),
+            recent: Default::default(),
             system_paste: false,
             system_paste_at: f64::NEG_INFINITY,
             clipboard_probe: None,

@@ -93,6 +93,10 @@ fn cmd_n_opens_the_new_document_dialog() {
 
 /// One Home screen frame (no document open) with `events`: the texts drawn and where.
 fn home_texts(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::Event>) -> Vec<(String, egui::Rect)> {
+    home_texts_sized(app, ctx, events, egui::vec2(1000.0, 900.0))
+}
+
+fn home_texts_sized(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::Event>, size: egui::Vec2) -> Vec<(String, egui::Rect)> {
     fn walk(s: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
         match s {
             egui::Shape::Text(t) => out.push((t.galley.text().to_string(), t.visual_bounding_rect())),
@@ -100,8 +104,7 @@ fn home_texts(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::E
             _ => {}
         }
     }
-    let raw =
-        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 900.0))), events, ..Default::default() };
+    let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), events, ..Default::default() };
     let mut out = ctx.run_ui(raw, |ui| canvas::show(app, ui));
     out.textures_delta.clear();
     let mut texts = vec![];
@@ -109,7 +112,7 @@ fn home_texts(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::E
     texts
 }
 
-/// The Home screen lists the first recent files (#663), each by name and folder; a click opens it,
+/// The Home screen lists the first recent files (#663) by name; a click opens it,
 /// and one that can't be opened says so. With none, there is no Recent Files section.
 #[test]
 fn home_lists_recent_files_and_a_click_opens_one() {
@@ -125,11 +128,49 @@ fn home_lists_recent_files_and_a_click_opens_one() {
     let texts = home_texts(&mut app, &ctx, vec![]);
     assert!(has(&texts, "Recent Files") && has(&texts, "Gone.svg") && has(&texts, "Drawing 4.svg"), "{texts:?}");
     assert!(!has(&texts, "Drawing 5.svg"), "the first six only");
-    assert!(has(&texts, &dir.to_string_lossy()), "with its folder");
+    assert!(!has(&texts, &dir.to_string_lossy()), "folders are only exposed in hover tooltips");
     let at = texts.iter().find(|(t, _)| t == "Gone.svg").map(|(_, r)| r.center()).unwrap();
     let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
     home_texts(&mut app, &ctx, vec![egui::Event::PointerMoved(at), press(true)]);
     home_texts(&mut app, &ctx, vec![press(false)]);
     assert!(app.session.documents().is_empty());
     assert!(!app.ui.status.is_empty(), "a file that can't be opened says so");
+}
+
+#[test]
+fn thumbnail_card_opens_its_file_and_keeps_the_recent_order() {
+    let mut app = VectorcraftApp::new(
+        vectorcraft_engine::Session::new(),
+        crate::Services {
+            read: Some(Box::new(|_| Ok(br#"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"/>"#.to_vec()))),
+            ..Default::default()
+        },
+    );
+    app.ui.recent_files = vec!["/art/New.svg".into(), "/art/Older.svg".into()];
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let texts = home_texts(&mut app, &ctx, vec![]);
+    let at = texts.iter().find(|(t, _)| t == "Older.svg").map(|(_, r)| r.center() - egui::vec2(0.0, 70.0)).unwrap();
+    let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    home_texts(&mut app, &ctx, vec![egui::Event::PointerMoved(at), press(true)]);
+    home_texts(&mut app, &ctx, vec![press(false)]);
+    assert_eq!(app.session.documents().len(), 1);
+    assert_eq!(app.ui.recent_files[0], "/art/Older.svg");
+    assert!(!crate::menus::home_showing(&app));
+}
+
+#[test]
+fn thumbnail_grid_wraps_long_names_and_obeys_recent_count() {
+    let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), crate::Services::default());
+    app.ui.recent_files = (0..6).map(|i| format!("/private/art/{i}-a-very-long-file-name-without-enough-space.svg")).collect();
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    let texts = home_texts_sized(&mut app, &ctx, vec![], egui::vec2(400.0, 1400.0));
+    let names: Vec<_> = texts.iter().filter(|(s, _)| s.contains("very-long-file-name")).collect();
+    assert_eq!(names.len(), 6);
+    assert!(names.iter().all(|(_, r)| r.width() <= 152.0 && r.height() < 20.0 && r.right() < 400.0));
+    assert!(names[2].1.top() > names[0].1.bottom(), "cards wrap to another row");
+    app.session.prefs.recent_files_count = 0;
+    let texts = home_texts(&mut app, &ctx, vec![]);
+    assert!(!texts.iter().any(|(s, _)| s == "Recent Files" || s.contains("very-long-file-name")));
 }

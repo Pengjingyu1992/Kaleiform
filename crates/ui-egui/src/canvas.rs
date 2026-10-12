@@ -160,6 +160,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         home(app, ui, full);
         return;
     }
+    app.recent.leave();
     if app.session.active().is_none() {
         // No document and Show The Home Screen When No Documents Are Open off: an empty window.
         ui.painter().rect_filled(full, 0.0, t.panel_darker);
@@ -1795,9 +1796,13 @@ fn draw_overlays(p: &egui::Painter, xf: &Xf, overlays: &[Overlay], t: &Tokens, l
 fn home(app: &mut VectorcraftApp, ui: &mut Ui, rect: egui::Rect) {
     let t = Tokens::get(ui.ctx());
     ui.painter().rect_filled(rect, 0.0, t.panel_darker);
-    let inner = rect.shrink2(vec2((rect.width() - 820.0).max(40.0) / 2.0, 60.0));
+    let inner = rect.shrink2(vec2((rect.width() - 820.0).max(32.0) / 2.0, 32.0));
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
-    let ui = &mut child;
+    egui::ScrollArea::vertical().id_salt("home-content").auto_shrink([false, false]).show(&mut child, |ui| home_content(app, ui));
+}
+
+fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(tl!("Welcome to Kaleiform")).font(theme::semibold(26.0)).color(t.text));
     ui.add_space(4.0);
     ui.label(egui::RichText::new(tl!("Vector illustration — fast, open, scriptable.")).size(14.0).color(t.text_dim));
@@ -1828,11 +1833,11 @@ fn home(app: &mut VectorcraftApp, ui: &mut Ui, rect: egui::Rect) {
     });
 }
 
-/// The Home screen's Recent Files (#663): the first of File › Open Recent Files, each its name and
-/// folder; a click opens it. Nothing when there are none.
+/// Recent files use fitted previews; only the tooltip exposes a full path.
 fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
     const SHOWN: usize = 6;
     let files: Vec<String> = crate::io::recent_files(app).iter().take(SHOWN).cloned().collect();
+    app.recent.sync(&files, ui.ctx(), app.services.read_preview.clone());
     if files.is_empty() {
         return;
     }
@@ -1840,21 +1845,45 @@ fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
     ui.add_space(28.0);
     ui.label(egui::RichText::new(tl!("Recent Files")).font(theme::semibold(14.0)).color(t.text));
     ui.add_space(8.0);
-    for path in files {
-        let p = std::path::Path::new(&path);
-        let name = p.file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
-        let folder = p.parent().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
-        ui.horizontal(|ui| {
-            crate::icons::icon(ui, "history", 16.0, t.icon);
-            let r = ui.add(egui::Button::new(egui::RichText::new(&name).color(t.accent).size(13.0)).frame(false)).on_hover_text(&path);
-            ui.add(egui::Label::new(egui::RichText::new(&folder).size(12.0).color(t.text_dim)).truncate());
-            if r.clicked()
-                && let Err(e) = crate::io::open_path(app, &path)
-            {
-                app.status(e);
+    let width = ui.available_width().min(168.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+        for path in files {
+            let name = vectorcraft_engine::cmd::fileio::file_name(&path);
+            let (rect, response) = ui.allocate_exact_size(vec2(width, 148.0), Sense::click());
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+            let stroke = Stroke::new(1.0, if response.hovered() || response.has_focus() { t.accent } else { t.border });
+            ui.painter().rect(rect, 6.0, t.panel, stroke, StrokeKind::Inside);
+            let preview = egui::Rect::from_min_max(rect.min + vec2(8.0, 8.0), rect.right_top() + vec2(-8.0, 116.0));
+            ui.painter().rect_filled(preview, 2.0, t.pasteboard);
+            if let Some(texture) = app.recent.texture(&path, ui.ctx()) {
+                let size = texture.size_vec2();
+                let scale = (preview.width() / size.x).min(preview.height() / size.y);
+                ui.painter().image(
+                    texture.id(),
+                    egui::Rect::from_center_size(preview.center(), size * scale),
+                    egui::Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            } else {
+                crate::icons::paint(ui, "file", egui::Rect::from_center_size(preview.center() - vec2(0.0, 8.0), vec2(28.0, 28.0)), t.icon);
+                let ext = vectorcraft_engine::cmd::fileio::extension(&path).to_uppercase();
+                ui.painter().text(preview.center() + vec2(0.0, 20.0), egui::Align2::CENTER_CENTER, ext, theme::semibold(11.0), t.text_dim);
             }
-        });
-    }
+            let label_rect = egui::Rect::from_min_size(rect.min + vec2(8.0, 122.0), vec2(width - 16.0, 20.0));
+            let mut job = egui::text::LayoutJob::simple(name, egui::FontId::proportional(12.0), t.text, label_rect.width());
+            job.wrap.max_rows = 1;
+            job.wrap.break_anywhere = true;
+            job.wrap.overflow_character = Some('\u{2026}');
+            ui.painter().galley(label_rect.min, ui.painter().layout_job(job), t.text);
+            if response.on_hover_text(&path).clicked() {
+                if let Err(e) = crate::io::open_path(app, &path) {
+                    app.status(e);
+                }
+                break;
+            }
+        }
+    });
 }
 
 fn kurbo_flatten(p: &BezPath, tol: f64, f: &mut impl FnMut(PathEl)) {

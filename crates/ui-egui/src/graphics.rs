@@ -118,6 +118,7 @@ impl VectorcraftApp {
             self.canvas.glass = Default::default();
             self.canvas.key = None;
             self.place.forget_textures();
+            self.recent.forget_textures();
         }
         self.context = tag;
     }

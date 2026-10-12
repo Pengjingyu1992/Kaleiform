@@ -341,6 +341,21 @@ fn start_pick(request: PickRequest, parent: &Parent) -> Option<std::sync::mpsc::
     Some(rx)
 }
 
+fn read_preview(path: &str, limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.len() > limit {
+        return Err("preview unavailable".into());
+    }
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err("preview unavailable".into());
+    }
+    Ok(bytes)
+}
+
 fn services(parent: Parent) -> Services {
     let (p1, p2, p3, p4, p5) = (parent.clone(), parent.clone(), parent.clone(), parent.clone(), parent);
     Services {
@@ -351,6 +366,7 @@ fn services(parent: Parent) -> Services {
         start_pick: cfg!(all(unix, not(target_os = "macos")))
             .then(|| Box::new(move |request: PickRequest| start_pick(request, &p5)) as vectorcraft_ui_egui::picks::StartPick),
         read: Some(Box::new(|p: &str| std::fs::read(p).map_err(|e| e.to_string()))),
+        read_preview: Some(std::sync::Arc::new(read_preview)),
         write: Some(Box::new(write_file)),
         // Background Save and Export write from a worker thread.
         write_shared: Some(std::sync::Arc::new(write_file)),
@@ -606,6 +622,20 @@ fn main() -> std::process::ExitCode {
 #[cfg(all(test, feature = "wgpu"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_reader_rejects_large_missing_and_non_regular_files() {
+        let dir = std::env::temp_dir().join(format!("kaleiform-preview-reader-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("small.bin");
+        std::fs::write(&path, b"preview").unwrap();
+        let path = path.to_string_lossy();
+        assert_eq!(read_preview(&path, 7).unwrap(), b"preview");
+        assert!(read_preview(&path, 6).is_err());
+        assert!(read_preview(&dir.to_string_lossy(), 10).is_err());
+        assert!(read_preview(&dir.join("missing").to_string_lossy(), 10).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// The file extensions the macOS bundle declares: its document types and its own exported type.
     fn plist_extensions(plist: &str) -> Vec<&str> {

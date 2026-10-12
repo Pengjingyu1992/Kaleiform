@@ -115,6 +115,15 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Home recent thumbnails (2026-10-12, M14.146):** replaces the six recent-file rows with
+  responsive, clickable preview cards; names truncate and full paths appear only on hover.
+  One bounded desktop worker reads previews without opening documents or writing a disk cache.
+  Rasters (including EXIF orientation), native previews/documents, SVG and the first PDF page
+  are fitted without cropping; EPS uses an embedded thumbnail. Unsupported, oversized or
+  unreadable previews use file-type placeholders without disabling Open. Re-entering Home
+  refreshes previews, graphics-context replacement re-uploads textures, and Home scrolls to
+  keep the new-file presets accessible. Browser recent paths remain placeholders until a
+  fresh file pick. UI-only polish; no parity-score increase.
 - **Titlebar spacing and dialog corners (2026-10-12, M14.145):** insets macOS titlebar wells to
   20 points in the 32-point bar while retaining the larger click targets. New/tab/zoom wells,
   Home, search and workspace now leave consistent vertical space. The New Document details
@@ -288,7 +297,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M11 | Artboards & views (artboard panel/tool, Trim View, middle-button pan, print tiling and the status bar's artboard navigator done; multiple windows, presentation polish) | 🟡 | 15–25 |
 | M12 | Advanced color & art (CMYK/ICC, separations, Gradient Mesh, Live Paint, Image Trace, Graphs) | 🟡 Gradient Mesh, Live Paint, Image Trace (13 presets, 18 ms/1k² image; the Flat Logo mode places edges to a fraction of a pixel, restores sharp corners, snaps lines and circles, and refuses gradients), Recolor Artwork, colour management (ICC, soft proofing, separations preview), Graphs (all 9 tools, Graph Data/Type, regenerate in place) done; graph Design/Column/Marker designs pending | 6–10 |
 | M13 | Automation (Actions ✅ record/playback, persisted; variables, scripting, batch) | 🟡 | 18–27 |
-| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); accessibility and broader Windows/Linux packaging/QA pending | 18–28 |
+| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); accessibility and broader Windows/Linux packaging/QA pending | 18–28 |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |
@@ -327,7 +336,7 @@ about 1–1.5 agent-hours each, so the other rows (estimated on the older scale)
 | Export for Screens, Asset Export, slices, Save for Web | 3 | 85% | polish only (all four are done) | 2–4 |
 | Print, colour management, separations, flattener | 3 | 80% | print preview fidelity (flattener presets in PDF and print, overprint in PDF and composite print, Print dialog, presets, PostScript, marks, separations, Print Tiling, print overprint/flattener/bitmap options and printer profile are done) | 1–2 |
 | Automation | 3 | 60% | Variables (data merge), scripting surface, batch | 8–12 |
-| UI chrome (panels, contextual Properties, workspaces, prefs) | 6 | 78% | macOS native menu dismissal fixed (M14.8); remaining: Variables, SVG Interactivity, Properties per context, Consolidate All Windows, floating panels outside the app window and docked into any group, context menus beyond the canvas (Links, Asset Export, CSS Properties, Attributes and the canvas context menu are done), about 20 Preferences options stored but not yet acted on (#394: Spacing Guides, Show Font Names in English, Highlight Alternate Glyphs, Display Print Size, Open Documents As Tabs, Real-time Drawing, hyphenation, Appearance of Black, devices…) | 14–22 |
+| UI chrome (panels, contextual Properties, workspaces, prefs) | 6 | 78% | macOS native menu dismissal fixed (M14.8), Home recent thumbnails added (M14.146); remaining: Variables, SVG Interactivity, Properties per context, Consolidate All Windows, floating panels outside the app window and docked into any group, context menus beyond the canvas (Links, Asset Export, CSS Properties, Attributes and the canvas context menu are done), about 20 Preferences options stored but not yet acted on (#394: Spacing Guides, Show Font Names in English, Highlight Alternate Glyphs, Display Print Size, Open Documents As Tabs, Real-time Drawing, hyphenation, Appearance of Black, devices…) | 14–22 |
 | Libraries, Links, Package | 2 | 80% | the Libraries panel is local only (no cloud by design: libraries are files on this machine) and has no shared libraries, linked graphics or gradients and patterns as items yet; its graphics, colours and text styles are done (#745); Links and Package are done; placed VectorCraft documents are done (linked by default, vectors in every output, previews, Break Link, Expand, Edit Original, refresh on save) | 2–3 |
 | **Feature parity** | **103** | **~75%** | | **~210–330** |
 | Interaction-fidelity pass (side by side with Illustrator: every tool modifier, cursor, dialog, Properties context) | | | | 60–90 |
