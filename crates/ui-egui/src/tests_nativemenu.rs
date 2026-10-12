@@ -357,9 +357,13 @@ fn key_equivalents_run_through_the_normal_shortcut_path_once() {
     assert_eq!(undo(&m), before - 1, "⌘Z undid one step");
     let synced = m.fake.synced();
     assert!(synced >= 1, "the menus were built");
+    let plugins = menus::plugin_revision();
     m.frame(vec![]);
     m.frame(vec![]);
-    assert_eq!(m.fake.synced(), synced, "nothing changed: the menus weren't read again");
+    // Parallel plug-in tests can legitimately invalidate this process-wide registry.
+    if menus::plugin_revision() == plugins {
+        assert_eq!(m.fake.synced(), synced, "nothing changed: the menus weren't read again");
+    }
     assert_eq!(crate::control::inspect(&m.app, &m.ctx)["nativeMenuBar"], json!(true));
 }
 

@@ -114,6 +114,11 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Preview 5 release preparation (2026-10-12, RELEASE-20261012):** packages the optional glass
+  interface, Smooth and Image Trace usability, localization and catalogue-wide QA fixes added
+  since preview 4 hotfix 1. Updates versioned installation and provenance documentation;
+  isolates parallel UI-test language state and accounts for shared plug-in invalidation;
+  retains the pinned upstream baseline and early-preview/platform limitations.
 - **Catalogue-wide QA and gesture cleanup (2026-10-12, M2.140):** safety sweeps now cover all
   90 tools across empty/single/multiple-object fixtures, plain/Shift/Alt drags, release,
   Escape and switching tools (2,430 cases), plus persistent tool settings. Selection,

@@ -84,6 +84,20 @@ fn current_language_is_a_frame_setting() {
 }
 
 #[test]
+fn headless_apps_keep_their_language_on_their_own_thread() {
+    set_current(ZH());
+    std::thread::spawn(|| {
+        set_current(Lang::EN);
+        assert_eq!(t("Layers"), "Layers");
+    })
+    .join()
+    .unwrap();
+    assert_eq!(current(), ZH());
+    assert_eq!(t("Layers"), "圖層");
+    set_current(Lang::EN);
+}
+
+#[test]
 fn lookups_fall_back_to_english() {
     assert_eq!(tr(Lang::EN, "Layers"), "Layers");
     assert_eq!(tr(ZH(), "Layers"), "圖層");

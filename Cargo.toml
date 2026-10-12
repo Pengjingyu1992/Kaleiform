@@ -5,7 +5,7 @@ exclude = ["vendor/linesweeper"]
 default-members = ["crates/*", "apps/vectorcraft", "apps/vectorcraft-cli", "xtask"]
 
 [workspace.package]
-version = "0.7.0-kaleiform.4"
+version = "0.7.0-kaleiform.5"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"

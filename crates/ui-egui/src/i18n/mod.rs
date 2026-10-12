@@ -27,6 +27,7 @@
 mod catalog;
 
 use std::sync::OnceLock;
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use catalog::Catalog;
@@ -351,18 +352,30 @@ fn detect_system_lang() -> Lang {
 }
 
 /// Index into [`LANGUAGES`] of the language the UI is drawn in this frame.
+#[cfg(not(test))]
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
+
+// Headless tests drive independent apps on parallel threads.
+#[cfg(test)]
+thread_local!(static CURRENT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 
 /// Set the UI language for drawing (the shell calls this once per frame from the preference), so
 /// widgets can translate without every call site carrying a language around.
 pub fn set_current(lang: Lang) {
     let i = LANGUAGES.iter().position(|l| l.code == lang.code()).unwrap_or(0);
+    #[cfg(not(test))]
     CURRENT.store(i, Ordering::Relaxed);
+    #[cfg(test)]
+    CURRENT.with(|current| current.set(i));
 }
 
 /// The language the UI is drawn in.
 pub fn current() -> Lang {
-    Lang(LANGUAGES.get(CURRENT.load(Ordering::Relaxed)).unwrap_or(&LANGUAGES[0]))
+    #[cfg(not(test))]
+    let i = CURRENT.load(Ordering::Relaxed);
+    #[cfg(test)]
+    let i = CURRENT.with(std::cell::Cell::get);
+    Lang(LANGUAGES.get(i).unwrap_or(&LANGUAGES[0]))
 }
 
 /// Does `lang` have a catalog entry for this plain string? (English never does: it is the source.)
