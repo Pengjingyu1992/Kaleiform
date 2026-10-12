@@ -115,6 +115,9 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Simplified Home (2026-10-13, M14.147):** removes the duplicate Quick Start heading and
+  preset cards from Home. New File, Open and recent thumbnails remain; all document presets
+  stay in the single New Document dialog. UI-only simplification; no parity-score change.
 - **Home recent thumbnails (2026-10-12, M14.146):** replaces the six recent-file rows with
   responsive, clickable preview cards; names truncate and full paths appear only on hover.
   One bounded desktop worker reads previews without opening documents or writing a disk cache.

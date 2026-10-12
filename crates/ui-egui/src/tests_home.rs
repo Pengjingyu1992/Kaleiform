@@ -32,7 +32,7 @@ fn home_shows_over_open_documents_until_a_document_is_chosen() {
     // Choosing the document's tab returns to it.
     app.ui.home = None;
     assert!(shows_document(&mut app));
-    // A new document (from Home's presets, New… or Open) replaces Home too.
+    // A new document (from New or Open) replaces Home too.
     app.run("app.home", json!({})).unwrap();
     app.run("file.new", json!({})).unwrap();
     assert!(shows_document(&mut app));

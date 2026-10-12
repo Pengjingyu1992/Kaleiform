@@ -1817,20 +1817,6 @@ fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
         }
     });
     recent(app, ui);
-    ui.add_space(28.0);
-    ui.label(egui::RichText::new(tl!("Quickly start a new file")).font(theme::semibold(14.0)).color(t.text));
-    ui.add_space(10.0);
-    // A few of New Document's presets (`file.newPresets`), as its cards.
-    let presets = ["Letter", "A4", "Web 1920×1080", "Phone 390×844", "Postcard", "Social Square Post 1080×1080"];
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(14.0, 14.0);
-        let cards: Vec<_> = presets.iter().filter_map(|name| vectorcraft_engine::cmd::newdoc::find(&app.session, name)).collect();
-        for s in cards {
-            if crate::dialogs::preset_card(ui, &s, false).clicked() {
-                app.run("file.new", json!({ "preset": s.name })).ok();
-            }
-        }
-    });
 }
 
 /// Recent files use fitted previews; only the tooltip exposes a full path.
