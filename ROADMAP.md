@@ -115,6 +115,11 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **One New Document interface (2026-10-12, M14.144):** removes the classic More Settings form
+  and its navigation button. Multi-artboard layout, spacing, columns and right-to-left controls
+  move into the compact dialog's Advanced Options; a footer icon retains New from Template.
+  The old automation dialog name redirects to this same UI. Presets, Save Preset, size/units,
+  bleed, color, raster effects and preview settings remain available. No parity-score increase.
 - **Compact New Document (2026-10-12, M14.143):** caps the preset dialog's content at 880 × 500
   points instead of 1020 × 636 and uses 118 × 126 preset cards. Details keep their field sizes
   and scroll independently of the fixed Create/Close footer, including Advanced/Save Preset;

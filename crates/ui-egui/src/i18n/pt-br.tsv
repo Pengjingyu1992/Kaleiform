@@ -261,7 +261,6 @@
 	BLANK DOCUMENT PRESETS	PREDEFINIDOS DE DOCUMENTO EM BRANCO
 	Background Color:	Cor do Plano de Fundo:
 	Background Contents	Conteúdo do Plano de Fundo
-	Background Contents:	Conteúdo do Plano de Fundo:
 	Background:	Plano de Fundo:
 	Bar Graph Tool	Ferramenta Gráfico de Barras
 	Baseline Shift	Deslocamento da Linha de Base
@@ -489,7 +488,6 @@
 	Corners…	Cantos…
 	Create	Criar
 	Create Clipping Mask	Criar Máscara de Recorte
-	Create Document	Criar Documento
 	Create From:	Criar De:
 	Create Gradient Mesh…	Criar Malha de Gradiente…
 	Create Graph	Criar Gráfico
@@ -1305,7 +1303,6 @@
 	Monochrome images	Imagens monocromáticas
 	More	Mais
 	More Pathfinder options	Mais opções de Localizador de Caminhos
-	More Settings	Mais Configurações
 	Move	Mover
 	Move Anchors	Mover Âncoras
 	Move Appearance	Mover Aparência
@@ -1414,7 +1411,6 @@
 	Nothing to print	Nada para imprimir
 	Nudge	Nudge
 	Nudge in Perspective	Nudge em Perspectiva
-	Number of Artboards:	Número de Mesas de Trabalho:
 	Number of Colors:	Número de Cores:
 	Number of Recent Files to Display	Número de Arquivos Recentes para Exibir
 	Number of Recent Fonts	Número de Fontes Recentes
@@ -2314,7 +2310,6 @@
 	Target:	Alvo:
 	Temperature/Tint…	Temperatura/Tom…
 	Templates Folder	Pasta de Modelos
-	Templates…	Modelos…
 	Text Displayed in Cell:	Texto Exibido na Célula:
 	Text Export Options	Opções de Exportação de Texto
 	Text Fill Color	Cor de Preenchimento do Texto

@@ -197,7 +197,7 @@ macro_rules! registry {
 }
 
 registry! {
-    NewDocument: [new_document::KIND] => new_document::SPEC,
+    NewDocument: [new_document::KIND, "newDocumentMore"] => new_document::SPEC,
     Shape: ["rectangle", "roundedRectangle", "ellipse", "polygon", "star", "lineSegment"] => shapes::SPEC,
     Transform: ["move", "rotate", "scale", "reflect", "shear"] => transform::SPEC,
     PathOp: ["average", "offsetPath", "simplify", "splitIntoGrid"] => path_ops::SPEC,
@@ -237,7 +237,6 @@ registry! {
     Corners: [corners::KIND] => corners::SPEC,
     SavePdf: [save_pdf::KIND] => save_pdf::SPEC,
     SvgOptions: [svg_options::KIND] => svg_options::SPEC,
-    NewDocumentMore: [new_document::MORE] => new_document::MORE_SPEC,
     Place: [place::KIND] => place::SPEC,
     RasterOptions: ["pngOptions", "jpgOptions", "webpOptions", "gifOptions", "png8Options"] => png_options::SPEC,
     ExportAs: ["exportAs"] => export_as::SPEC,

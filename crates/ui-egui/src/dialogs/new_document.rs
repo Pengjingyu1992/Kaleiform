@@ -1,12 +1,11 @@
 //! File → New: category tabs (Recent, Saved and the built-in categories of `file.newPresets`)
 //! over a grid of preset cards, and a Preset Details column (name and Save Preset, size and
-//! units, orientation, artboards, bleed, background contents, Advanced Options, More Settings);
-//! Close and Create. More Settings is the classic form of the same fields (artboard layout,
-//! spacing and columns, profile and size lists), so both share one set of fields and widgets.
+//! units, orientation, artboards, bleed, background contents and Advanced Options);
+//! Close and Create. Advanced Options also contains multi-artboard arrangement and spacing.
 //!
 //! Fields: `file.new`'s params (`preset`, `name`, `width`, `height` (pt), `units`, `artboards`,
 //! `artboardLayout`, `bleed`, `backgroundContents`, `colorMode`, `rasterEffectsPpi`,
-//! `previewMode`), plus `category` (the tab, also More Settings' Profile), `advanced` (Advanced
+//! `previewMode`), plus `category` (the tab), `advanced` (Advanced
 //! Options open), `bleedLinked` and `presetName` (Save Preset's name). Setting `preset` fills the
 //! fields from that preset; changing any of them afterwards makes the settings custom.
 
@@ -20,11 +19,7 @@ use crate::theme::{self, Tokens};
 use crate::{VectorcraftApp, widgets};
 
 pub(super) const KIND: &str = "newDocument";
-/// More Settings.
-pub(super) const MORE: &str = "newDocumentMore";
-
 pub(super) const SPEC: DialogSpec = DialogSpec::window(show, confirm);
-pub(super) const MORE_SPEC: DialogSpec = DialogSpec::window(show_more, confirm);
 
 /// The fields `file.new` takes.
 const PARAMS: [&str; 12] = [
@@ -162,6 +157,7 @@ fn window(ctx: &egui::Context, id: &str, margin: i8, add: impl FnOnce(&mut egui:
 struct Buttons {
     create: bool,
     close: bool,
+    templates: bool,
 }
 
 impl Buttons {
@@ -171,6 +167,11 @@ impl Buttons {
         app.ui.dialog = Some(d);
         if self.close {
             app.ui.dialog = None;
+        } else if self.templates {
+            app.ui.dialog = None;
+            if let Err(e) = app.run("file.newFromTemplate", json!({})) {
+                app.status(e);
+            }
         } else if create && let Err(e) = super::confirm(app) {
             app.status(e);
         }
@@ -179,6 +180,8 @@ impl Buttons {
 
 fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     let Some(mut d) = app.ui.dialog.clone() else { return };
+    // Older automation clients may still use the retired dialog's name.
+    d.kind = KIND.into();
     sync(app, &mut d);
     let t = Tokens::get(ctx);
     let mut b = Buttons::default();
@@ -359,17 +362,16 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     background(ui, d, DETAILS - 34.0);
     ui.add_space(8.0);
     advanced(ui, d, 110.0, DETAILS - 116.0);
-    ui.add_space(12.0);
-    if widgets::flat_button(ui, tl!("More Settings"), DETAILS).clicked() {
-        d.kind = MORE.into();
-    }
 }
 
 fn footer(ui: &mut egui::Ui, b: &mut Buttons, create: &str) {
-    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        b.create |= widgets::primary_button(ui, tl!(create)).clicked();
-        ui.add_space(8.0);
-        b.close = widgets::secondary_button(ui, tl!("Close")).clicked();
+    ui.horizontal(|ui| {
+        b.templates = widgets::icon_button(ui, "folder-open", tl!("New from Template"), false, 26.0).clicked();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            b.create |= widgets::primary_button(ui, tl!(create)).clicked();
+            ui.add_space(8.0);
+            b.close = widgets::secondary_button(ui, tl!("Close")).clicked();
+        });
     });
 }
 
@@ -461,7 +463,7 @@ fn choice(ui: &mut egui::Ui, d: &mut Dialog, key: &str, options: &[(Value, Strin
     }
 }
 
-/// The collapsible Advanced Options: Color Mode, Raster Effects and Preview Mode.
+/// Color, preview and the arrangement of multiple artboards share the single dialog.
 fn advanced(ui: &mut egui::Ui, d: &mut Dialog, label: f32, field: f32) {
     let open = d.bool("advanced");
     if widgets::section_toggle(ui, tl!("Advanced Options"), open) {
@@ -481,124 +483,44 @@ fn advanced(ui: &mut egui::Ui, d: &mut Dialog, label: f32, field: f32) {
     ] {
         widgets::label_row(ui, name, label, |ui| choice(ui, d, key, options, field));
     }
+    ui.add_space(8.0);
+    arrangement(ui, d);
 }
 
-/// More Settings: the classic form of the same fields.
-fn show_more(app: &mut VectorcraftApp, ctx: &egui::Context) {
-    let Some(mut d) = app.ui.dialog.clone() else { return };
-    sync(app, &mut d);
-    let t = Tokens::get(ctx);
-    let mut b = Buttons::default();
-    let mut templates = false;
-    const L: f32 = 150.0;
-    window(ctx, MORE, 22, |ui| {
-        ui.set_width(560.0);
-        super::modal::heading(ui, tl!("More Settings"));
-        ui.add_space(12.0);
-        egui::ScrollArea::vertical().id_salt("newdoc-more-body").max_height((ctx.content_rect().height() - 160.0).max(100.0)).show(ui, |ui| {
-            widgets::label_row(ui, tl!("Name:"), L, |ui| {
-                form::text(ui, &mut d, "name", 300.0);
-            });
-            // Profile: the preset categories (the tabs); Size: the profile's presets.
-            let profiles: Vec<&str> = newdoc::CATEGORIES.iter().map(|c| c.0).collect();
-            let profile = profiles.iter().find(|p| p.eq_ignore_ascii_case(&d.str("category"))).copied().unwrap_or("[Custom]");
-            widgets::label_row(ui, tl!("Profile:"), L, |ui| {
-                if let Some(p) = widgets::dropdown(ui, "newdoc-profile", profile, &profiles, 220.0).and_then(|i| profiles.get(i)) {
-                    d.fields.insert("category".into(), json!(p));
-                    if let Some(first) = newdoc::category(&app.session, p).and_then(|v| v.into_iter().next()) {
-                        apply(&mut d, &first);
-                    }
-                }
-            });
-            ui.add_space(6.0);
-            let (lay, cols, spacing, rtl) = layout(&d);
-            let n = d.f64("artboards", 1.0);
-            let several = n > 1.0;
-            widgets::label_row(ui, tl!("Number of Artboards:"), L, |ui| {
-                artboards(ui, &mut d, 76.0);
-                ui.add_space(10.0);
-                for (l, icon) in [
-                    (ArtboardLayout::GridByRow, "dc-grid-view"),
-                    (ArtboardLayout::GridByColumn, "grid-3x3"),
-                    (ArtboardLayout::Row, "arrow-left-right"),
-                    (ArtboardLayout::Column, "arrow-up-down"),
-                ] {
-                    if widgets::icon_button_enabled(ui, icon, l.label(), lay == l, several, 26.0).clicked() {
-                        set_layout(&mut d, "layout", json!(l.id()));
-                    }
-                }
-                ui.add_space(6.0);
-                if widgets::icon_button_enabled(ui, "chevrons-left", tl!("Change to Right-to-Left Layout"), rtl, several, 26.0).clicked() {
-                    set_layout(&mut d, "rightToLeft", json!(!rtl));
-                }
-            });
-            ui.add_enabled_ui(several, |ui| {
-                widgets::label_row(ui, tl!("Spacing:"), L, |ui| {
-                    if let Some(v) = widgets::num_field(ui, "newdoc-spacing", Some(spacing), unit(&d), 100.0) {
-                        set_layout(&mut d, "spacing", json!(v.max(0.0)));
-                    }
-                    ui.add_space(20.0);
-                    ui.label(egui::RichText::new(tl!("Columns:")).color(t.text));
-                    let grid = matches!(lay, ArtboardLayout::GridByRow | ArtboardLayout::GridByColumn);
-                    ui.add_enabled_ui(grid, |ui| {
-                        if let Some(v) = widgets::spin_plain(ui, "newdoc-columns", cols as f64, "", 0, 76.0, 1.0, 1.0, &[]) {
-                            set_layout(&mut d, "columns", json!(v.round().clamp(1.0, n) as u64));
-                        }
-                    });
-                });
-            });
-            ui.add_space(6.0);
-            let sizes = newdoc::category(&app.session, profile).unwrap_or_default();
-            let size_names: Vec<&str> = sizes.iter().map(|s| s.name.as_str()).collect();
-            let preset = d.str("preset");
-            widgets::label_row(ui, tl!("Size:"), L, |ui| {
-                // The profile's sizes are built in; the preset may be one the user saved.
-                let shown = if preset.is_empty() { tl!("Custom") } else { preset_name(&preset) };
-                if let Some(s) = super::mixed_dropdown(ui, "newdoc-size", shown, &size_names, 220.0, |_| true).and_then(|i| sizes.get(i)) {
-                    apply(&mut d, s);
-                }
-            });
-            let unit = unit(&d);
-            widgets::label_row(ui, tl!("Width:"), L, |ui| {
-                form::length(ui, &mut d, "width", unit, 120.0);
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new(tl!("Units:")).color(t.text));
-                units_dropdown(ui, &mut d, 120.0);
-            });
-            widgets::label_row(ui, tl!("Height:"), L, |ui| {
-                form::length(ui, &mut d, "height", unit, 120.0);
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new(tl!("Orientation:")).color(t.text));
-                orientation(ui, &mut d);
-            });
-            ui.add_space(4.0);
-            widgets::label_row(ui, tl!("Bleed:"), L, |ui| form::bleed(ui, &mut d, unit, 64.0));
-            ui.add_space(4.0);
-            widgets::label_row(ui, tl!("Background Contents:"), L, |ui| background(ui, &mut d, 220.0));
-            ui.add_space(8.0);
-            advanced(ui, &mut d, L, 220.0);
-        });
-        ui.add_space(16.0);
+fn arrangement(ui: &mut egui::Ui, d: &mut Dialog) {
+    let (lay, cols, spacing, rtl) = layout(d);
+    let n = d.f64("artboards", 1.0);
+    form::caption(ui, tl!("Layout:"));
+    ui.add_enabled_ui(n > 1.0, |ui| {
         ui.horizontal(|ui| {
-            templates = widgets::secondary_button(ui, tl!("Templates…")).on_hover_text(tl!("New from Template")).clicked();
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                b.create |= widgets::primary_button(ui, tl!("Create Document")).clicked();
-                ui.add_space(8.0);
-                // Cancel goes back to New Document.
-                if widgets::secondary_button(ui, tl!("Cancel")).clicked() {
-                    d.kind = KIND.into();
+            for (l, icon) in [
+                (ArtboardLayout::GridByRow, "dc-grid-view"),
+                (ArtboardLayout::GridByColumn, "grid-3x3"),
+                (ArtboardLayout::Row, "arrow-left-right"),
+                (ArtboardLayout::Column, "arrow-up-down"),
+            ] {
+                if widgets::icon_button(ui, icon, l.label(), lay == l, 26.0).clicked() {
+                    set_layout(d, "layout", json!(l.id()));
+                }
+            }
+            ui.add_space(6.0);
+            if widgets::icon_button(ui, "chevrons-left", tl!("Change to Right-to-Left Layout"), rtl, 26.0).clicked() {
+                set_layout(d, "rightToLeft", json!(!rtl));
+            }
+        });
+        widgets::label_row(ui, tl!("Spacing:"), 110.0, |ui| {
+            if let Some(v) = widgets::num_field(ui, "newdoc-spacing", Some(spacing), unit(d), 100.0) {
+                set_layout(d, "spacing", json!(v.max(0.0)));
+            }
+        });
+        ui.add_enabled_ui(matches!(lay, ArtboardLayout::GridByRow | ArtboardLayout::GridByColumn), |ui| {
+            widgets::label_row(ui, tl!("Columns:"), 110.0, |ui| {
+                if let Some(v) = widgets::spin_plain(ui, "newdoc-columns", cols as f64, "", 0, 76.0, 1.0, 1.0, &[]) {
+                    set_layout(d, "columns", json!(v.round().clamp(1.0, n) as u64));
                 }
             });
         });
     });
-    if templates {
-        app.ui.dialog = None;
-        if let Err(e) = app.run("file.newFromTemplate", json!({})) {
-            app.status(e);
-        }
-        return;
-    }
-    b.finish(app, ctx, d);
 }
 
 #[cfg(test)]
@@ -653,7 +575,7 @@ mod tests {
             app.run("file.newDialog", json!({})).unwrap();
             set(&mut app, "advanced", json!(true));
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, height));
-            for (kind, label) in [(super::KIND, "Create"), (super::MORE, "Create Document")] {
+            for (kind, label) in [(super::KIND, "Create"), ("newDocumentMore", "Create")] {
                 app.ui.dialog.as_mut().unwrap().kind = kind.into();
                 let mut found = false;
                 for _ in 0..4 {
@@ -777,7 +699,7 @@ mod tests {
     }
 
     #[test]
-    fn every_category_and_more_settings_draw_and_save_preset_saves() {
+    fn every_category_draws_and_the_legacy_name_uses_the_single_dialog() {
         let mut app = VectorcraftApp::new(Session::new(), Default::default());
         app.run("file.newDialog", json!({})).unwrap();
         set(&mut app, "advanced", json!(true));
@@ -786,10 +708,10 @@ mod tests {
             let out = frame(&mut app);
             assert!(!out.shapes.is_empty());
         }
-        // More Settings shares the fields; Cancel goes back.
-        app.ui.dialog.as_mut().unwrap().kind = super::MORE.into();
+        app.ui.dialog.as_mut().unwrap().kind = "newDocumentMore".into();
         set(&mut app, "artboards", json!(3));
         frame(&mut app);
+        assert_eq!(app.ui.dialog.as_ref().unwrap().kind, super::KIND);
         assert_eq!(field(&app, "artboards"), json!(3));
         // Save Preset.
         set(&mut app, "category", json!("Print"));
@@ -804,5 +726,65 @@ mod tests {
         assert!((field(&app, "width").as_f64().unwrap() - 148.0 * 72.0 / 25.4).abs() < 1e-6, "A5 wide");
         crate::dialogs::confirm(&mut app).unwrap();
         assert_eq!(app.session.prefs.recent_new_docs[0].name, "Zine");
+    }
+
+    #[test]
+    fn arrangement_controls_edit_the_fields_used_to_create_artboards() {
+        use egui::{Event, PointerButton, Rect, vec2};
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.newDialog", json!({})).unwrap();
+        set(&mut app, "artboards", json!(4));
+        let mut dialog = app.ui.dialog.take().unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut draw = |events| {
+            let screen_rect = Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(400.0, 300.0)));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect, events, ..Default::default() }, |ui| {
+                ui.set_width(super::DETAILS);
+                ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                super::arrangement(ui, &mut dialog);
+            });
+            out.textures_delta.clear();
+        };
+        draw(vec![]);
+        let buttons: Vec<Rect> = ctx.viewport(|vp| {
+            vp.prev_pass
+                .widgets
+                .layers()
+                .flat_map(|(_, w)| w.iter())
+                .filter(|w| w.sense.senses_click() && w.rect.size() == vec2(26.0, 26.0))
+                .map(|w| w.rect)
+                .collect()
+        });
+        assert_eq!(buttons.len(), 5);
+        let click = |at, draw: &mut dyn FnMut(Vec<Event>)| {
+            draw(vec![Event::PointerMoved(at)]);
+            for pressed in [true, false] {
+                draw(vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() }]);
+            }
+        };
+        click(buttons[1].center(), &mut draw);
+        click(buttons[4].center(), &mut draw);
+        let spinner = ctx
+            .viewport(|vp| {
+                vp.prev_pass
+                    .widgets
+                    .layers()
+                    .flat_map(|(_, w)| w.iter())
+                    .find(|w| w.sense.senses_click() && w.rect.size() == vec2(16.0, 26.0))
+                    .map(|w| w.rect)
+            })
+            .unwrap();
+        click(spinner.center_top() + vec2(0.0, 5.0), &mut draw);
+        assert_eq!(dialog.fields["artboardLayout"]["layout"], "gridByColumn");
+        assert_eq!(dialog.fields["artboardLayout"]["rightToLeft"], true);
+        assert_eq!(dialog.fields["artboardLayout"]["columns"], 2);
+        app.ui.dialog = Some(dialog);
+        crate::dialogs::confirm(&mut app).unwrap();
+        let boards = &app.session.active().unwrap().doc.artboards;
+        assert_eq!(boards.len(), 4);
+        assert!(boards[0].rect.x0 > boards[2].rect.x0, "right-to-left columns");
+        assert_eq!(boards[0].rect.x0, boards[1].rect.x0, "column-first layout");
+        assert!(boards[1].rect.y0 > boards[0].rect.y0);
     }
 }

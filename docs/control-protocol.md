@@ -326,8 +326,10 @@ New Document: File → New… (`file.newDialog`, Cmd+N) opens the `newDocument` 
 `colorMode`, `rasterEffectsPpi`, `previewMode`) plus `category` (the tab: Recent, Saved, Mobile, Web, Print, Film &
 Video, Art & Illustration, Branding, Social), `advanced` (Advanced Options open), `bleedLinked` and `presetName`
 (Save Preset's name). Setting `preset` to a name from `file.newPresets` fills the other fields from that preset;
-changing a field afterwards makes the settings custom (`preset` becomes ""). More Settings is the `newDocumentMore`
-dialog over the same fields (its Profile is `category`). `ui.dialog.confirm` runs `file.new` with the fields (with
+changing a field afterwards makes the settings custom (`preset` becomes ""). There is one compact dialog;
+Advanced Options includes multi-artboard layout, spacing, columns and right-to-left arrangement. The retired
+`newDocumentMore` name is a compatibility alias that opens and normalizes to `newDocument`, not a second UI.
+`ui.dialog.confirm` runs `file.new` with the fields (with
 `previewMode: "pixel"` the app turns Pixel Preview on); on an error the dialog stays open.
 
 Swatch Conflict: through the app, when the pasted objects' global or spot swatches conflict with the document's
