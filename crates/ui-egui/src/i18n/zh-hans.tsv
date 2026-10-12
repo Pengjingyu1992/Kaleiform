@@ -3440,3 +3440,8 @@ axis	Both	两者
 	Top Right	右上
 	Bottom Left	左下
 	Bottom Right	右下
+
+# EPS/DXF direct-save safety messages.
+@msg	DXF opens as editable 2D artwork; saving rewrites the drawing without CAD-only data, other layouts or the original drawing origin	DXF 以可编辑的二维图形打开；保存会重写文件，无法保留 CAD 专有数据、其他布局及原始坐标原点。
+@msg	EPS/DXF Save writes the whole drawing to one file: use document.export for selected art or separate artboards	EPS/DXF 保存会将完整绘图写入一个文件；仅保存选中内容或按画板分文件，请使用导出。
+@msg	{format} keeps the artwork but not everything a Kaleiform document holds (editable effects, symbols, swatches, styles): save as Kaleiform to keep it all editable	{format} 可保留图形，但不能保留全部虹构文档数据（可编辑效果、符号、色板、样式）；要保留完整可编辑性，请另存为虹构原生格式。

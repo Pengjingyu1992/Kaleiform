@@ -283,7 +283,7 @@ pub fn open_template(s: &mut Session, name: &str, bytes: &[u8], path: Option<&st
 fn open_loaded(s: &mut Session, loaded: Loaded, path: Option<String>, opts: &LoadOptions, as_template: bool) -> Result<Value> {
     let Loaded { mut doc, format, warnings, restored, converted, .. } = loaded;
     // What reading the file left out of the document, if anything.
-    let losses: Vec<String> = warnings.iter().filter(|w| is_loss(w)).cloned().collect();
+    let losses: Vec<String> = warnings.iter().filter(|w| is_loss(w) || (format.id == "eps" && !restored)).cloned().collect();
     let source_path = path.clone().filter(|_| !losses.is_empty());
     let links = crate::cmd::links::resolve(&mut doc, path.as_deref(), s.prefs.update_links == "automatically");
     // A template (saved by Save as Template, or an .ait/.vctemplate file) opens as a new untitled
@@ -406,7 +406,7 @@ pub(super) fn raster_doc(name: &str, bytes: &[u8]) -> Result<Document> {
 
 /// Does this import note say that the file has something the document doesn't?
 fn is_loss(note: &str) -> bool {
-    note == vectorcraft_pdf::OFF_ARTBOARD_NOTE || vectorcraft_eps::is_loss(note)
+    note == vectorcraft_pdf::OFF_ARTBOARD_NOTE || note == super::dxfimport::SAVE_LOSS || vectorcraft_eps::is_loss(note)
 }
 
 /// Writing the file `target` for document `st`: not over the file `st` was read from when reading

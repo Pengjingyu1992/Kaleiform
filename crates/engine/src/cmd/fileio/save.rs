@@ -20,7 +20,7 @@ use crate::{DocState, Prefs};
 
 /// The formats Save As offers, in menu order (append-only). The other writable formats are exports:
 /// they never become the document's own file.
-pub const SAVE_FORMATS: &[&str] = &["vectorcraft", "template", "pdf", "svg", "svgz", "ai"];
+pub const SAVE_FORMATS: &[&str] = &["vectorcraft", "template", "pdf", "svg", "svgz", "ai", "eps", "dxf"];
 
 /// Save-panel filters `(label, [extension])` for `first` (a format id, or a file name whose
 /// extension names one): when Save writes that format, one per [`SAVE_FORMATS`] entry with it
@@ -219,7 +219,23 @@ pub fn save_plan(s: &Session, mode: SaveMode, p: &Value) -> Result<SavePlan> {
         }
     }
     // None given: the ones the document was last saved with in this format.
-    let options = if given.is_empty() && format.id == st.format { st.save_options.clone() } else { given };
+    let mut options = if given.is_empty() && format.id == st.format { st.save_options.clone() } else { given };
+    if matches!(format.id, "eps" | "dxf") {
+        if options.get("selectedOnly").and_then(Value::as_bool) == Some(true)
+            || options.get("useArtboards").and_then(Value::as_bool) == Some(true)
+            || ["artboard", "artboards", "range"].iter().any(|k| options.get(*k).is_some_and(|v| !v.is_null() && v.as_str() != Some("")))
+        {
+            return Err(bad(cmd, "EPS/DXF Save writes the whole drawing to one file: use document.export for selected art or separate artboards"));
+        }
+        options.insert("selectedOnly".into(), json!(false));
+        if format.id == "eps" {
+            options.insert("useArtboards".into(), json!(false));
+        } else {
+            // No crop or art-bounds translation: every layer stays in one drawing.
+            options.remove("useArtboards");
+            options.entry("preserve").or_insert(json!("editability"));
+        }
+    }
     // Save writes the document's own file; the other modes only where they are told to.
     let path =
         path.or_else(|| (mode == SaveMode::Save && !st.converted && !st.recovered && format.id == st.format).then(|| st.path.clone()).flatten());
@@ -253,6 +269,10 @@ fn is_native(f: &Format) -> bool {
     matches!(f.id, "vectorcraft" | "template" | "ai")
 }
 
+fn carries_native(f: &Format) -> bool {
+    is_native(f) || f.id == "eps"
+}
+
 fn is_pdf(f: &Format) -> bool {
     matches!(f.id, "pdf" | "ai")
 }
@@ -264,7 +284,7 @@ fn is_svg(f: &Format) -> bool {
 /// The document as written: native files carry the view to reopen at and the Layers panel's open
 /// rows.
 fn doc_to_save(st: &DocState, f: &Format) -> Arc<Document> {
-    if !is_native(f) {
+    if !carries_native(f) {
         return st.doc.clone();
     }
     let open = st.layers_open.saved(&st.doc);
@@ -279,7 +299,7 @@ fn doc_to_save(st: &DocState, f: &Format) -> Arc<Document> {
 
 /// What a format loses against a native file (reported whenever a save writes it).
 fn fidelity_warning(f: &Format) -> Option<String> {
-    (!is_native(f)).then(|| {
+    (!carries_native(f)).then(|| {
         format!(
             "{} keeps the artwork but not everything a Kaleiform document holds (editable effects, symbols, swatches, styles): save as Kaleiform to keep it all editable",
             f.label
@@ -409,7 +429,7 @@ pub(crate) fn job_for(s: &Session, st: &DocState, plan: SavePlan) -> Result<Save
     let cmd = plan.mode.command();
     let own = doc_to_save(st, plan.format);
     // A native file records its links' paths relative to where it is written.
-    let relative = plan.path.as_deref().filter(|_| is_native(plan.format)).and_then(|p| crate::cmd::links::with_relative_paths(&own, p));
+    let relative = plan.path.as_deref().filter(|_| carries_native(plan.format)).and_then(|p| crate::cmd::links::with_relative_paths(&own, p));
     let doc = relative.map_or(own, Arc::new);
     let mut params = plan.options.clone();
     if is_svg(plan.format) {
@@ -427,6 +447,7 @@ pub(crate) fn job_for(s: &Session, st: &DocState, plan: SavePlan) -> Result<Save
     if plan.format.id == "ai" {
         ai_params(&mut params);
     }
+    let params = if plan.format.id == "eps" { super::eps::with_flattener(s, cmd, std::borrow::Cow::Owned(params))?.into_owned() } else { params };
     Ok(SaveJob { plan, doc, params, snapshot: st.doc.clone(), boards })
 }
 
@@ -456,7 +477,11 @@ impl SaveJob {
     /// Encode one file of `doc` in the job's format.
     fn encode_one(&self, doc: &Document) -> Result<Encoded> {
         let (cmd, f) = (self.plan.mode.command(), self.plan.format);
-        let enc = if f.id == "ai" { encode_ai(cmd, f, doc, &self.params)? } else { encode_all(doc, f.id, &self.params)? };
+        let enc = match f.id {
+            "ai" => encode_ai(cmd, f, doc, &self.params)?,
+            "eps" => super::eps::encode_saved(doc, &self.params)?,
+            _ => encode_all(doc, f.id, &self.params)?,
+        };
         if enc.files.len() != 1 {
             return Err(bad(cmd, "Save writes one artboard: name one, or export several with document.export"));
         }
@@ -584,7 +609,11 @@ fn format_options(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(options) = v["options"].as_object_mut() {
         for (name, o) in options.iter_mut() {
             let default = prefs.get(name).filter(|_| matches!(f.id, "vectorcraft" | "template")).unwrap_or(&o["default"]);
-            o["value"] = saved.and_then(|m| m.get(name)).unwrap_or(default).clone();
+            o["value"] = saved.and_then(|m| m.get(name)).cloned().unwrap_or_else(|| match (f.id, name.as_str()) {
+                ("dxf", "preserve") => json!("editability"),
+                ("dxf", "useArtboards") => json!(false),
+                _ => default.clone(),
+            });
         }
     }
     v["saveFormats"] =
@@ -599,7 +628,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             "Save Document",
             [],
             None,
-            "{path?, format?: vectorcraft|template|pdf|svg|svgz|ai (default: the path's extension, else the document's own format), options?: {…the format's options, see file.formatOptions; default: as last saved}, svg?: {…SVG options} (SVG options may also be given flat; an SVG save keeps hidden layers, display:none, unless hiddenLayers is false), native (also flat): compress?: bool (gzip; default: the useCompression preference), version?: 3 (2 or 1: for older Kaleiform versions, never compressed), preview?: false (embed a PNG of the first artboard, at most 256 px), native and .ai: separateArtboards?: false (also save each artboard of range?: \"1-3, 5\"|\"all\" (default) to <name>-<artboard>.<ext> beside the file, holding that artboard and the art touching it; the result's files lists every file written), includeLinked?: false (keep linked files' own pixels, not just their previews; they stay linked), embedProfiles?: true (carry the ICC profiles loaded from files that the document is tagged with; opening the file installs them where missing), pdfCompatible?: false for native (also carry a PDF of every artboard) | true for .ai (false: blank pages, only the native document), .ai: compress?: true (compression.compressText), modified?: Unix seconds|null (the File Info modified date, and created date when there is none, a save to a file stamps; default now, recorded in the journal so a replay matches; null: leave the dates)} → {path, format, bytes, warnings, files?: [path…] (the file and its artboards' files), linked?: [path…] (images an SVG links to)}. Save writes one artboard, except a .ai file: a PDF-compatible file of every artboard carrying the native document (preserveEditing always on; PDF options flat or in options), which document.open restores exactly; separateArtboards writes more files, one per artboard. Without a path it writes the document's own file in its own format: a document opened from or saved as SVG/PDF saves as that again (warnings name what the format loses). No path known (never saved, converted from an older version, restored by Data Recovery, or another format) → {dataBase64, format, name, folder?, warnings} and the document stays modified",
+            "{path?, format?: vectorcraft|template|pdf|svg|svgz|ai|eps|dxf (default: the path's extension, else the document's own format), options?: {…the format's options, see file.formatOptions; default: as last saved}, svg?: {…SVG options} (SVG options may also be given flat; an SVG save keeps hidden layers, display:none, unless hiddenLayers is false), native (also flat): compress?: bool (gzip; default: the useCompression preference), version?: 3 (2 or 1: for older Kaleiform versions, never compressed), preview?: false (embed a PNG of the first artboard, at most 256 px), native and .ai: separateArtboards?: false (also save each artboard of range?: \"1-3, 5\"|\"all\" (default) to <name>-<artboard>.<ext> beside the file, holding that artboard and the art touching it; the result's files lists every file written), includeLinked?: false (keep linked files' own pixels, not just their previews; they stay linked), embedProfiles?: true (carry the ICC profiles loaded from files that the document is tagged with; opening the file installs them where missing), pdfCompatible?: false for native (also carry a PDF of every artboard) | true for .ai (false: blank pages, only the native document), .ai: compress?: true (compression.compressText), modified?: Unix seconds|null (the File Info modified date, and created date when there is none, a save to a file stamps; default now, recorded in the journal so a replay matches; null: leave the dates)} → {path, format, bytes, warnings, files?: [path…] (the file and its artboards' files), linked?: [path…] (images an SVG links to)}. EPS/DXF save the complete drawing to one file (no selectedOnly, artboard, artboards, range or useArtboards: true); EPS carries native editing data, DXF defaults to preserve: editability and is not a lossless CAD round trip. For other formats Save writes one artboard, except a .ai file: a PDF-compatible file of every artboard carrying the native document (preserveEditing always on; PDF options flat or in options), which document.open restores exactly; separateArtboards writes more files, one per artboard. Without a path it writes the document's own file in its own format: a document opened from or saved as SVG/PDF/EPS/DXF saves as that again (warnings name what the format loses). No path known (never saved, converted from an older version, restored by Data Recovery, or another format) → {dataBase64, format, name, folder?, warnings} and the document stays modified",
             has_doc,
             |s, p| save(s, SaveMode::Save, p)
         ),
@@ -608,7 +637,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             "Save As…",
             ["File"],
             Some("Cmd+Shift+S"),
-            "{path?, format?: vectorcraft|template|pdf|svg|svgz|ai (default: the path's extension, else the document's own), options?, svg?, modified? (as document.save)} the document takes on the new path, name and format (except a template, which is always a copy) → {path, format, bytes, warnings}; no path → {dataBase64, format, name, folder?, warnings}",
+            "{path?, format?: vectorcraft|template|pdf|svg|svgz|ai|eps|dxf (default: the path's extension, else the document's own), options?, svg?, modified? (as document.save)} the document takes on the new path, name and format (except a template, which is always a copy). EPS/DXF save the whole drawing to one file; EPS carries native editing data, DXF defaults to preserve: editability. Use document.export for selected art or separate artboards. DXF is editable 2D artwork, not a lossless CAD round trip; acknowledgeLoss: true is required to overwrite a DXF import's source. → {path, format, bytes, warnings}; no path → {dataBase64, format, name, folder?, warnings}",
             has_doc,
             |s, p| save(s, SaveMode::SaveAs, p)
         ),

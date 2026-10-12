@@ -40,7 +40,7 @@ fn an_eps_file_of_ours_reopens_as_the_same_document() {
     let r = open(&mut s, "rich.eps", &eps).unwrap();
     assert_eq!((&r["warnings"], &r["restored"], &r["format"]), (&json!([]), &json!(true), &json!("eps")), "{r}");
     assert_eq!(comparable(&s.doc().unwrap().doc), before, "the document came back exactly");
-    assert_eq!(s.doc().unwrap().path, None, "an EPS file is not saved over");
+    assert_eq!(s.doc().unwrap().path, None, "opening bytes without a path still asks where to save");
     // A document that can't be read: the PostScript is read instead, with a warning.
     let at = eps.windows(9).position(|w| w == b"native\n% ").unwrap() + 12;
     let mut damaged = eps.clone();

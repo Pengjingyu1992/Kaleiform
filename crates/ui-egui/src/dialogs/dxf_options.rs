@@ -9,7 +9,7 @@
 use serde_json::{Map, Value, json};
 use vectorcraft_cad::{ColorDepth, DxfVersion, Preserve, RasterFormat};
 use vectorcraft_doc::Unit;
-use vectorcraft_engine::cmd::fileio;
+use vectorcraft_engine::cmd::fileio::{self, SaveMode};
 
 use super::DialogSpec;
 use super::document_setup::{LABEL, check, choice};
@@ -23,13 +23,14 @@ pub(super) const SPEC: DialogSpec = DialogSpec {
     body,
     confirm,
     ok: Some("Export"),
+    ok_label: Some(|app| if app.ui.dialog.as_ref().is_some_and(|d| d.fields.contains_key("__save")) { "Save" } else { "Export" }),
     min_width: 420.0,
     max_width: Some(460.0),
     ..DialogSpec::FORM
 };
 
 /// Fields that are not remembered between exports (they belong to one export).
-const PER_EXPORT: [&str; 7] = ["format", "path", "useArtboards", "range", "artboard", "artboards", "selectedOnly"];
+const PER_EXPORT: [&str; 8] = ["format", "path", "useArtboards", "range", "artboard", "artboards", "selectedOnly", "acknowledgeLoss"];
 
 /// The options a first DXF Options dialog starts from (the export's defaults).
 fn defaults() -> Map<String, Value> {
@@ -95,7 +96,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     });
     ui.add_space(4.0);
     let selection = app.session.active().is_some_and(|st| !st.selection.is_empty());
-    if widgets::check(ui, tl!("Export Selected Art Only"), d.bool("selectedOnly") && selection, selection) {
+    if !d.fields.contains_key("__save") && widgets::check(ui, tl!("Export Selected Art Only"), d.bool("selectedOnly") && selection, selection) {
         d.fields.insert("selectedOnly".into(), json!(!d.bool("selectedOnly")));
     }
     check(ui, d, "alterPaths", tl!("Alter Paths for Appearance"));
@@ -151,9 +152,18 @@ fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> Result<Value, String> {
     if let Some(st) = app.session.active() {
         fileio::export_source(st, &params).map_err(|e| e.to_string())?;
     }
-    app.ui.dxf_options =
-        Value::Object(d.fields.iter().filter(|(k, _)| !PER_EXPORT.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect());
+    app.ui.dxf_options = Value::Object(
+        d.fields.iter().filter(|(k, _)| !k.starts_with("__") && !PER_EXPORT.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect(),
+    );
     app.ui.dialog = None;
     let path = d.fields.get("path").and_then(Value::as_str).map(str::to_string);
+    if let Some(mode) = SaveMode::of(&d.str("__save")) {
+        return io::save(
+            app,
+            mode,
+            &json!({ "path": path, "format": "dxf", "acknowledgeLoss": params["acknowledgeLoss"], "options": params }),
+            false,
+        );
+    }
     io::export(app, Some("dxf"), path, &params)
 }

@@ -246,8 +246,8 @@ pub fn save(app: &mut VectorcraftApp, mode: SaveMode, p: &Value, ask_options: bo
         if let Some(r) = ask_before_losing(app, &path, save_command(mode), p) {
             return Ok(r);
         }
-        if ask && matches!(mode, SaveMode::SaveAs | SaveMode::Copy) && matches!(first.format.id, "svg" | "svgz") {
-            return ask_format_options(app, mode, first.format, &path);
+        if ask && matches!(mode, SaveMode::SaveAs | SaveMode::Copy) && matches!(first.format.id, "svg" | "svgz" | "eps" | "dxf") {
+            return ask_format_options(app, mode, first.format, &path, p["acknowledgeLoss"].as_bool().unwrap_or(false));
         }
         return write_plan(app, first);
     }
@@ -271,7 +271,7 @@ pub fn save(app: &mut VectorcraftApp, mode: SaveMode, p: &Value, ask_options: bo
     }
     if ask && asks_options(mode, chosen.format) {
         let path = chosen.path.clone().unwrap_or_default();
-        return ask_format_options(app, mode, chosen.format, &path);
+        return ask_format_options(app, mode, chosen.format, &path, q["acknowledgeLoss"].as_bool().unwrap_or(false));
     }
     write_plan(app, chosen)
 }
@@ -297,7 +297,8 @@ fn acknowledged(p: &Value) -> Value {
 /// out (hidden text, art or layers Kaleiform can't read yet): asks first, and OK runs `command`
 /// with `params` and `acknowledgeLoss` → `{pending}` while it asks, `None` when nothing is lost.
 fn ask_before_losing(app: &mut VectorcraftApp, path: &str, command: &str, params: &Value) -> Option<Value> {
-    let what = fileio::losses_summary(fileio::overwrite_losses(app.session.active()?, path, params)?);
+    let losses: Vec<String> = fileio::overwrite_losses(app.session.active()?, path, params)?.iter().map(|s| crate::i18n::msg(s)).collect();
+    let what = fileio::losses_summary(&losses);
     let name = fileio::file_name(path);
     let message = crate::i18n::fmt(tl!("Replace “{name}”, the file this document was opened from?"), &[("name", &name)]);
     let detail = crate::i18n::fmt(
@@ -331,9 +332,21 @@ fn has_options(p: &Value) -> bool {
 
 /// Ask for format `f`'s options before a save (`mode`) to `path`: SVG Options for SVG, the Save
 /// PDF dialog for PDF, else the save options dialog. OK finishes the save.
-pub fn ask_format_options(app: &mut VectorcraftApp, mode: SaveMode, f: &Format, path: &str) -> Result<Value, String> {
+pub fn ask_format_options(app: &mut VectorcraftApp, mode: SaveMode, f: &Format, path: &str, acknowledge_loss: bool) -> Result<Value, String> {
     match f.id {
         "pdf" => ask_pdf_options(app, mode, path),
+        "eps" | "dxf" => {
+            let mut p = Value::Object(plan(app, mode, &acknowledged(&json!({ "path": path, "format": f.id })))?.options);
+            p["path"] = json!(path);
+            p["__save"] = json!(mode.command());
+            p["acknowledgeLoss"] = json!(acknowledge_loss);
+            if f.id == "eps" {
+                dialogs::eps_options::open(app, &p);
+            } else {
+                dialogs::dxf_options::open(app, &p);
+            }
+            Ok(json!({ "pending": app.ui.dialog.as_ref().map(|d| &d.kind), "path": path }))
+        }
         "svg" | "svgz" => {
             let m = if mode == SaveMode::Copy { svg_options::Mode::SaveCopy } else { svg_options::Mode::Save };
             svg_options::open(app, m, Some(path));

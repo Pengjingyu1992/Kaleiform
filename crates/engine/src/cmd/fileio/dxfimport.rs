@@ -73,8 +73,14 @@ pub(super) fn options(cmd: &str, p: Option<&Value>) -> Result<ImportOptions> {
 /// Import a DXF drawing → the document and import notes.
 pub(super) fn import(bytes: &[u8], o: &ImportOptions) -> Result<(Document, Vec<String>)> {
     let r = vectorcraft_cad::import(bytes, o).map_err(err)?;
-    Ok((r.document, r.warnings))
+    let mut warnings = r.warnings;
+    warnings.insert(0, SAVE_LOSS.into());
+    Ok((r.document, warnings))
 }
+
+/// Even a clean 2D import does not retain the source's CAD data or coordinate frame.
+pub(super) const SAVE_LOSS: &str =
+    "DXF opens as editable 2D artwork; saving rewrites the drawing without CAD-only data, other layouts or the original drawing origin";
 
 const INFO: &str = "document.dxfInfo";
 

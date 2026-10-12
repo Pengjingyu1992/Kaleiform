@@ -924,6 +924,8 @@ mod tests_eps;
 #[cfg(test)]
 mod tests_dxfimport;
 #[cfg(test)]
+mod tests_epsdxf_save;
+#[cfg(test)]
 mod tests_metafile;
 
 #[cfg(test)]

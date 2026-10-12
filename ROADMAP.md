@@ -114,6 +114,13 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **EPS/DXF direct save (2026-10-12, M4.141):** both formats now participate in Save, Save As
+  and Save a Copy, with their existing format-specific dialogs on desktop and web. EPS saves
+  carry the complete native document, even for empty/hidden-only art. DXF saves default to
+  editable text and linework and write one complete 2D drawing. Imported DXF source files and
+  EPS imports with warnings require confirmation before replacement; CAD-only data, other
+  layouts and the original DXF coordinate frame are not preserved. This does not implement
+  binary DXF, DWG or full CAD fidelity, and does not raise the interop score. See [scope](docs/eps-dxf.md).
 - **Preview 5 release preparation (2026-10-12, RELEASE-20261012):** packages the optional glass
   interface, Smooth and Image Trace usability, localization and catalogue-wide QA fixes added
   since preview 4 hotfix 1. Updates versioned installation and provenance documentation;

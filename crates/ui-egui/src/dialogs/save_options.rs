@@ -52,7 +52,7 @@ pub(crate) fn option_values(app: &mut VectorcraftApp, f: &Format) -> Map<String,
 /// Formats whose options have a dialog of their own (SVG Options, Save PDF), which follows this
 /// one.
 fn own_dialog(f: &Format) -> bool {
-    matches!(f.id, "svg" | "svgz" | "pdf")
+    matches!(f.id, "svg" | "svgz" | "pdf" | "eps" | "dxf")
 }
 
 /// Does `f` save each artboard to a separate file on request (native and `.ai` files)? Its
@@ -222,7 +222,7 @@ fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> DialogResult {
     }
     app.ui.dialog = None;
     match SaveMode::of(&d.str("__action")) {
-        Some(mode) if own_dialog(f) => io::ask_format_options(app, mode, f, &path),
+        Some(mode) if own_dialog(f) => io::ask_format_options(app, mode, f, &path, false),
         Some(mode) => io::save(app, mode, &json!({ "path": path, "format": f.id, "options": options }), false),
         None => Err(format!("`{}` is no save command", d.str("__action"))),
     }
@@ -301,7 +301,7 @@ mod tests {
         // The save panel offers every save format, the document's own first.
         let pick = &picks.borrow()[0];
         let labels: Vec<&str> = pick.filters.iter().map(|f| f.0).collect();
-        assert_eq!(labels, ["Kaleiform", "Kaleiform Template", "PDF", "SVG", "SVG Compressed", "PDF-compatible .ai"]);
+        assert_eq!(labels, ["Kaleiform", "Kaleiform Template", "PDF", "SVG", "SVG Compressed", "PDF-compatible .ai", "EPS", "DXF"]);
         assert_eq!(pick.name, "Untitled-1.vectorcraft");
         let d = dialog(&app);
         assert_eq!((d.kind.as_str(), d.str("path").as_str(), d.str("mode").as_str()), ("svgOptions", "art.svg", "save"));
@@ -394,5 +394,97 @@ mod tests {
         app.run("file.saveCopy", json!({"format": "pdf"})).unwrap();
         assert_eq!(dialog(&app).str("compatibility"), "1.5");
         assert_eq!(dialog(&app).str("__save"), "file.saveCopy");
+    }
+
+    #[test]
+    fn epsdxf_save_as_uses_format_options_then_save_reuses_them() {
+        for (path, kind) in [("art.eps", "epsOptions"), ("art.dxf", "dxfOptions")] {
+            let (mut app, written, picks) = desktop(path);
+            app.run("file.saveAs", json!({})).unwrap();
+            assert_eq!(dialog(&app).kind, kind);
+            assert_eq!(dialog(&app).str("__save"), "file.saveAs");
+            assert!(written.borrow().is_empty());
+            frame(&mut app, false);
+            let f = if kind == "epsOptions" { "eps" } else { "dxf" };
+            if f == "dxf" {
+                assert_eq!(dialog(&app).str("preserve"), "editability");
+                app.ui.dialog.as_mut().unwrap().fields.insert("unit".into(), json!("Inches"));
+            } else {
+                app.ui.dialog.as_mut().unwrap().fields.insert("previewFormat".into(), json!("none"));
+            }
+            super::super::confirm(&mut app).unwrap();
+            assert!(app.ui.dialog.is_none());
+            let (p, bytes) = written.borrow()[0].clone();
+            assert_eq!(p, path);
+            assert_eq!(fileio::load(path, &bytes).unwrap().format.id, f);
+            let st = app.session.active().unwrap();
+            assert_eq!((st.path.as_deref(), st.format, st.is_dirty()), (Some(path), f, false));
+            let options = st.save_options.clone();
+            app.run("shape.ellipse", json!({"x": 50, "y": 10, "width": 20, "height": 20})).unwrap();
+            app.run("file.save", json!({})).unwrap();
+            assert!(app.ui.dialog.is_none() && picks.borrow().len() == 1);
+            assert_eq!(app.session.active().unwrap().save_options, options);
+            assert_eq!(written.borrow().len(), 2);
+            // Save-specific dispatch/overwrite approval must not leak into later exports.
+            app.run(if f == "eps" { "ui.epsOptionsDialog" } else { "ui.dxfOptionsDialog" }, json!({})).unwrap();
+            assert!(!dialog(&app).fields.contains_key("__save"));
+            assert!(!dialog(&app).fields.contains_key("acknowledgeLoss"));
+        }
+    }
+
+    #[test]
+    fn epsdxf_given_paths_copy_cancel_and_invalid_options() {
+        for (f, kind) in [("eps", "epsOptions"), ("dxf", "dxfOptions")] {
+            let (mut app, written, _) = desktop("unused.vectorcraft");
+            let path = format!("copy.{f}");
+            app.run("file.saveCopy", json!({"path": path})).unwrap();
+            assert_eq!(dialog(&app).kind, kind);
+            super::super::cancel(&mut app);
+            assert!(written.borrow().is_empty());
+            app.run("file.saveCopy", json!({"path": path})).unwrap();
+            let (key, bad, good) = if f == "eps" { ("level", json!(9), json!(3)) } else { ("scale", json!(0), json!(1)) };
+            app.ui.dialog.as_mut().unwrap().fields.insert(key.into(), bad);
+            assert!(super::super::confirm(&mut app).is_err());
+            assert_eq!(dialog(&app).kind, kind);
+            assert!(written.borrow().is_empty());
+            app.ui.dialog.as_mut().unwrap().fields.insert(key.into(), good);
+            super::super::confirm(&mut app).unwrap();
+            assert_eq!(written.borrow().len(), 1);
+            assert!(app.session.active().unwrap().path.is_none() && app.session.active().unwrap().is_dirty());
+        }
+    }
+
+    #[test]
+    fn epsdxf_web_save_as_proceeds_to_the_format_dialog() {
+        for (f, kind) in [("eps", "epsOptions"), ("dxf", "dxfOptions")] {
+            let (mut app, written) = web();
+            app.run("file.saveAs", json!({})).unwrap();
+            let mut d = app.ui.dialog.take().unwrap();
+            switch_format(&mut app, &mut d, f);
+            assert_eq!(shown(fileio::format(f).unwrap()).count(), 0);
+            app.ui.dialog = Some(d);
+            super::super::confirm(&mut app).unwrap();
+            assert_eq!(dialog(&app).kind, kind);
+            frame(&mut app, false);
+            super::super::confirm(&mut app).unwrap();
+            let (name, bytes) = written.borrow()[0].clone();
+            assert!(name.ends_with(&format!(".{f}")));
+            assert_eq!(fileio::load(&name, &bytes).unwrap().format.id, f);
+        }
+    }
+
+    #[test]
+    fn dxf_overwrite_confirmation_survives_the_options_dialog_once() {
+        let (mut app, written, _) = desktop("unused.vectorcraft");
+        let exported = app.session.execute("document.exportDxf", &json!({})).unwrap();
+        let bytes = vectorcraft_format::base64_decode(exported["dataBase64"].as_str().unwrap()).unwrap();
+        fileio::open_bytes(&mut app.session, "original.dxf", &bytes, Some("original.dxf".into())).unwrap();
+        app.run("file.saveAs", json!({"path": "original.dxf"})).unwrap();
+        assert_eq!(dialog(&app).kind, "confirm");
+        super::super::confirm(&mut app).unwrap();
+        assert_eq!(dialog(&app).kind, "dxfOptions");
+        super::super::confirm(&mut app).unwrap();
+        assert!(app.ui.dialog.is_none());
+        assert_eq!(written.borrow().len(), 1);
     }
 }

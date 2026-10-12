@@ -254,8 +254,30 @@ fn native(doc: &Document, board: Option<usize>, include_linked: bool) -> Vec<u8>
 /// artboard. Transparency is flattened first (once for all of them); the previews show `doc`
 /// itself.
 pub(super) fn encode(doc: &Document, p: &Value) -> Result<Encoded> {
+    encode_with(doc, p, false)
+}
+
+/// Save keeps the complete native document, including empty and hidden-only drawings.
+pub(super) fn encode_saved(doc: &Document, p: &Value) -> Result<Encoded> {
+    let doc = &*doc.without_edit_modes();
+    let mut enc = encode_with(doc, p, true)?;
+    if let Some(w) = crate::cmd::fonts::substitution_warning(doc) {
+        enc.warnings.push(w);
+    }
+    Ok(enc)
+}
+
+fn encode_with(doc: &Document, p: &Value, saving: bool) -> Result<Encoded> {
     let set = parse(p)?;
-    let pages = pages(doc, &set)?;
+    let pages = if saving {
+        let region = vectorcraft_render::encode::art_bounds(doc)
+            .or_else(|| doc.artboards.first().map(|a| a.rect))
+            .ok_or_else(|| bad(C, "the document has no artboard"))?;
+        let origin = doc.artboards.first().map_or(Point::new(region.x0, region.y1), |a| Point::new(a.rect.x0, a.rect.y1));
+        vec![(None, region, origin)]
+    } else {
+        pages(doc, &set)?
+    };
     if pages.is_empty() {
         return Err(bad(C, "the document has no artboard"));
     }

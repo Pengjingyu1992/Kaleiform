@@ -130,7 +130,7 @@ fn document_open_reads_a_dxf_drawing() {
     assert_eq!(st.doc.symbols.len(), 1, "the block is a symbol");
     assert_eq!(leaves(&s).iter().filter(|n| matches!(n.kind, NodeKind::SymbolInstance { .. })).count(), 2);
     assert!(st.doc.layers[1].locked, "Notes is locked");
-    // Saving asks for a name: DXF opens as artwork, it isn't written back.
+    // Opening bytes without a path still asks where to save.
     assert!(st.path.is_none());
 }
 
