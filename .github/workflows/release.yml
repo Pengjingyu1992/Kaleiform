@@ -204,7 +204,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
-            desktop-file-utils appstream python3-yaml zsync
+            desktop-file-utils appstream python3-yaml zsync file xvfb xauth fonts-noto-cjk dbus-x11 mesa-vulkan-drivers libvulkan1
           curl -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${{ matrix.deb }}.deb"
           sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
@@ -225,6 +225,9 @@ jobs:
           dpkg-deb --info dist/release/*.deb
           dpkg-deb --contents dist/release/*.deb | grep -E 'usr/bin/vectorcraft$|metainfo|applications'
           ldd target/release/vectorcraft
+          sudo apt-get install -y ./dist/release/*.deb
+          VECTORCRAFT_NO_PREFS=1 LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=vulkan \
+            xvfb-run -a python3 packaging/linux/smoke.py --desktop
           python3 -c "import yaml; m = yaml.safe_load(open('packaging/linux/flatpak/ai.storyteller.vectorcraft.yml')); assert m['id'] == 'ai.storyteller.vectorcraft'"
           for appimage in dist/release/*.AppImage; do
             chmod +x "$appimage"

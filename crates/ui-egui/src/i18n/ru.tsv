@@ -3737,3 +3737,7 @@ axis	Both	Оба
 	Update Trace	Обновить трассировку
 	Convert the trace to editable paths	Преобразовать трассировку в редактируемые контуры
 	Apply tracing settings before expanding	Примените настройки трассировки перед разбором
+@msg	16-bit grayscale JPEG images are not supported	16-битные изображения JPEG в оттенках серого не поддерживаются
+@msg	JPEG has no image header	В JPEG нет заголовка изображения
+@msg	the image's pixels cannot be decoded	Невозможно декодировать пиксели изображения
+@msg	the optimised image's pixels can't be read back	Невозможно повторно прочитать пиксели оптимизированного изображения

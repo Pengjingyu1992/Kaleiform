@@ -9,7 +9,7 @@
 #
 # Usage: packaging/linux/package.sh [--skip-build] [--formats "appimage deb rpm tar"]
 #
-# Needs: cargo; nfpm for deb/rpm (https://nfpm.goreleaser.com); appimagetool for the AppImage
+# Needs: cargo, python3, binutils; nfpm for deb/rpm (https://nfpm.goreleaser.com); appimagetool for the AppImage
 # (downloaded into $CARGO_TARGET_DIR if missing). Build on an old distro (CI: Ubuntu 22.04,
 # glibc 2.35) so the binaries run on newer ones. Optional: desktop-file-validate, appstreamcli,
 # zsyncmake (the zsync package) for the AppImage's .zsync.
@@ -24,11 +24,33 @@ FORMATS="appimage deb rpm tar"
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
-    --formats) FORMATS="$2"; shift 2 ;;
+    --formats)
+      if [ $# -lt 2 ] || [ -z "$2" ]; then
+        echo "error: --formats needs a nonempty list" >&2; exit 2
+      fi
+      FORMATS="$2"; shift 2 ;;
     -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+if [[ -z "${FORMATS//[[:space:]]/}" ]]; then
+  echo "error: --formats needs a nonempty list" >&2; exit 2
+fi
+has() { case " $FORMATS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+for fmt in $FORMATS; do
+  case "$fmt" in appimage | deb | rpm | tar) ;; *) echo "error: unknown format $fmt" >&2; exit 2 ;; esac
+done
+for tool in python3 readelf install strip tar; do
+  command -v "$tool" >/dev/null || { echo "error: $tool not found" >&2; exit 1; }
+done
+if has deb || has rpm; then
+  command -v nfpm >/dev/null || { echo "error: nfpm not found (https://nfpm.goreleaser.com/install/)" >&2; exit 1; }
+fi
+if has appimage; then
+  for tool in file curl; do
+    command -v "$tool" >/dev/null || { echo "error: AppImage packaging needs $tool" >&2; exit 1; }
+  done
+fi
 
 ARCH="$(uname -m)"
 case "$ARCH" in
@@ -45,6 +67,9 @@ if [ "$SKIP_BUILD" = 0 ]; then
   (cd "$ROOT" && cargo build --release --locked -p vectorcraft -p vectorcraft-cli)
 fi
 BIN="$CARGO_TARGET_DIR/release"
+VECTORCRAFT_GLIBC_MIN="$(python3 "$HERE/check-binaries.py" --arch "$ARCH" --version "$VERSION" "$BIN/vectorcraft" "$BIN/vectorcraft-cli")"
+export VECTORCRAFT_GLIBC_MIN
+echo "==> verified $ARCH binaries; glibc >= $VECTORCRAFT_GLIBC_MIN"
 WORK="$CARGO_TARGET_DIR/linux-package"
 STAGE="$WORK/root"
 rm -rf "$WORK"
@@ -70,7 +95,7 @@ if command -v appstreamcli >/dev/null; then
   appstreamcli validate --no-net --explain "$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 fi
 
-has() { case " $FORMATS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+ARTIFACTS=()
 
 # ---- .tar.gz ------------------------------------------------------------------------------------
 if has tar; then
@@ -78,6 +103,7 @@ if has tar; then
   cp -R "$STAGE/usr" "$WORK/tar/$BASENAME"
   tar -C "$WORK/tar" -czf "$DIST/$BASENAME.tar.gz" "$BASENAME"
   echo "wrote $DIST/$BASENAME.tar.gz"
+  ARTIFACTS+=("$BASENAME.tar.gz")
 fi
 
 # ---- .deb / .rpm --------------------------------------------------------------------------------
@@ -88,7 +114,10 @@ if has deb || has rpm; then
   # nfpm expands env vars in fields like `version` and `arch`, but not in `contents[].src`.
   sed "s|\${STAGE}|$STAGE|g" "$HERE/nfpm.yaml" >"$WORK/nfpm.yaml"
   for fmt in deb rpm; do
-    if has "$fmt"; then (cd "$ROOT" && nfpm package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$DIST/$BASENAME.$fmt"); fi
+    if has "$fmt"; then
+      (cd "$ROOT" && nfpm package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$DIST/$BASENAME.$fmt")
+      ARTIFACTS+=("$BASENAME.$fmt")
+    fi
   done
 fi
 
@@ -96,7 +125,6 @@ fi
 if has appimage; then
   APPDIR="$WORK/Kaleiform.AppDir"
   cp -R "$STAGE" "$APPDIR"
-  mv "$APPDIR/usr/share/doc" "$WORK/doc-unused"
   ln -s usr/bin/vectorcraft "$APPDIR/AppRun"
   cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
   cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
@@ -128,12 +156,19 @@ if has appimage; then
   # package) appimagetool also writes the .zsync, into its working directory, hence the cd.
   (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream -u "$UPDATE_INFO" "$APPDIR" "$OUT")
   echo "wrote $OUT"
+  ARTIFACTS+=("$BASENAME.AppImage")
   if [ -s "$OUT.zsync" ]; then
     echo "wrote $OUT.zsync"
+    ARTIFACTS+=("$BASENAME.AppImage.zsync")
   else
     warn "zsyncmake not found, so $OUT.zsync was not written; AppImage delta updates need it"
   fi
 fi
+
+# Only this invocation's artifacts belong in the manifest; never include stale packages.
+for artifact in "${ARTIFACTS[@]}"; do
+  printf '%s  %s\n' "$(sha256 "$DIST/$artifact")" "$artifact"
+done > "$DIST/$BASENAME.sha256"
 
 "$STAGE/usr/bin/vectorcraft-cli" --version
 echo "==> done"

@@ -17,11 +17,13 @@
 它不是从零编写的全新绘图引擎，也不是 VectorCraft / ArtCraft 的官方发行版。
 上游代码、作者和第三方资产的版权及许可声明均予以保留。
 
-**当前为早期预览版 `0.7.0-kaleiform.6`。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
+**当前 macOS 修正版为 `0.7.0-kaleiform.6-hotfix.1`，Linux 下载仍为预览 6。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
-当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 安装包。
-源码继承了 Windows、Linux、FreeBSD 和 Web 构建入口，但本项目尚未为这些平台提供经验证的正式安装包。
+当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 和 **Linux x86_64** 预览安装包。
+Linux 的 deb、rpm、AppImage 和便携压缩包见 [预览 6 下载](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6)，
+要求 glibc 2.35 以上；安装与验收边界见 [Linux 预览版指南](docs/linux.md)。源码还保留 Windows、Linux ARM64、FreeBSD 和 Web 构建入口，
+这些平台尚未提供本项目经验证的正式安装包。
 不要把“源码有构建支持”理解为“所有平台已完成测试”。
 
 **预览 5 新增磨砂玻璃界面**：macOS 顶栏和边栏使用原生窗口材质，浮动面板模糊其后方画布；
@@ -34,17 +36,22 @@
 
 ![虹构中文界面](docs/images/kaleiform-interface.png)
 
-当前源码和本地修订还补上了 macOS“保存 / 另存为”的格式下拉框，可直接选择 AI、EPS、PDF、SVG、
-DXF 或虹构格式；首次保存默认建议 PDF 兼容 AI，已有文件仍按原格式保存。这项修复尚未包含在上述预览 6 下载包中。
+**预览 6 修正版**补上了 macOS“保存 / 另存为”的格式下拉框，可直接选择 AI、EPS、PDF、SVG、
+压缩 SVG、DXF、虹构文档或模板；新文件首次保存默认建议 PDF 兼容 AI，已有文件仍按原格式保存。
+同时包含仓库已合入的 JPEG 解码修复。保存格式的改动属于虹构应用自身，不修改 macOS 系统设置。
 
 ## 下载与安装
 
 1. 打开 [Releases](https://github.com/Pengjingyu1992/Kaleiform/releases)，选择最新的虹构预览版。
-2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.6-macos-arm64.dmg`。
+2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.6-hotfix.1-macos-arm64.dmg`。
 3. 打开 DMG，将 **虹构.app** 拖入 **Applications / 应用程序**，从应用程序文件夹启动。
 4. 本版只有 ad-hoc 本地签名，**没有 Apple Developer ID 签名或公证**。如果 macOS 拦截，
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。
    不需要关闭系统的全局安全检查。具体步骤及 ZIP 备选见 [安装指南](docs/installation.md)。
+
+Linux 用户从 [预览 6 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6) 下载对应格式及 `vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256`，
+按 [Linux 安装指南](docs/linux.md) 校验后安装。Linux 安装包已通过最小 Ubuntu 运行检查，
+Fedora/RPM 安装和真实硬件等验收边界见指南；原 Mac 文件及校验清单继续保留。
 
 中文系统会自动使用中文；也可以在“语言 / Language”菜单或“首选项 → 用户界面 → 语言”选择“简体中文”。
 本版不额外打包 craft-fonts 中文字体，中文通过已安装的系统字体回退显示；macOS 通常使用苹方等系统字体。

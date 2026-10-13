@@ -103,7 +103,7 @@ impl Raster {
         if u64::from(w) * u64::from(h) > MAX_PIXELS {
             return Err(TraceError::TooLarge { width: w, height: h, max: MAX_PIXELS >> 20 });
         }
-        let img = image::load_from_memory(bytes).map_err(decode_err)?.to_rgba8();
+        let img = vectorcraft_doc::ImageBlob::decode_rgba(bytes).ok_or_else(|| TraceError::Decode("the image's pixels cannot be decoded".into()))?;
         let (w, h) = img.dimensions();
         Ok(Self { width: w, height: h, rgba: img.into_raw() })
     }

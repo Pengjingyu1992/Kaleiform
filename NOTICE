@@ -34,6 +34,9 @@ BSD, ISC, Zlib, BSL-1.0 and Unicode-3.0).
 JPEG export uses the jpeg-encoder crate (MIT OR Apache-2.0, and the IJG License): this software is
 based in part on the work of the Independent JPEG Group.
 
+JPEG pixel decoding and validation use jpeg-decoder (MIT OR Apache-2.0), including bounded
+CMYK ink-sample decoding that retains the original colour components.
+
 WebAssembly plug-ins run in the wasmi interpreter (MIT OR Apache-2.0); its wasmparser dependency is
 under the Apache License 2.0 with the LLVM exception.
 

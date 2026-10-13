@@ -15,6 +15,7 @@ kurbo = { workspace = true }
 image = { workspace = true }
 tiff = { workspace = true }
 zune-jpeg = { workspace = true }
+jpeg-decoder = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

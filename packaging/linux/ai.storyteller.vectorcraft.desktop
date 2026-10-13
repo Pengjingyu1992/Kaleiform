@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Kaleiform
+Name[zh_CN]=虹构
 GenericName=Vector Graphics Editor
+GenericName[zh_CN]=矢量绘图
 Comment=Draw and edit vector illustrations, SVG and PDF
+Comment[zh_CN]=绘制和编辑矢量图形、SVG 与 PDF
 Exec=vectorcraft %F
 TryExec=vectorcraft
 Icon=ai.storyteller.vectorcraft
@@ -11,4 +14,5 @@ StartupNotify=true
 StartupWMClass=ai.storyteller.vectorcraft
 Categories=Graphics;2DGraphics;VectorGraphics;
 Keywords=vector;illustration;svg;pdf;drawing;bezier;
-MimeType=image/svg+xml;application/pdf;
+Keywords[zh_CN]=矢量;绘图;插画;虹构;svg;pdf;
+MimeType=application/x-vectorcraft;application/x-vectorcraft-template;image/svg+xml;image/svg+xml-compressed;application/pdf;application/postscript;image/vnd.dxf;

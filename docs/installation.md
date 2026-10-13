@@ -2,18 +2,20 @@
 
 ## 预览版支持范围
 
-`0.7.0-kaleiform.6` 是早期预览版，提供 macOS **arm64 / Apple Silicon** 包，
+macOS 当前修正版为 `0.7.0-kaleiform.6-hotfix.1`，提供 **arm64 / Apple Silicon** 包，
 最低系统声明为 macOS 11，实际交互测试在维护者当前 macOS 上进行，未逐一测试所有系统版本。
-Intel Mac 不能直接使用此 arm64 包。Windows、Linux、FreeBSD 和 Web 暂无本项目已验证的下载包。
+Intel Mac 不能直接使用此 arm64 包。另提供预览 6 的 Linux **x86_64 / glibc 2.35+** 包，
+通过 Ubuntu 22.04 最小环境安装运行检查；Fedora/RPM 安装尚未验收。
+Windows、Linux ARM64、FreeBSD 和 Web 暂无本项目已验证的下载包。
 
 ## macOS 安装
 
 1. 从 [本仓库 Releases](https://github.com/Pengjingyu1992/Kaleiform/releases) 下载
-   `kaleiform-0.7.0-kaleiform.6-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
+   `kaleiform-0.7.0-kaleiform.6-hotfix.1-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
 2. 可在下载目录运行下面命令，将结果与 `SHA256SUMS.txt` 中同名文件比较：
 
    ```sh
-   shasum -a 256 kaleiform-0.7.0-kaleiform.6-macos-arm64.dmg
+   shasum -a 256 kaleiform-0.7.0-kaleiform.6-hotfix.1-macos-arm64.dmg
    ```
 
 3. 双击 DMG，把 **虹构.app** 拖至窗口中的 **Applications** 文件夹。
@@ -35,7 +37,7 @@ SHA-256 只能检测文件与校验清单是否一致，不能代替开发者身
 
 ### ZIP 备选
 
-不能挂载 DMG 时，可下载 `kaleiform-0.7.0-kaleiform.6-macos-arm64.zip`，
+不能挂载 DMG 时，可下载 `kaleiform-0.7.0-kaleiform.6-hotfix.1-macos-arm64.zip`，
 双击解压，把 **虹构.app** 移入“应用程序”。不要只移动 `.app` 内部的可执行文件。
 ZIP 与 DMG 包含同一份 App，签名与系统安全提示相同。
 
@@ -50,6 +52,15 @@ ZIP 与 DMG 包含同一份 App，签名与系统安全提示相同。
 为保持旧文件和设置可用，本版沿用部分 VectorCraft 包标识、设置路径以及
 `.vectorcraft` / `.drawcraft` 后缀。**同机安装两者不意味着设置隔离**，可能共用设置或影响文件关联。
 请先备份，不要把名字改变当作格式迁移。卸载 App 本身不会自动删除原有作品或设置。
+
+## Linux x86_64 安装
+
+从 [预览 6 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6) 下载
+`vectorcraft-0.7.0-kaleiform.6-linux-x86_64.deb`、`.rpm`、`.AppImage` 或 `.tar.gz`，
+同时下载独立的 `vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256`。
+Ubuntu/Debian 推荐 deb；AppImage 与便携包也需要系统图形运行库。
+具体校验、安装、中文字体和 X11/Wayland 限制见 [Linux 指南](linux.md)。
+原 Mac 安装包和 `SHA256SUMS.txt` 不受 Linux 补充发布影响。
 
 ## 从源码编译
 
@@ -74,14 +85,19 @@ open dist/虹构.app
 `cargo xtask bundle` 是开发构建，不会自动取得 Apple Developer ID 或公证。
 Cargo 包名仍是 `vectorcraft`，App 显示名称为虹构。
 
-### Windows / Linux（源码入口，未实机验证）
+### Linux 预览版
+
+Linux x86_64 的安装包构建、原生文件关联和安装后功能检查见 [Linux 指南](linux.md)。
+当前预览构建以 Ubuntu 22.04 / glibc 2.35 为基线，公开下载以 Releases 实际资产为准。
+
+### Windows / Linux ARM64（其他源码入口）
 
 Windows 需要 Rust MSVC 工具链与 Visual Studio C++ Build Tools。
 Linux 桌面还需要对应的窗口、图形及对话框开发库，例如 Ubuntu 可安装：
 
 ```sh
-sudo apt-get install build-essential pkg-config libxkbcommon-dev libwayland-dev \
-  libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+sudo apt-get install build-essential pkg-config libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev \
+  libx11-dev libx11-xcb1 libxcursor1 libxrandr-dev libxi-dev libgl1-mesa-dev
 git clone https://github.com/Pengjingyu1992/Kaleiform.git
 cd Kaleiform
 cargo run --release --locked -p vectorcraft

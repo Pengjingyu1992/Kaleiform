@@ -348,7 +348,7 @@ pub(super) fn new_from_template(s: &mut Session, p: &Value) -> Result<Value> {
 /// that default: wasm32 has 4 GB to address and aborts when an allocation fails.
 const MAX_RASTER_ALLOC: u64 = if cfg!(target_arch = "wasm32") { 512 << 20 } else { 2 << 30 };
 
-/// Decode an image's header (and, for formats stored as PNG, its pixels). CMYK TIFFs are kept as
+/// Decode an image's header (and JPEGs' or formats stored as PNG's pixels). CMYK TIFFs are kept as
 /// they are, with their ink amounts ([`ImageBlob::cmyk`]); CMYK TIFFs with an alpha channel, which
 /// the decoder can't read, become RGBA in the active colour settings' CMYK.
 pub fn raster_image(bytes: &[u8]) -> Result<RasterImage> {
@@ -361,7 +361,14 @@ pub fn raster_image(bytes: &[u8]) -> Result<RasterImage> {
     let ppi = super::ppi::resolution(bytes);
     let cmyk = || ImageBlob::new(f.mime, bytes.to_vec()).cmyk().is_some();
     let (bytes, mime, (width, height)) = if matches!(f.id, "png" | "jpg" | "gif" | "webp") || (f.id == "tiff" && cmyk()) {
-        (bytes.to_vec(), f.mime, reader.into_dimensions().map_err(err)?)
+        let size = if f.id == "jpg" {
+            // Headers alone accept a missing/corrupt scan and leave a blank image in the
+            // document. Validate its pixels before Open or Place commits the image.
+            vectorcraft_doc::cmyk::validate_jpeg(bytes, MAX_RASTER_ALLOC as usize).map_err(err)?
+        } else {
+            reader.into_dimensions().map_err(err)?
+        };
+        (bytes.to_vec(), f.mime, size)
     } else {
         let cmyka = || {
             let cms = vectorcraft_color::cms::active();

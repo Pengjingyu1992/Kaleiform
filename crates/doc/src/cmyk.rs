@@ -8,7 +8,6 @@
 use std::io::Cursor;
 
 use zune_jpeg::zune_core::bytestream::ZCursor;
-use zune_jpeg::zune_core::colorspace::ColorSpace;
 use zune_jpeg::zune_core::options::DecoderOptions;
 
 use crate::ImageBlob;
@@ -48,6 +47,40 @@ pub fn jpeg_components(bytes: &[u8]) -> Option<usize> {
     let mut d = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), DecoderOptions::default());
     d.decode_headers().ok()?;
     Some(d.info()?.components as usize)
+}
+
+/// Validate a JPEG's pixel data, returning its size. Unlike the permissive image reader, this
+/// decoder refuses scans that end before their pixels; it also reads subsampled CMYK JPEGs.
+pub fn validate_jpeg(bytes: &[u8], max_alloc: usize) -> Result<(u32, u32), String> {
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.set_max_decoding_buffer_size(max_alloc);
+    decoder.read_info().map_err(|e| e.to_string())?;
+    let info = decoder.info().ok_or_else(|| "JPEG has no image header".to_string())?;
+    if info.pixel_format == jpeg_decoder::PixelFormat::L16 {
+        return Err("16-bit grayscale JPEG images are not supported".into());
+    }
+    decoder.decode().map_err(|e| e.to_string())?;
+    Ok((u32::from(info.width), u32::from(info.height)))
+}
+
+/// JPEG pixels decoded consistently for display, sampling, recolouring and tracing. The
+/// primary image reader misdecodes non-interleaved subsampled RGB scans without an error.
+pub fn jpeg_rgba(bytes: &[u8]) -> Option<image::RgbaImage> {
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.set_max_decoding_buffer_size(512 << 20);
+    decoder.read_info().ok()?;
+    let info = decoder.info()?;
+    let data = decoder.decode().ok()?;
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    let rgba = match info.pixel_format {
+        jpeg_decoder::PixelFormat::L8 => data.into_iter().flat_map(|v| [v, v, v, 255]).collect(),
+        jpeg_decoder::PixelFormat::RGB24 => data.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        // The general image reader permits larger pictures than the separate ink-sample
+        // cache. Keep that RGB fallback, within the decoder's allocation limit.
+        jpeg_decoder::PixelFormat::CMYK32 => return Inks { width: w, height: h, data }.rgba(),
+        jpeg_decoder::PixelFormat::L16 => return None,
+    };
+    image::RgbaImage::from_raw(w, h, rgba)
 }
 
 fn is_tiff(bytes: &[u8]) -> bool {
@@ -93,30 +126,19 @@ impl ImageBlob {
 /// The ink amounts of a four-component JPEG (its samples inverted back; YCCK converted to CMYK
 /// first, as JPEG readers do).
 fn jpeg_inks(bytes: &[u8]) -> Option<Inks> {
-    let mut d = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), DecoderOptions::default());
-    d.decode_headers().ok()?;
-    let space = d.input_colorspace()?;
-    if d.info()?.components != 4 || !matches!(space, ColorSpace::CMYK | ColorSpace::YCCK) {
+    // The primary image reader rejects subsampled progressive CMYK and panics on
+    // optimized non-interleaved CMYK scans. Decode all CMYK pixels consistently.
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    decoder.set_max_decoding_buffer_size((MAX_CMYK_PIXELS * 4) as usize);
+    decoder.read_info().ok()?;
+    let info = decoder.info()?;
+    if info.pixel_format != jpeg_decoder::PixelFormat::CMYK32 {
         return None;
     }
-    let (w, h) = d.dimensions()?;
-    let (w, h) = (u32::try_from(w).ok()?, u32::try_from(h).ok()?);
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
     pixels(w, h)?;
-    d.set_options(DecoderOptions::default().jpeg_set_out_colorspace(space));
-    let mut data = d.decode().ok()?;
-    for p in data.as_chunks_mut::<4>().0 {
-        if space == ColorSpace::YCCK {
-            let [y, cb, cr] = [p[0], p[1], p[2]].map(f32::from);
-            // libjpeg's YCCK → CMYK: the complement of the YCbCr colour's RGB.
-            p[0] = (434.456 - y - 1.402 * cr).clamp(0.0, 255.0) as u8;
-            p[1] = (119.541 - y + 0.344 * cb + 0.714 * cr).clamp(0.0, 255.0) as u8;
-            p[2] = (481.816 - y - 1.772 * cb).clamp(0.0, 255.0) as u8;
-        }
-        for v in p.iter_mut() {
-            *v = 255 - *v;
-        }
-    }
-    Inks::new(w, h, data)
+    // This decoder already converts YCCK and uninverts the samples to ink amounts.
+    Inks::new(w, h, decoder.decode().ok()?)
 }
 
 /// The ink amounts of a chunky CMYK TIFF (16-bit samples to 8 bits).
@@ -224,6 +246,27 @@ mod tests {
         assert_eq!((back.width, back.height), (16, 16));
         for p in back.data.as_chunks::<4>().0 {
             assert!(p.iter().zip(flat).all(|(a, b)| a.abs_diff(b) <= 2), "{p:?}");
+        }
+    }
+
+    #[test]
+    fn progressive_cmyk_jpegs_keep_their_ink_amounts() {
+        let flat = [10u8, 40, 100, 20];
+        let px: Vec<u8> = (0..96 * 72).flat_map(|_| flat).collect();
+        for scans in 3..=5 {
+            let mut jpg = Vec::new();
+            // Below quality 90 the encoder subsamples K rather than the first channel.
+            let mut encoder = jpeg_encoder::Encoder::new(&mut jpg, 40);
+            encoder.set_optimized_huffman_tables(true);
+            encoder.set_progressive_scans(scans);
+            encoder.encode(&px, 96, 72, jpeg_encoder::ColorType::Cmyk).unwrap();
+            let b = ImageBlob::new("image/jpeg", jpg);
+            assert!(b.is_cmyk());
+            let back = b.cmyk().expect("progressive CMYK JPEG must decode");
+            assert_eq!((back.width, back.height), (96, 72));
+            for p in back.data.as_chunks::<4>().0 {
+                assert!(p.iter().zip(flat).all(|(a, b)| a.abs_diff(b) <= 8), "{scans} scans: {p:?}");
+            }
         }
     }
 

@@ -599,7 +599,7 @@ fn trim_image(s: &mut Session, id: NodeId, im: ImageObject) -> Result<Value> {
     const C: &str = "object.cropImage";
     let st = s.doc()?;
     let blob = st.doc.images.get(&im.key).ok_or_else(|| bad(C, "the image's pixels are missing"))?;
-    let px = image::load_from_memory(&blob.bytes).map_err(|_| bad(C, "the image's pixels can't be read"))?.to_rgba8();
+    let px = blob.rgba().ok_or_else(|| bad(C, "the image's pixels can't be read"))?;
     let (w, h) = px.dimensions();
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
     for (x, y, p) in px.enumerate_pixels() {

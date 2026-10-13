@@ -7,6 +7,25 @@ use std::sync::Arc;
 use crate::ImageBlob;
 
 impl ImageBlob {
+    /// Decoded RGBA pixels, using the same JPEG decoder as Open/Place validation.
+    pub fn rgba(&self) -> Option<image::RgbaImage> {
+        Self::decode_rgba(&self.bytes)
+    }
+
+    /// Decode encoded pixels consistently, without copying the encoded bytes.
+    pub fn decode_rgba(bytes: &[u8]) -> Option<image::RgbaImage> {
+        if bytes.starts_with(&[0xFF, 0xD8]) {
+            return crate::cmyk::jpeg_rgba(bytes);
+        }
+        image::load_from_memory(bytes).ok().map(|img| img.to_rgba8())
+    }
+
+    /// CMYK samples as RGBA, using the image decoder's usual unprofiled conversion. The
+    /// renderer separately shows the original inks through the working colour profile.
+    pub fn cmyk_rgba(&self) -> Option<image::RgbaImage> {
+        self.cmyk()?.rgba()
+    }
+
     /// A PNG blob of `png` bytes.
     pub fn png(png: Vec<u8>) -> Self {
         Self::new("image/png", png)
@@ -16,12 +35,31 @@ impl ImageBlob {
     pub fn content_key(&self) -> String {
         crate::links::hash_bytes(&self.bytes)
     }
+}
 
+impl crate::cmyk::Inks {
+    /// Ink amounts as unprofiled RGBA, as ordinary image decoders show CMYK samples.
+    pub fn rgba(&self) -> Option<image::RgbaImage> {
+        let pixels = self
+            .data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|p| {
+                let channel = |v: u8| ((u32::from(255 - v) * u32::from(255 - p[3]) + 127) / 255) as u8;
+                [channel(p[0]), channel(p[1]), channel(p[2]), 255]
+            })
+            .collect();
+        image::RgbaImage::from_raw(self.width, self.height, pixels)
+    }
+}
+
+impl ImageBlob {
     /// The image with `f` applied to each pixel's (straight) RGB, alpha kept and fully transparent
     /// pixels left alone, re-encoded as PNG. `f` runs once per distinct colour. `None` when the
     /// image can't be decoded or no pixel changed.
     pub fn map_rgb(&self, mut f: impl FnMut([u8; 3]) -> [u8; 3]) -> Option<ImageBlob> {
-        let mut img = image::load_from_memory(&self.bytes).ok()?.to_rgba8();
+        let mut img = self.rgba()?;
         let mut memo: HashMap<[u8; 3], [u8; 3]> = HashMap::new();
         let mut changed = false;
         for px in img.pixels_mut().filter(|p| p.0[3] > 0) {
@@ -67,7 +105,7 @@ impl ImageBlob {
         LAST.with_borrow_mut(|last| match last {
             Some((k, img)) if *k == key => Some(img.clone()),
             _ => {
-                let img = Arc::new(image::load_from_memory(&self.bytes).ok()?.to_rgba8());
+                let img = Arc::new(self.rgba()?);
                 *last = Some((key, img.clone()));
                 Some(img)
             }
