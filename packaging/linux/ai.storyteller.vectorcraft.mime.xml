@@ -1,3 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-vectorcraft">
+    <comment>Kaleiform drawing</comment>
+    <comment xml:lang="zh_CN">虹构绘图文档</comment>
+    <glob pattern="*.vectorcraft"/>
+    <glob pattern="*.drawcraft"/>
+    <icon name="ai.storyteller.vectorcraft"/>
+  </mime-type>
+  <mime-type type="application/x-vectorcraft-template">
+    <comment>Kaleiform document template</comment>
+    <comment xml:lang="zh_CN">虹构文档模板</comment>
+    <glob pattern="*.vctemplate"/>
+    <icon name="ai.storyteller.vectorcraft"/>
+  </mime-type>
 </mime-info>

@@ -27,29 +27,36 @@ description: |-
 overrides:
   deb:
     depends:
-      - libc6 (>= 2.35)
+      - libc6 (>= ${VECTORCRAFT_GLIBC_MIN})
       - libgcc-s1
       - libxkbcommon0
+      - libxkbcommon-x11-0
       - libvulkan1 | libegl1
-    recommends:
       - libwayland-client0
       - libx11-6
       - libx11-xcb1
       - libxcursor1
       - libxi6
       - libxrandr2
+      - shared-mime-info
+    recommends:
       - mesa-vulkan-drivers
       - xdg-desktop-portal
   rpm:
     depends:
+      - glibc >= ${VECTORCRAFT_GLIBC_MIN}
+      - libgcc
       - libxkbcommon
+      - libxkbcommon-x11
       - (vulkan-loader or libglvnd-egl)
-    recommends:
       - libwayland-client
       - libX11
+      - libX11-xcb
       - libXcursor
       - libXi
       - libXrandr
+      - shared-mime-info
+    recommends:
       - mesa-vulkan-drivers
       - xdg-desktop-portal
 

@@ -74,14 +74,19 @@ open dist/虹构.app
 `cargo xtask bundle` 是开发构建，不会自动取得 Apple Developer ID 或公证。
 Cargo 包名仍是 `vectorcraft`，App 显示名称为虹构。
 
-### Windows / Linux（源码入口，未实机验证）
+### Linux 预览版
+
+Linux x86_64 的安装包构建、原生文件关联和安装后功能检查见 [Linux 指南](linux.md)。
+当前预览构建以 Ubuntu 22.04 / glibc 2.35 为基线，公开下载以 Releases 实际资产为准。
+
+### Windows / Linux ARM64（其他源码入口）
 
 Windows 需要 Rust MSVC 工具链与 Visual Studio C++ Build Tools。
 Linux 桌面还需要对应的窗口、图形及对话框开发库，例如 Ubuntu 可安装：
 
 ```sh
-sudo apt-get install build-essential pkg-config libxkbcommon-dev libwayland-dev \
-  libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+sudo apt-get install build-essential pkg-config libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev \
+  libx11-dev libx11-xcb1 libxcursor1 libxrandr-dev libxi-dev libgl1-mesa-dev
 git clone https://github.com/Pengjingyu1992/Kaleiform.git
 cd Kaleiform
 cargo run --release --locked -p vectorcraft

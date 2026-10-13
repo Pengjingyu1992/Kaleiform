@@ -6,7 +6,9 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
   <name>Kaleiform</name>
+  <name xml:lang="zh_CN">虹构</name>
   <summary>Open-source vector illustration and CJK typography</summary>
+  <summary xml:lang="zh_CN">开源矢量绘图与中文排版</summary>
   <developer id="io.github.pengjingyu1992">
     <name>Kaleiform contributors</name>
   </developer>
@@ -18,6 +20,7 @@
       style art with fills, strokes, gradients and live effects, lay out artboards and type, and
       open and save SVG and PDF.
     </p>
+    <p xml:lang="zh_CN">虹构是开源矢量绘图应用，支持钢笔、形状和画笔工具，填色、描边、渐变与实时效果，画板和文字排版，以及 SVG 和 PDF 的打开与保存。</p>
   </description>
   <launchable type="desktop-id">ai.storyteller.vectorcraft.desktop</launchable>
   <icon type="stock">ai.storyteller.vectorcraft</icon>
@@ -48,6 +51,9 @@
   </supports>
   <provides>
     <binary>vectorcraft</binary>
+    <binary>vectorcraft-cli</binary>
+    <mediatype>application/x-vectorcraft</mediatype>
+    <mediatype>application/x-vectorcraft-template</mediatype>
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
