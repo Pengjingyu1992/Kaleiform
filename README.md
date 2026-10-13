@@ -34,6 +34,9 @@
 
 ![虹构中文界面](docs/images/kaleiform-interface.png)
 
+当前源码和本地修订还补上了 macOS“保存 / 另存为”的格式下拉框，可直接选择 AI、EPS、PDF、SVG、
+DXF 或虹构格式；首次保存默认建议 PDF 兼容 AI，已有文件仍按原格式保存。这项修复尚未包含在上述预览 6 下载包中。
+
 ## 下载与安装
 
 1. 打开 [Releases](https://github.com/Pengjingyu1992/Kaleiform/releases)，选择最新的虹构预览版。

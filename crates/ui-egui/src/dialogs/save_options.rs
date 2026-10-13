@@ -294,15 +294,95 @@ mod tests {
     }
 
     #[test]
+    fn first_save_suggests_ai_and_keeps_the_engine_native_default() {
+        let (mut app, written, picks) = desktop("art");
+        assert_eq!(fileio::save_plan(&app.session, SaveMode::Save, &json!({})).unwrap().format.id, "vectorcraft");
+        let layers = app.session.doc().unwrap().doc.layers.clone();
+        app.run("file.save", json!({})).unwrap();
+        assert_eq!(picks.borrow()[0].name, "Untitled-1.ai");
+        assert_eq!(picks.borrow()[0].filters[0], ("PDF-compatible .ai", &["ai"][..]));
+        let (path, bytes) = written.borrow()[0].clone();
+        assert_eq!(path, "art.ai");
+        assert!(bytes.starts_with(b"%PDF") && vectorcraft_pdf::editing(&bytes).is_some_and(|e| e.intact));
+        assert_eq!(fileio::load(&path, &bytes).unwrap().doc.layers, layers);
+        assert_eq!(app.session.active().unwrap().format, "ai");
+    }
+
+    #[test]
+    fn first_save_can_choose_eps_without_exporting() {
+        let (mut app, written, picks) = desktop("art.eps");
+        let layers = app.session.doc().unwrap().doc.layers.clone();
+        app.run("file.save", json!({})).unwrap();
+        assert_eq!(dialog(&app).kind, "epsOptions");
+        assert_eq!(dialog(&app).str("__save"), "document.save");
+        assert!(written.borrow().is_empty());
+        super::super::confirm(&mut app).unwrap();
+        let (path, bytes) = written.borrow()[0].clone();
+        assert_eq!(path, "art.eps");
+        assert_eq!(fileio::load(&path, &bytes).unwrap().doc.layers, layers);
+        assert_eq!(app.session.active().unwrap().format, "eps");
+        app.run("shape.ellipse", json!({"x": 50, "y": 10, "width": 20, "height": 20})).unwrap();
+        app.run("file.save", json!({})).unwrap();
+        assert_eq!(picks.borrow().len(), 1, "subsequent save keeps the EPS path without another picker");
+    }
+
+    #[test]
+    fn saved_files_and_explicit_native_requests_keep_their_format() {
+        for format in ["ai", "eps", "vectorcraft", "pdf", "svg", "svgz", "dxf"] {
+            let (mut app, written, picks) = desktop("unused");
+            let path = format!("original.{format}");
+            let st = app.session.active_mut().unwrap();
+            st.path = Some(path.clone());
+            st.format = fileio::format(format).unwrap().id;
+            app.run("file.save", json!({})).unwrap();
+            assert!(picks.borrow().is_empty());
+            assert_eq!(written.borrow()[0].0, path);
+            assert_eq!(app.session.active().unwrap().format, format);
+        }
+        let (mut app, written, picks) = desktop("native");
+        app.run("file.save", json!({"format": "vectorcraft"})).unwrap();
+        assert_eq!(picks.borrow()[0].name, "Untitled-1.vectorcraft");
+        assert_eq!(written.borrow()[0].0, "native.vectorcraft");
+        assert!(vectorcraft_format::sniff(&written.borrow()[0].1));
+    }
+
+    #[test]
+    fn cancelling_save_or_save_as_never_changes_the_document_or_writes() {
+        for command in ["file.save", "file.saveAs"] {
+            let written = Written::default();
+            let w = written.clone();
+            let mut app = with_art(Services {
+                pick_save: Some(Box::new(|pick| {
+                    assert!(pick.name.ends_with(".ai"));
+                    assert_eq!(pick.filters.len(), 8);
+                    None
+                })),
+                write: Some(Box::new(move |path, bytes| {
+                    w.borrow_mut().push((path.to_string(), bytes.to_vec()));
+                    Ok(())
+                })),
+                ..Default::default()
+            });
+            let doc = app.session.doc().unwrap().doc.clone();
+            assert!(app.run(command, json!({})).is_err());
+            assert!(written.borrow().is_empty());
+            let st = app.session.doc().unwrap();
+            assert_eq!(st.doc, doc);
+            assert_eq!(st.format, "vectorcraft");
+            assert!(st.path.is_none() && st.is_dirty());
+        }
+    }
+
+    #[test]
     fn save_as_svg_opens_svg_options_then_writes_svg() {
         let (mut app, written, picks) = desktop("art.svg");
         let r = app.run("file.saveAs", json!({})).unwrap();
         assert_eq!((r["pending"].as_str(), r["path"].as_str()), (Some("svgOptions"), Some("art.svg")));
-        // The save panel offers every save format, the document's own first.
+        // Unsaved UI documents default to AI; the picked format still wins.
         let pick = &picks.borrow()[0];
         let labels: Vec<&str> = pick.filters.iter().map(|f| f.0).collect();
-        assert_eq!(labels, ["Kaleiform", "Kaleiform Template", "PDF", "SVG", "SVG Compressed", "PDF-compatible .ai", "EPS", "DXF"]);
-        assert_eq!(pick.name, "Untitled-1.vectorcraft");
+        assert_eq!(labels, ["PDF-compatible .ai", "Kaleiform", "Kaleiform Template", "PDF", "SVG", "SVG Compressed", "EPS", "DXF"]);
+        assert_eq!(pick.name, "Untitled-1.ai");
         let d = dialog(&app);
         assert_eq!((d.kind.as_str(), d.str("path").as_str(), d.str("mode").as_str()), ("svgOptions", "art.svg", "save"));
         assert!(written.borrow().is_empty(), "nothing is written before OK");
@@ -333,7 +413,7 @@ mod tests {
         let folder = vectorcraft_testkit::temp_dir("save-template-dialog");
         app.session.prefs.templates_folder = folder.to_string_lossy().into_owned();
         app.run("file.saveCopy", json!({})).unwrap();
-        assert_eq!(picks.borrow()[0].name, "Untitled-1 copy.vectorcraft");
+        assert_eq!(picks.borrow()[0].name, "Untitled-1 copy.ai");
         assert!(app.ui.dialog.is_none(), "the native format has no options");
         assert!(vectorcraft_format::sniff(&written.borrow()[0].1));
         assert!(app.session.active().unwrap().path.is_none() && app.session.active().unwrap().is_dirty());
@@ -350,7 +430,7 @@ mod tests {
         let (mut app, written) = web();
         app.run("file.saveAs", json!({})).unwrap();
         let d = dialog(&app);
-        assert_eq!((heading(d).as_str(), d.str("path").as_str(), d.str("format").as_str()), ("Save As", "Untitled-1.vectorcraft", "vectorcraft"));
+        assert_eq!((heading(d).as_str(), d.str("path").as_str(), d.str("format").as_str()), ("Save As", "Untitled-1.ai", "ai"));
         frame(&mut app, false);
         let mut d = app.ui.dialog.take().unwrap();
         switch_format(&mut app, &mut d, "pdf");

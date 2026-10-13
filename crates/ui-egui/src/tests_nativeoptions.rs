@@ -92,7 +92,7 @@ fn the_web_save_as_dialog_shows_the_native_options() {
     let mut app = crate::VectorcraftApp::new(vectorcraft_engine::Session::new(), services);
     app.run("file.new", json!({"width": 100, "height": 80})).unwrap();
     three_boards(&mut app);
-    app.run("file.saveAs", Value::Null).unwrap();
+    app.run("file.saveAs", json!({"format": "vectorcraft"})).unwrap();
     frame(&mut app);
     let d = app.ui.dialog.as_mut().unwrap();
     assert!(d.bool("__pick") && d.fields.contains_key("separateArtboards"));

@@ -27,6 +27,8 @@ mod mac_material;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]
+mod mac_save;
+#[cfg(target_os = "macos")]
 mod open_documents;
 mod printing;
 #[cfg(all(windows, not(target_vendor = "win7")))]
@@ -287,6 +289,12 @@ fn show_dialog(dialog: rfd::FileDialog, request: &PickRequest) -> Vec<String> {
 
 /// Show the dialog for `request` over `parent` now → the paths picked.
 fn pick_now(request: PickRequest, parent: &Parent) -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    if let PickRequest::Save(pick) = &request
+        && mac_save::supports(pick)
+    {
+        return mac_save::pick(pick).into_iter().collect();
+    }
     show_dialog(file_dialog(&request, parent), &request)
 }
 

@@ -225,6 +225,19 @@ fn write_encoded(write: Writer, doc: &vectorcraft_doc::Document, path: &str, enc
 }
 
 fn plan(app: &VectorcraftApp, mode: SaveMode, p: &Value) -> Result<SavePlan, String> {
+    // UI-only default: existing files and explicit requests keep their formats.
+    let mut defaults;
+    let p = if mode != SaveMode::Template
+        && p.get("path").is_none_or(Value::is_null)
+        && p.get("format").is_none_or(Value::is_null)
+        && app.session.active().is_some_and(|st| st.path.is_none() && st.format == "vectorcraft")
+    {
+        defaults = if p.is_object() { p.clone() } else { json!({}) };
+        defaults["format"] = json!("ai");
+        &defaults
+    } else {
+        p
+    };
     fileio::save_plan(&app.session, mode, p).map_err(|e| e.to_string())
 }
 

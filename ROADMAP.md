@@ -115,6 +115,11 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Visible save formats (2026-10-13, M4.148):** macOS Save/Save As document panels add an
+  explicit format dropdown; switching it updates the filename and allowed extension before
+  the native overwrite prompt. Unsaved UI documents suggest PDF-compatible AI; saved files,
+  explicit format/path requests, templates and engine/CLI native defaults remain unchanged.
+  This closes a save-panel usability gap, not a new file-format capability or parity-score gain.
 - **Simplified Home (2026-10-13, M14.147):** removes the duplicate Quick Start heading and
   preset cards from Home. New File, Open and recent thumbnails remain; all document presets
   stay in the single New Document dialog. UI-only simplification; no parity-score change.
