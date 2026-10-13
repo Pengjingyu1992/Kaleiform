@@ -20,9 +20,9 @@
 **当前为早期预览版 `0.7.0-kaleiform.6`。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
-当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 安装包。
-Linux x86_64 现已补齐安装包与安装后功能验证流程，构建与安装见 [Linux 预览版指南](docs/linux.md)；
-公开下载仍以 Releases 实际资产为准。源码还保留 Windows、Linux ARM64、FreeBSD 和 Web 构建入口，
+当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 和 **Linux x86_64** 预览安装包。
+Linux 的 deb、rpm、AppImage 和便携压缩包见 [预览 6 下载](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6)，
+要求 glibc 2.35 以上；安装与验收边界见 [Linux 预览版指南](docs/linux.md)。源码还保留 Windows、Linux ARM64、FreeBSD 和 Web 构建入口，
 这些平台尚未提供本项目经验证的正式安装包。
 不要把“源码有构建支持”理解为“所有平台已完成测试”。
 
@@ -44,6 +44,10 @@ Linux x86_64 现已补齐安装包与安装后功能验证流程，构建与安�
 4. 本版只有 ad-hoc 本地签名，**没有 Apple Developer ID 签名或公证**。如果 macOS 拦截，
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。
    不需要关闭系统的全局安全检查。具体步骤及 ZIP 备选见 [安装指南](docs/installation.md)。
+
+Linux 用户从同一 Release 下载对应格式及 `vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256`，
+按 [Linux 安装指南](docs/linux.md) 校验后安装。Linux 安装包已通过最小 Ubuntu 运行检查，
+Fedora/RPM 安装和真实硬件等验收边界见指南；原 Mac 文件及校验清单继续保留。
 
 中文系统会自动使用中文；也可以在“语言 / Language”菜单或“首选项 → 用户界面 → 语言”选择“简体中文”。
 本版不额外打包 craft-fonts 中文字体，中文通过已安装的系统字体回退显示；macOS 通常使用苹方等系统字体。

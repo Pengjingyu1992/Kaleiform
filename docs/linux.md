@@ -2,7 +2,8 @@
 
 Linux 版使用与 macOS 相同的 Rust 绘图引擎和中文界面，保留 `vectorcraft` 二进制、
 `ai.storyteller.vectorcraft` 桌面标识及旧文档扩展名以兼容既有文件和设置。
-这是早期预览版；已公开的下载文件以 Releases 的实际资产为准。
+这是早期预览版；在 [预览 6 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6)
+下载 Linux x86_64 包及同名 `.sha256` 校验清单。原 Mac 资产和校验清单保持原样。
 本次构建、最小环境安装及 X11/Wayland 功能结果见 [Linux 验收记录](qa-linux-2026-10-13.md)。
 
 ## 安装
@@ -14,7 +15,7 @@ Debian、其他桌面环境和显卡组合需要各自验证，不能只凭 glib
 取得安装包及同版 `.sha256` 清单后，先在该目录验证：
 
 ```sh
-sha256sum --check vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256
+sha256sum --check --ignore-missing vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256
 sudo apt install ./vectorcraft-0.7.0-kaleiform.6-linux-x86_64.deb
 ```
 

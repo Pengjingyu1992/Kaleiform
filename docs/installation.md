@@ -4,7 +4,9 @@
 
 `0.7.0-kaleiform.6` 是早期预览版，提供 macOS **arm64 / Apple Silicon** 包，
 最低系统声明为 macOS 11，实际交互测试在维护者当前 macOS 上进行，未逐一测试所有系统版本。
-Intel Mac 不能直接使用此 arm64 包。Windows、Linux、FreeBSD 和 Web 暂无本项目已验证的下载包。
+Intel Mac 不能直接使用此 arm64 包。另提供 Linux **x86_64 / glibc 2.35+** 预览包，
+通过 Ubuntu 22.04 最小环境安装运行检查；Fedora/RPM 安装尚未验收。
+Windows、Linux ARM64、FreeBSD 和 Web 暂无本项目已验证的下载包。
 
 ## macOS 安装
 
@@ -50,6 +52,15 @@ ZIP 与 DMG 包含同一份 App，签名与系统安全提示相同。
 为保持旧文件和设置可用，本版沿用部分 VectorCraft 包标识、设置路径以及
 `.vectorcraft` / `.drawcraft` 后缀。**同机安装两者不意味着设置隔离**，可能共用设置或影响文件关联。
 请先备份，不要把名字改变当作格式迁移。卸载 App 本身不会自动删除原有作品或设置。
+
+## Linux x86_64 安装
+
+从 [预览 6 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6) 下载
+`vectorcraft-0.7.0-kaleiform.6-linux-x86_64.deb`、`.rpm`、`.AppImage` 或 `.tar.gz`，
+同时下载独立的 `vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256`。
+Ubuntu/Debian 推荐 deb；AppImage 与便携包也需要系统图形运行库。
+具体校验、安装、中文字体和 X11/Wayland 限制见 [Linux 指南](linux.md)。
+原 Mac 安装包和 `SHA256SUMS.txt` 不受 Linux 补充发布影响。
 
 ## 从源码编译
 
