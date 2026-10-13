@@ -52,18 +52,18 @@ pub(crate) fn set_paint(ctx: &mut RenderContext, p: &Paint, bounds: Rect, f: &Fr
 
 /// Decode encoded image bytes into a premultiplied pixmap.
 pub fn decode_pixmap(bytes: &[u8]) -> Option<vello_cpu::Pixmap> {
-    pixmap_of(image::load_from_memory(bytes).ok()?.to_rgba8())
+    pixmap_of(vectorcraft_doc::ImageBlob::decode_rgba(bytes)?)
 }
 
 /// [`decode_pixmap`] shrunk to `w`×`h` pixels when the image is larger (never enlarged).
 pub fn decode_pixmap_fit(bytes: &[u8], w: u16, h: u16) -> Option<vello_cpu::Pixmap> {
-    let img = image::load_from_memory(bytes).ok()?;
+    let img = vectorcraft_doc::ImageBlob::decode_rgba(bytes)?;
     let img = if img.width() > w as u32 || img.height() > h as u32 {
-        img.resize_exact(w as u32, h as u32, image::imageops::FilterType::Triangle)
+        image::imageops::resize(&img, w as u32, h as u32, image::imageops::FilterType::Triangle)
     } else {
         img
     };
-    pixmap_of(img.to_rgba8())
+    pixmap_of(img)
 }
 
 /// An RGBA image as a premultiplied pixmap.

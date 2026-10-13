@@ -1024,7 +1024,13 @@ const UNEMBED_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "tif", "tif
 /// Encoded image `bytes` re-encoded in the format of extension `ext` (JPEG without alpha).
 fn convert_image(bytes: &[u8], ext: &str) -> std::result::Result<Vec<u8>, String> {
     let format = image::ImageFormat::from_extension(ext).ok_or_else(|| format!("can't write .{ext} images"))?;
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    let img = if bytes.starts_with(&[0xFF, 0xD8]) {
+        let px = vectorcraft_doc::ImageBlob::decode_rgba(bytes).ok_or_else(|| "the image's pixels cannot be decoded".to_string())?;
+        image::DynamicImage::ImageRgba8(px)
+    } else {
+        // Keep other formats' original bit depth when re-encoding an unembedded image.
+        image::load_from_memory(bytes).map_err(|e| e.to_string())?
+    };
     let img = if format == image::ImageFormat::Jpeg { image::DynamicImage::ImageRgb8(img.to_rgb8()) } else { img };
     let mut out = vec![];
     img.write_to(&mut std::io::Cursor::new(&mut out), format).map_err(|e| e.to_string())?;

@@ -3739,3 +3739,7 @@ axis	Both	Entrambi
 	Update Trace	Aggiorna ricalco
 	Convert the trace to editable paths	Converti il ricalco in tracciati modificabili
 	Apply tracing settings before expanding	Applica le impostazioni del ricalco prima di espandere
+@msg	16-bit grayscale JPEG images are not supported	Le immagini JPEG in scala di grigi a 16 bit non sono supportate
+@msg	JPEG has no image header	Il JPEG non ha un’intestazione dell’immagine
+@msg	the image's pixels cannot be decoded	Impossibile decodificare i pixel dell’immagine
+@msg	the optimised image's pixels can't be read back	Impossibile rileggere i pixel dell’immagine ottimizzata

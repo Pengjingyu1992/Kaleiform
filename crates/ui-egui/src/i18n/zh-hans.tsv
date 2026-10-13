@@ -3447,3 +3447,7 @@ axis	Both	两者
 @msg	DXF opens as editable 2D artwork; saving rewrites the drawing without CAD-only data, other layouts or the original drawing origin	DXF 以可编辑的二维图形打开；保存会重写文件，无法保留 CAD 专有数据、其他布局及原始坐标原点。
 @msg	EPS/DXF Save writes the whole drawing to one file: use document.export for selected art or separate artboards	EPS/DXF 保存会将完整绘图写入一个文件；仅保存选中内容或按画板分文件，请使用导出。
 @msg	{format} keeps the artwork but not everything a Kaleiform document holds (editable effects, symbols, swatches, styles): save as Kaleiform to keep it all editable	{format} 可保留图形，但不能保留全部虹构文档数据（可编辑效果、符号、色板、样式）；要保留完整可编辑性，请另存为虹构原生格式。
+@msg	16-bit grayscale JPEG images are not supported	不支持 16 位灰度 JPEG 图像
+@msg	JPEG has no image header	JPEG 缺少图像头
+@msg	the image's pixels cannot be decoded	无法解码图像像素
+@msg	the optimised image's pixels can't be read back	无法重新读取优化后的图像像素

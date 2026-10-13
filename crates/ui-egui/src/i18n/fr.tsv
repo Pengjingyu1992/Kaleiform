@@ -3750,3 +3750,7 @@ axis	Both	Les deux
 	Update Trace	Actualiser la vectorisation
 	Convert the trace to editable paths	Convertir la vectorisation en tracés modifiables
 	Apply tracing settings before expanding	Appliquez les réglages avant de décomposer
+@msg	16-bit grayscale JPEG images are not supported	Les images JPEG en niveaux de gris sur 16 bits ne sont pas prises en charge
+@msg	JPEG has no image header	Le JPEG n’a pas d’en-tête d’image
+@msg	the image's pixels cannot be decoded	Impossible de décoder les pixels de l’image
+@msg	the optimised image's pixels can't be read back	Impossible de relire les pixels de l’image optimisée

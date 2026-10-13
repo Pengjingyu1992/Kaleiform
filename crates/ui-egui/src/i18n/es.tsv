@@ -3735,3 +3735,7 @@ axis	Both	Ambos
 	Update Trace	Actualizar calco
 	Convert the trace to editable paths	Convertir el calco en trazados editables
 	Apply tracing settings before expanding	Aplica los ajustes del calco antes de expandir
+@msg	16-bit grayscale JPEG images are not supported	Las imágenes JPEG en escala de grises de 16 bits no son compatibles
+@msg	JPEG has no image header	El JPEG no tiene cabecera de imagen
+@msg	the image's pixels cannot be decoded	No se pueden decodificar los píxeles de la imagen
+@msg	the optimised image's pixels can't be read back	No se pueden volver a leer los píxeles de la imagen optimizada

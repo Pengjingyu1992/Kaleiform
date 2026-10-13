@@ -2024,6 +2024,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpeg-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
+
+[[package]]
 name = "jpeg-encoder"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4408,6 +4414,7 @@ name = "vectorcraft-doc"
 version = "0.7.0-kaleiform.6"
 dependencies = [
  "image",
+ "jpeg-decoder",
  "jpeg-encoder",
  "kurbo 0.13.1",
  "proptest",
@@ -4710,6 +4717,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "vectorcraft-doc",
  "vectorcraft-geom",
  "vectorcraft-pathops",
 ]

@@ -121,7 +121,11 @@ fn raster(bytes: &[u8]) -> Option<ColorImage> {
         return None;
     }
     let orientation = image::ImageDecoder::orientation(&mut decoder).unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
+    let mut image = if bytes.starts_with(&[0xFF, 0xD8]) {
+        image::DynamicImage::ImageRgba8(vectorcraft_doc::ImageBlob::decode_rgba(bytes)?)
+    } else {
+        image::DynamicImage::from_decoder(decoder).ok()?
+    };
     image.apply_orientation(orientation);
     let image = image.thumbnail(SIZE.min(image.width()), SIZE.min(image.height())).into_rgba8();
     Some(ColorImage::from_rgba_unmultiplied([image.width() as usize, image.height() as usize], image.as_raw()))
@@ -203,6 +207,23 @@ mod tests {
         assert!(decode("broken.svg", b"<svg").is_none());
         assert!(decode("unsupported.xyz", b"unknown").is_none());
         assert!(decode("huge.png", &png(6000, 5000)).is_none());
+    }
+
+    #[test]
+    fn jpeg_previews_keep_their_colours() {
+        use serde_json::json;
+        let mut session = vectorcraft_engine::Session::new();
+        session.execute("file.new", &json!({"width": 320, "height": 240})).unwrap();
+        session.execute("shape.rectangle", &json!({"x": 20, "y": 20, "width": 130, "height": 100})).unwrap();
+        session.execute("paint.setFill", &json!({"color": "#3366ff"})).unwrap();
+        for (model, method) in [("rgb", "optimized"), ("cmyk", "optimized"), ("cmyk", "progressive")] {
+            let result = session.execute("document.export", &json!({"format": "jpg", "colorModel": model, "method": method, "quality": 40})).unwrap();
+            let bytes = vectorcraft_format::base64_decode(result["dataBase64"].as_str().unwrap()).unwrap();
+            let preview = decode("qa.jpg", &bytes).expect("valid JPEG has a Home preview");
+            assert_eq!(preview.size, [320, 240]);
+            let pixel = preview.pixels[50 * 320 + 50];
+            assert!(pixel.b() > pixel.r() + 60, "{model}/{method}: {pixel:?}");
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

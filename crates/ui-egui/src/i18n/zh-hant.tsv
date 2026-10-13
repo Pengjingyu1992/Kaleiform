@@ -3220,3 +3220,7 @@ axis	Both	兩者
 	Top Right	右上
 	Bottom Left	左下
 	Bottom Right	右下
+@msg	16-bit grayscale JPEG images are not supported	不支援 16 位灰階 JPEG 影像
+@msg	JPEG has no image header	JPEG 沒有影像標頭
+@msg	the image's pixels cannot be decoded	無法解碼影像像素
+@msg	the optimised image's pixels can't be read back	無法重新讀取最佳化後的影像像素
