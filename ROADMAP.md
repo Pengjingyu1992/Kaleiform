@@ -115,6 +115,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Linux release privacy and publication (2026-10-13, M14.150):** manual Linux publishing
+  requires package checksums, installed smoke checks, AppImage verification and an artifact
+  privacy scan. A separate job appends Linux files to an existing release, refuses differing
+  filename collisions, verifies remote hashes and retains every existing Mac asset. Ordinary
+  builds keep read-only permissions. See [privacy review](docs/privacy-linux-release-2026-10-13.md).
+  No parity-score increase; hardware QA and large-document performance gaps remain.
 - **Linux functional regression (2026-10-13, M14.149):** catalogue and desktop QA covers
   panels, preferences, effects, export/reopen, tracing, cross-process clipboard, recovery and
   MCP. Fixes blank progressive CMYK JPEGs, green optimized RGB JPEGs and a decoder panic
@@ -316,7 +322,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M11 | Artboards & views (artboard panel/tool, Trim View, middle-button pan, print tiling and the status bar's artboard navigator done; multiple windows, presentation polish) | 🟡 | 15–25 |
 | M12 | Advanced color & art (CMYK/ICC, separations, Gradient Mesh, Live Paint, Image Trace, Graphs) | 🟡 Gradient Mesh, Live Paint, Image Trace (13 presets, 18 ms/1k² image; the Flat Logo mode places edges to a fraction of a pixel, restores sharp corners, snaps lines and circles, and refuses gradients), Recolor Artwork, colour management (ICC, soft proofing, separations preview), Graphs (all 9 tools, Graph Data/Type, regenerate in place) done; graph Design/Column/Marker designs pending | 6–10 |
 | M13 | Automation (Actions ✅ record/playback, persisted; variables, scripting, batch) | 🟡 | 18–27 |
-| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149); accessibility, Windows packaging and broader Linux hardware QA pending | 18–28 |
+| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149), privacy-gated additive Linux publishing (M14.150); accessibility, Windows packaging and broader Linux hardware QA pending | 18–28 |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |

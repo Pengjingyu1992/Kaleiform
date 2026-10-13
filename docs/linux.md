@@ -85,3 +85,15 @@ LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=vulkan xvfb-run -a \
 卸载，再验收便携包。
 发布流程也会对安装后的桌面运行功能检查。执行 `cargo xtask ci` 仍是源码质量门槛；
 构建成功、窗口启动和实际功能验证应分别记录。
+
+## 向已有 Release 追加 Linux 包
+
+在 GitHub Actions 的 `Linux packages` 中手动运行 main 分支，`release_tag` 留空仅构建；
+填写与工作区版本一致的现有 tag（例如 `v0.7.0-kaleiform.6`）才会发布。
+发布流程额外生成 AppImage/zsync，检查工具 SHA-256、所有包的校验和、AppImage 的 CLI 和
+二进制一致性及包内隐私，然后由独立 job 上传 Linux 文件。
+
+流程不移动 tag，不删除或覆盖现有资产。不同内容的同名文件会阻止发布，原 Mac 安装包、
+`BUILD-INFO.json` 和 `SHA256SUMS.txt` 保留。Linux 使用自己的 `.sha256` 清单；发布后验证
+远端校验值及原资产未改变，并在原发布正文之前补充 Linux 说明和 Linux 来源提交。
+审查范围和验收边界见 [Linux 发布隐私审查](privacy-linux-release-2026-10-13.md)。

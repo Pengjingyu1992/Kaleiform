@@ -7,6 +7,11 @@ on:
   pull_request:
     paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", ".github/workflows/linux.yml"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Append Linux packages to this existing release (blank: build only)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -30,7 +35,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
             desktop-file-utils appstream python3 xvfb xauth mesa-vulkan-drivers libvulkan1 \
-            fonts-noto-cjk dbus-x11 xdg-utils
+            fonts-noto-cjk dbus-x11 xdg-utils zsync
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Verified packaging tool
@@ -46,10 +51,28 @@ jobs:
           sha256sum --check selected.sha256
           tar -xzf "$archive" nfpm
           echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
-      - name: Build deb, rpm and portable archive
+      - name: Verified AppImage tool for manual release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         run: |
-          export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=."
-          packaging/linux/package.sh --formats "deb rpm tar"
+          tool="$RUNNER_TEMP/linux-tools/appimagetool-x86_64.AppImage"
+          curl --fail --location --proto '=https' --tlsv1.2 -o "$tool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          # Pinned official GitHub release-asset SHA-256; upstream changes fail closed.
+          printf '%s  %s\n' 95cbe7cce9717fce90c484e34052ee7c7f1d7635b33c12525b4776826a7d29b6 "$tool" | sha256sum --check
+          chmod +x "$tool"
+          echo "APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
+      - name: Build Linux packages
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=. --remap-path-prefix=$HOME/.cargo=rust-cargo --remap-path-prefix=$HOME/.rustup=rust-toolchain"
+          formats="deb rpm tar"
+          if [ -n "$RELEASE_TAG" ]; then
+            . packaging/env.sh
+            test "$RELEASE_TAG" = "v$VERSION"
+            formats="appimage deb rpm tar"
+          fi
+          packaging/linux/package.sh --formats "$formats"
           cd dist/release
           sha256sum --check ./*.sha256
       - name: Install and exercise the deb in a minimal runtime
@@ -74,8 +97,48 @@ jobs:
           mkdir -p "$RUNNER_TEMP/portable"
           tar -xzf dist/release/*.tar.gz -C "$RUNNER_TEMP/portable" --strip-components=1
           python3 packaging/linux/smoke.py --prefix "$RUNNER_TEMP/portable"
+      - name: Exercise the AppImage and scan release privacy
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        run: |
+          . packaging/env.sh
+          image="$DIST/vectorcraft-$VERSION-linux-x86_64.AppImage"
+          test -s "$image.zsync"
+          mkdir -p "$RUNNER_TEMP/appimage-check"
+          (cd "$RUNNER_TEMP/appimage-check" && "$image" --appimage-extract >/dev/null)
+          python3 packaging/linux/smoke.py --prefix "$RUNNER_TEMP/appimage-check/squashfs-root/usr"
+          cmp "$RUNNER_TEMP/portable/bin/vectorcraft" "$RUNNER_TEMP/appimage-check/squashfs-root/usr/bin/vectorcraft"
+          cmp "$RUNNER_TEMP/portable/bin/vectorcraft-cli" "$RUNNER_TEMP/appimage-check/squashfs-root/usr/bin/vectorcraft-cli"
+          python3 packaging/linux/publish.py --version "$VERSION" --directory "$DIST" --check-files
       - uses: actions/upload-artifact@v4
         with:
           name: kaleiform-linux-x86_64
           path: dist/release/*
           if-no-files-found: error
+
+  publish:
+    name: Append Linux assets without replacing existing files
+    needs: packages
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_tag != ''
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: linux-release-${{ inputs.release_tag }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kaleiform-linux-x86_64
+          path: dist/release
+      - name: Check privacy, append assets and verify retained Mac assets
+        run: |
+          . packaging/env.sh
+          python3 packaging/linux/publish.py --version "$VERSION" --directory "$DIST" \
+            --repo "$GH_REPO" --tag "$RELEASE_TAG" --source-sha "$GITHUB_SHA" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
