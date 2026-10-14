@@ -195,6 +195,11 @@ mod tests {
             frame(&mut app);
         }
         let old = app.canvas.key.as_ref().unwrap().doc;
+        let revision = app.canvas.key.as_ref().unwrap().revision;
+        app.run("shape.rectangle", serde_json::json!({"x":1,"y":1,"width":10,"height":10})).unwrap();
+        frame(&mut app);
+        assert_eq!(app.canvas.key.as_ref().unwrap().revision, revision);
+        assert_ne!(app.canvas.worker.as_ref().unwrap().pending.as_ref().unwrap().revision, revision);
         app.run("file.new", serde_json::json!({"width":50,"height":50})).unwrap();
         frame(&mut app);
         assert_eq!(app.canvas.key.as_ref().unwrap().doc, old);

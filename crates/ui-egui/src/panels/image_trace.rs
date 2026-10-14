@@ -60,6 +60,7 @@ struct TraceUi {
     document: Option<u64>,
     preview: bool,
     dirty: bool,
+    request_serial: u64,
 }
 
 impl Default for TraceUi {
@@ -74,6 +75,7 @@ impl Default for TraceUi {
             document: None,
             preview: true,
             dirty: false,
+            request_serial: 0,
         }
     }
 }
@@ -298,6 +300,16 @@ fn sync(app: &VectorcraftApp, st: &mut TraceUi, stored: Option<Value>) {
         st.view = TraceView::of(&t);
         st.synced = t;
     }
+    if let Some((serial, settings)) = app.trace_job.settings(&app.session)
+        && serial != st.request_serial
+    {
+        st.request_serial = serial;
+        st.preset = settings["preset"].as_str().unwrap_or("Custom").into();
+        st.params = settings["params"].clone();
+        st.view = TraceView::of(&settings);
+        st.info = None;
+        st.dirty = true;
+    }
 }
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
@@ -309,6 +321,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     let (is_trace, is_image, stored) = target(app);
     sync(app, &mut st, stored);
+    let before_params = st.params.clone();
     let mut retrace = false;
     if !is_trace && !is_image {
         widgets::dim_label(ui, tl!("Select an image to trace"));
@@ -453,6 +466,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         }
     });
     st.dirty |= retrace || st.params != st.synced["params"] && is_trace;
+    // A drag may stage parameters before release: the old request must not commit mid-drag.
+    if st.params != before_params && app.trace_job.running() {
+        app.trace_job.cancel();
+    }
     widgets::divider(ui);
     if let Some((p, a, c)) = st.info {
         let summary = crate::i18n::fmt(
@@ -567,6 +584,55 @@ mod tests {
         app.run("file.place", json!({"name": "half.png", "dataBase64": data, "link": false})).unwrap();
         app.run("imageTrace.make", json!({"preset": "Default"})).unwrap();
         app
+    }
+
+    #[test]
+    fn pending_quick_trace_shows_its_settings_without_overwriting_later_panel_edits() {
+        let mut app = traced_app();
+        app.services.background_trace = true;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        app.run("imageTrace.make", json!({"preset":"High Fidelity Photo","params":{"ignoreWhite":true}})).unwrap();
+        frame(&mut app, &ctx, vec![]);
+        let mut state: TraceUi = pstate(&ctx, "image-trace");
+        assert_eq!(state.params["mode"], "color");
+        assert_eq!(state.params["colors"], 64);
+        assert_eq!(state.params["ignoreWhite"], true);
+        assert!(state.dirty);
+        state.params["colors"] = json!(12);
+        set_pstate(&ctx, "image-trace", state);
+        frame(&mut app, &ctx, vec![]);
+        let state: TraceUi = pstate(&ctx, "image-trace");
+        assert_eq!(state.params["colors"], 12);
+        app.trace_job.cancel();
+    }
+
+    #[test]
+    fn changing_a_slider_cancels_the_old_trace_before_mouse_release() {
+        let mut app = traced_app();
+        app.services.background_trace = true;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        app.run("imageTrace.make", json!({"preset":"High Fidelity Photo"})).unwrap();
+        let before = app.session.doc().unwrap().doc.clone();
+        let texts = frame(&mut app, &ctx, vec![]);
+        let y = texts.iter().find(|(label, _)| label == "Colors").unwrap().1.center().y;
+        let at = egui::pos2(150.0, y);
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                Event::PointerMoved(at),
+                Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() },
+            ],
+        );
+        frame(&mut app, &ctx, vec![Event::PointerMoved(egui::pos2(190.0, y))]);
+        let state: TraceUi = pstate(&ctx, "image-trace");
+        assert_ne!(state.params["colors"], 64);
+        assert!(app.trace_job.cancelled());
+        crate::trace_job::poll(&mut app);
+        assert_eq!(app.session.doc().unwrap().doc, before);
+        app.trace_job.cancel();
     }
 
     #[test]

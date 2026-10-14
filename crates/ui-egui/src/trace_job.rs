@@ -18,6 +18,7 @@ struct Active {
 pub(crate) struct TraceJob {
     active: Option<Active>,
     queued: Option<TraceTask>,
+    serial: u64,
 }
 
 impl TraceJob {
@@ -29,6 +30,13 @@ impl TraceJob {
     }
     pub fn stage(&self) -> Stage {
         self.active.as_ref().map_or(Stage::Decode, |a| a.control.stage())
+    }
+    pub fn settings(&self, session: &vectorcraft_engine::Session) -> Option<(u64, Value)> {
+        self.queued
+            .as_ref()
+            .or_else(|| self.active.as_ref().filter(|a| !a.cancelled).map(|a| &a.task))
+            .filter(|task| task.is_current(session))
+            .map(|task| (self.serial, task.settings()))
     }
     pub fn cancel(&mut self) {
         self.queued = None;
@@ -70,6 +78,7 @@ pub fn start(app: &mut VectorcraftApp, p: &Value, expand: bool) -> Result<Value,
     } else {
         app.trace_job.launch(task)?;
     }
+    app.trace_job.serial = app.trace_job.serial.wrapping_add(1);
     app.status("Computing Image Trace…");
     Ok(json!({ "background": true, "status": "Image Trace" }))
 }

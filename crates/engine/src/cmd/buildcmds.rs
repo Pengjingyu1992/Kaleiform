@@ -804,6 +804,12 @@ impl TraceTask {
             .is_some_and(|st| st.uid == self.uid && st.revision == self.revision && Arc::ptr_eq(&st.doc, &self.doc) && st.selection == self.selection)
     }
 
+    /// Parameters staged by this immutable request, before a result changes the document.
+    pub fn settings(&self) -> Value {
+        let view = self.view.unwrap_or_else(|| self.doc.node(self.target).map_or(TraceView::default(), |n| n.trace_view()));
+        json!({"preset":self.preset_label,"params":self.params_json,"view":view.id()})
+    }
+
     pub fn compute(self, control: &tr::TraceControl) -> Result<TraceResult> {
         let error = |e: tr::TraceError| EngineError::Other(e.to_string());
         control.check(0).map_err(error)?;

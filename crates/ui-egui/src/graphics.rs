@@ -117,6 +117,9 @@ impl VectorcraftApp {
             self.canvas.texture = None;
             self.canvas.glass = Default::default();
             self.canvas.key = None;
+            self.canvas.failed = None;
+            self.canvas.worker = None;
+            self.canvas.worker_started = false;
             self.place.forget_textures();
             self.recent.forget_textures();
         }
@@ -189,8 +192,10 @@ mod tests {
         let mut app = app();
         let old = egui::Context::default();
         // Fonts, then the canvas.
-        for _ in 0..3 {
+        let start = std::time::Instant::now();
+        while app.canvas.texture.is_none() && start.elapsed() < std::time::Duration::from_secs(5) {
             frame(&mut app, &old);
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         let canvas = app.canvas.texture.as_ref().map(egui::TextureHandle::id).expect("the canvas is drawn");
         assert_eq!(texture_name(&old, canvas).as_deref(), Some("canvas"));
@@ -209,6 +214,12 @@ mod tests {
         let new = egui::Context::default();
         for _ in 0..3 {
             frame(&mut app, &new);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let start = std::time::Instant::now();
+        while app.canvas.texture.is_none() && start.elapsed() < std::time::Duration::from_secs(5) {
+            frame(&mut app, &new);
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         let canvas = app.canvas.texture.as_ref().map(egui::TextureHandle::id).expect("the canvas is drawn again");
         assert_eq!(texture_name(&new, canvas).as_deref(), Some("canvas"), "uploaded to the new context");

@@ -310,9 +310,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             ..opts
         };
         // First frames/switches use paper as a placeholder; never block on an unknown document.
-        // Light edits stay synchronous so overlays do not get ahead of the artwork.
+        // Light interaction previews stay synchronous so overlays do not get ahead of the artwork.
         let same_doc = app.canvas.key.as_ref().is_some_and(|k| k.doc == key.doc);
-        let heavy = !same_doc || app.canvas.texture.is_none() || app.canvas.last_ms > 8.0;
+        let committed_revision = app.canvas.key.as_ref().is_some_and(|k| k.revision != key.revision) && !app.session.in_interaction();
+        let heavy = !same_doc || app.canvas.texture.is_none() || committed_revision || app.canvas.last_ms > 8.0;
         match (&mut app.canvas.worker, heavy) {
             (Some(worker), true) => worker.submit(crate::render_worker::Job { key: key.clone(), doc: doc.clone(), w, h, view, opts }),
             _ => {
