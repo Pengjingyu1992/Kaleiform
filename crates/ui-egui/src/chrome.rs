@@ -53,7 +53,7 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             let ws_w = (ws.size().x + 36.0).clamp(112.0, 190.0);
             let gap = ui.spacing().item_spacing.x;
             let tabs_min = if compact { 160.0 } else { 0.0 };
-            let zoom_w = if compact && room >= 420.0 { top_tabs::ZOOM_WIDTH + 8.0 } else { 0.0 };
+            let zoom_w = if compact && !on_home && room >= 420.0 { top_tabs::ZOOM_WIDTH + 8.0 } else { 0.0 };
             let with_search = ws_w + 8.0 + gap + 200.0 + tabs_min + zoom_w;
             let search_full = room >= with_search;
             let ws_w = if search_full { ws_w } else { ws_w.min(room - 8.0 - gap - 24.0 - tabs_min - zoom_w).max(64.0) };

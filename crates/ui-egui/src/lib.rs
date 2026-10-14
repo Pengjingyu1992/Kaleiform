@@ -1072,20 +1072,21 @@ impl VectorcraftApp {
         font_menu::end_stale_preview(self, &ctx);
         floating::track(self, &ctx);
         let t = theme::Tokens::get(&ctx);
+        let home = menus::home_showing(self);
         if self.ui.screen_mode < 2 {
             chrome::app_bar(self, ui);
-            if self.ui.control_bar {
+            if self.ui.control_bar && !home {
                 chrome::control_bar(self, ui);
             }
         }
-        if self.ui.status_bar && self.ui.screen_mode < 3 {
+        if self.ui.status_bar && self.ui.screen_mode < 3 && !home {
             chrome::status_bar(self, ui);
             chrome::hint_bar(self, ui);
         }
-        if self.ui.toolbar && self.ui.screen_mode < 3 {
+        if self.ui.toolbar && self.ui.screen_mode < 3 && !home {
             toolbar::show(self, ui);
         }
-        if self.ui.dock && self.ui.screen_mode < 3 {
+        if self.ui.dock && self.ui.screen_mode < 3 && !home {
             dock::show(self, ui);
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.pasteboard)).show(ui, |ui| {
@@ -1094,9 +1095,11 @@ impl VectorcraftApp {
             }
             canvas::show(self, ui);
         });
-        dock::floating_panel(self, &ctx);
-        floating::show(self, &ctx);
-        panels::library_panel::show_window(self, &ctx);
+        if !home {
+            dock::floating_panel(self, &ctx);
+            floating::show(self, &ctx);
+            panels::library_panel::show_window(self, &ctx);
+        }
         dialogs::show(self, &ctx);
         palette::show(self, &ctx);
         if self.custom_titlebar {

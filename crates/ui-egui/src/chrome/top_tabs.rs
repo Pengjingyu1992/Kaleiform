@@ -345,8 +345,8 @@ mod tests {
         }
         let mut w = Window::new(1440.0);
         w.frame(vec![]);
-        w.click("in", 0);
-        assert!(w.app.views.is_empty(), "no document means no zoom action");
+        assert!(w.ctx.read_response(id("in", 0)).is_none(), "Home has no drawing zoom controls");
+        assert!(w.app.views.is_empty());
         w.click("new", 0);
         assert_eq!(w.app.ui.dialog.as_ref().unwrap().kind, "newDocument");
         w.app.ui.dialog = None;

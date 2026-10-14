@@ -12,6 +12,7 @@ use crate::theme::{self, Tokens};
 /// should start with [`heading`] (or [`drag_band`]) so the window can be moved.
 pub(crate) fn show<R>(ctx: &egui::Context, title: &str, id: Id, nudge: f32, margin: i8, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<R> {
     let t = Tokens::get(ctx);
+    ctx.memory_mut(|m| m.set_modal_layer(egui::LayerId::new(egui::Order::Foreground, id)));
     let dim = backdrop();
     egui::Area::new(dim.id).order(dim.order).fixed_pos(egui::Pos2::ZERO).show(ctx, |ui| {
         // Modal, but the canvas isn't dimmed so previews stay readable (as in the reference app).

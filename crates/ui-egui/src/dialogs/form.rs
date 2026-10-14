@@ -17,15 +17,15 @@ pub(super) fn field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str) {
 
 /// [`field`] `width` points wide.
 pub(super) fn field_w(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: &str, width: f32) {
-    row_label(ui, label);
-    text(ui, d, key, width);
+    let label = row_label(ui, label);
+    text_edit(ui, d, key, width).labelled_by(label.id);
     ui.end_row();
 }
 
 /// The label cell of a grid row.
-fn row_label(ui: &mut egui::Ui, label: &str) {
+fn row_label(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+    ui.label(egui::RichText::new(tl!(label)).color(t.text_dim))
 }
 
 /// A labelled [`length`] field (one grid row).
@@ -104,6 +104,9 @@ pub(super) fn text_edit(ui: &mut egui::Ui, d: &mut Dialog, key: &str, width: f32
         .show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s).id(id).frame(egui::Frame::NONE).desired_width(width)));
     if r.inner.changed() {
         d.fields.insert(key.into(), Value::String(s));
+    }
+    if r.inner.has_focus() {
+        ui.painter().rect_stroke(r.response.rect, 3, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     }
     r.inner
 }

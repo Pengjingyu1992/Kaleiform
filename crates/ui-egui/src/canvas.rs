@@ -1815,7 +1815,7 @@ fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
     ui.label(egui::RichText::new(tl!("Welcome to Kaleiform")).font(theme::semibold(26.0)).color(t.text));
     ui.add_space(4.0);
     ui.label(egui::RichText::new(tl!("Vector illustration — fast, open, scriptable.")).size(14.0).color(t.text_dim));
-    ui.add_space(22.0);
+    ui.add_space(18.0);
     ui.horizontal(|ui| {
         if widgets::primary_button(ui, tl!("New file")).clicked() {
             app.run("file.newDialog", json!({})).ok();
@@ -1825,6 +1825,10 @@ fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
             app.run("file.open", json!({})).ok();
         }
     });
+    if !app.ui.status.is_empty() {
+        ui.add_space(12.0);
+        ui.label(egui::RichText::new(&app.ui.status).size(12.0).color(t.text_dim));
+    }
     recent(app, ui);
 }
 
@@ -1847,6 +1851,9 @@ fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
             let name = vectorcraft_engine::cmd::fileio::file_name(&path);
             let (rect, response) = ui.allocate_exact_size(vec2(width, 148.0), Sense::click());
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+            if response.gained_focus() {
+                response.scroll_to_me(Some(egui::Align::Center));
+            }
             let stroke = Stroke::new(1.0, if response.hovered() || response.has_focus() { t.accent } else { t.border });
             ui.painter().rect(rect, 6.0, t.panel, stroke, StrokeKind::Inside);
             let preview = egui::Rect::from_min_max(rect.min + vec2(8.0, 8.0), rect.right_top() + vec2(-8.0, 116.0));

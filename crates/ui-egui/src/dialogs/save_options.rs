@@ -118,13 +118,14 @@ fn save_labels() -> &'static [&'static str] {
 fn body(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
     let t = Tokens::get(ui.ctx());
     let Some(f) = fileio::format(&d.str("format")) else { return false };
+    let field_width = (ui.available_width() - 92.0).clamp(160.0, 254.0);
     let mut switch = None;
     egui::Grid::new("save-options").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         if d.bool("__pick") {
-            form::field_w(ui, d, "path", tl!("File Name:"), 240.0);
+            form::field_w(ui, d, "path", tl!("File Name:"), field_width - 14.0);
             if SaveMode::of(&d.str("__action")) != Some(SaveMode::Template) {
                 ui.label(egui::RichText::new(tl!("Format:")).color(t.text_dim));
-                switch = widgets::dropdown(ui, "save-format", f.label, save_labels(), 254.0).and_then(|i| SAVE_FORMATS.get(i).copied());
+                switch = widgets::dropdown(ui, "save-format", f.label, save_labels(), field_width).and_then(|i| SAVE_FORMATS.get(i).copied());
                 ui.end_row();
             }
         }
@@ -291,6 +292,91 @@ mod tests {
 
     fn dialog(app: &VectorcraftApp) -> &Dialog {
         app.ui.dialog.as_ref().expect("a dialog is open")
+    }
+
+    #[test]
+    fn enter_on_the_format_picker_does_not_confirm_the_save() {
+        let (mut app, written) = web();
+        app.run("file.saveAs", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut run = |events| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| super::super::show(&mut app, ui.ctx())).textures_delta.clear();
+        };
+        for _ in 0..3 {
+            run(vec![]);
+        }
+        let filename = ctx.memory(|m| m.focused()).expect("filename has initial focus");
+        let key = |key| {
+            [true, false].map(|pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Default::default() }).to_vec()
+        };
+        run(key(egui::Key::Tab));
+        assert_ne!(ctx.memory(|m| m.focused()), Some(filename));
+        run(key(egui::Key::Enter));
+        assert!(egui::Popup::is_any_open(&ctx));
+        assert_eq!(dialog(&app).kind, KIND);
+        assert!(written.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_keyboard_focused_cancel_closes_without_writing() {
+        let (mut app, written) = web();
+        app.run("file.saveAs", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        for _ in 0..3 {
+            ctx.run_ui(egui::RawInput::default(), |ui| super::super::show(&mut app, ui.ctx())).textures_delta.clear();
+        }
+        let cancel = ctx.viewport(|vp| {
+            vp.prev_pass
+                .widgets
+                .layers()
+                .flat_map(|(_, ws)| ws.iter())
+                .filter(|w| w.rect.height() == 28.0 && w.sense.senses_click())
+                .min_by(|a, b| a.rect.left().total_cmp(&b.rect.left()))
+                .unwrap()
+                .id
+        });
+        ctx.memory_mut(|m| m.request_focus(cancel));
+        let events =
+            vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }];
+        ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| super::super::show(&mut app, ui.ctx())).textures_delta.clear();
+        assert!(app.ui.dialog.is_none());
+        assert!(written.borrow().is_empty());
+    }
+
+    #[test]
+    fn save_as_fits_short_narrow_windows_in_every_theme_and_scale() {
+        for brightness in theme::Brightness::ALL {
+            for scale in [1.0, 2.0] {
+                let (mut app, written) = web();
+                app.run("file.saveAs", json!({})).unwrap();
+                let ctx = egui::Context::default();
+                theme::install_fonts(&ctx);
+                theme::apply(&ctx, brightness);
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 500.0));
+                let mut out = egui::FullOutput::default();
+                for _ in 0..4 {
+                    let mut raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                    raw.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(scale);
+                    out = ctx.run_ui(raw, |ui| super::super::show(&mut app, ui.ctx()));
+                    out.textures_delta.clear();
+                }
+                let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", KIND)))).unwrap();
+                assert!(screen.contains_rect(rect), "{brightness:?}/{scale}: {rect:?}");
+                assert!(
+                    out.shapes
+                        .iter()
+                        .filter_map(|s| match &s.shape {
+                            egui::Shape::Text(t) => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                            _ => None,
+                        })
+                        .all(|r| screen.contains_rect(r)),
+                    "save labels stay on screen"
+                );
+                assert!(written.borrow().is_empty());
+            }
+        }
     }
 
     #[test]

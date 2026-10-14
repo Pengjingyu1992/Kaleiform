@@ -313,6 +313,11 @@ fn sync(app: &VectorcraftApp, st: &mut TraceUi, stored: Option<Value>) {
 }
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
+    show_bounded(app, ui, ui.available_height());
+}
+
+/// Keep actions and cancellation outside the settings scroll area, even in short flyouts.
+pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
     let all = presets(app);
     let mut st: TraceUi = pstate(ui.ctx(), "image-trace");
     if st.params.is_null() {
@@ -323,147 +328,149 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     sync(app, &mut st, stored);
     let before_params = st.params.clone();
     let mut retrace = false;
-    if !is_trace && !is_image {
-        widgets::dim_label(ui, tl!("Select an image to trace"));
-    }
-    ui.add_enabled_ui(is_trace || is_image, |ui| {
-        widgets::label_row(ui, tl!("Preset:"), 62.0, |ui| {
-            let names: Vec<&str> = all.iter().map(|p| p.0.as_str()).collect();
-            if let Some(p) = widgets::dropdown(ui, "it-preset", &st.preset, &names, ui.available_width()).and_then(|i| all.get(i)) {
-                st.preset = p.0.clone();
-                st.params = p.1.clone();
-                retrace = true;
-            }
-        });
-        widgets::label_row(ui, tl!("View:"), 62.0, |ui| {
-            if let Some(v) = view_dropdown(ui, st.view, ui.available_width()) {
-                st.view = v;
-                if is_trace {
-                    set_view(app, v);
+    egui::ScrollArea::vertical().id_salt("image-trace-settings").max_height((height - 144.0).max(40.0)).auto_shrink([false, true]).show(ui, |ui| {
+        if !is_trace && !is_image {
+            widgets::dim_label(ui, tl!("Select an image to trace"));
+        }
+        ui.add_enabled_ui(is_trace || is_image, |ui| {
+            widgets::label_row(ui, tl!("Preset:"), 62.0, |ui| {
+                let names: Vec<&str> = all.iter().map(|p| p.0.as_str()).collect();
+                if let Some(p) = widgets::dropdown(ui, "it-preset", &st.preset, &names, ui.available_width()).and_then(|i| all.get(i)) {
+                    st.preset = p.0.clone();
+                    st.params = p.1.clone();
+                    retrace = true;
                 }
-            }
-        });
-        widgets::label_row(ui, tl!("Mode:"), 62.0, |ui| {
-            let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
-            let label = MODES.iter().find(|m| m.0 == mode).map_or("Black and White", |m| m.1);
-            let labels: Vec<&str> = MODES.iter().map(|m| m.1).collect();
-            if let Some(m) = widgets::dropdown(ui, "it-mode", label, &labels, ui.available_width()).and_then(|i| MODES.get(i)) {
-                st.params["mode"] = json!(m.0);
-                st.preset = "Custom".into();
-                retrace = true;
-            }
-        });
-        let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
-        let palette = st.params["palette"].as_str().unwrap_or("limited").to_string();
-        if mode == "color" {
-            widgets::label_row(ui, tl!("Palette:"), 62.0, |ui| {
-                let labels = PALETTES.map(palette_label);
-                if let Some(p) =
-                    widgets::dropdown_names(ui, "it-palette", palette_label(&palette), &labels, ui.available_width()).and_then(|i| PALETTES.get(i))
-                {
-                    st.params["palette"] = json!(p);
+            });
+            widgets::label_row(ui, tl!("View:"), 62.0, |ui| {
+                if let Some(v) = view_dropdown(ui, st.view, ui.available_width()) {
+                    st.view = v;
+                    if is_trace {
+                        set_view(app, v);
+                    }
+                }
+            });
+            widgets::label_row(ui, tl!("Mode:"), 62.0, |ui| {
+                let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
+                let label = MODES.iter().find(|m| m.0 == mode).map_or("Black and White", |m| m.1);
+                let labels: Vec<&str> = MODES.iter().map(|m| m.1).collect();
+                if let Some(m) = widgets::dropdown(ui, "it-mode", label, &labels, ui.available_width()).and_then(|i| MODES.get(i)) {
+                    st.params["mode"] = json!(m.0);
                     st.preset = "Custom".into();
                     retrace = true;
                 }
             });
-            if palette == "documentLibrary" {
-                widgets::label_row(ui, tl!("Library:"), 62.0, |ui| {
-                    let key = st.params["library"].as_str().unwrap_or(DOCUMENT_SWATCHES).to_string();
-                    if let Some(k) =
-                        widgets::combo(ui, "it-library", &library_label(app, &key), ui.available_width(), false, |ui| library_list(app, ui, &key))
+            let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
+            let palette = st.params["palette"].as_str().unwrap_or("limited").to_string();
+            if mode == "color" {
+                widgets::label_row(ui, tl!("Palette:"), 62.0, |ui| {
+                    let labels = PALETTES.map(palette_label);
+                    if let Some(p) = widgets::dropdown_names(ui, "it-palette", palette_label(&palette), &labels, ui.available_width())
+                        .and_then(|i| PALETTES.get(i))
                     {
-                        st.params["library"] = json!(k);
+                        st.params["palette"] = json!(p);
                         st.preset = "Custom".into();
                         retrace = true;
                     }
                 });
-            }
-        }
-        // Full Tone and Automatic: how many colours (Less … More); else a count or the threshold.
-        let (key, label, range, suffix) = match mode.as_str() {
-            "blackAndWhite" => ("threshold", tl!("Threshold"), 0.0..=255.0, ""),
-            "grayscale" => ("colors", tl!("Grays"), 2.0..=256.0, ""),
-            // Flat Logo finds a handful of flat colours: more than ten is almost always noise.
-            "logo" => ("colors", tl!("Colors"), 2.0..=10.0, ""),
-            _ if matches!(palette.as_str(), "fullTone" | "automatic") => ("colorDetail", tl!("Colors"), 0.0..=100.0, "%"),
-            _ => ("colors", tl!("Colors"), 2.0..=256.0, ""),
-        };
-        let mut v = st.params[key].as_f64().unwrap_or(0.0);
-        let (changed, release) = slider(ui, label, &mut v, range, suffix);
-        if changed {
-            st.params[key] = if key == "colorDetail" { json!(v.round()) } else { json!(v.round() as u64) };
-            st.preset = "Custom".into();
-        }
-        retrace |= release;
-
-        let ignore = st.params["ignoreWhite"].as_bool().unwrap_or(false);
-        if widgets::check(ui, tl!("Ignore White"), ignore, true) {
-            st.params["ignoreWhite"] = json!(!ignore);
-            st.preset = "Custom".into();
-            retrace = true;
-        }
-
-        ui.add_space(4.0);
-        let open = app.ui.image_trace_advanced;
-        if widgets::section_toggle(ui, tl!("Advanced"), open) {
-            app.ui.image_trace_advanced = !open;
-        }
-        if open {
-            for (key, label, range, suffix) in [
-                ("paths", tl!("Paths"), 0.0..=100.0, "%"),
-                ("corners", tl!("Corners"), 0.0..=100.0, "%"),
-                ("noise", tl!("Noise"), 1.0..=100.0, " px"),
-            ] {
-                let mut v = st.params[key].as_f64().unwrap_or(0.0);
-                let (changed, release) = slider(ui, label, &mut v, range, suffix);
-                if changed {
-                    st.params[key] = if key == "noise" { json!(v.round() as u64) } else { json!(v.round()) };
-                    st.preset = "Custom".into();
-                }
-                retrace |= release;
-            }
-            // Flat Logo always paints biggest shapes first with a hair of overlap, so there is no choice.
-            if st.params["mode"] != "logo" {
-                widgets::label_row(ui, tl!("Method:"), 62.0, |ui| {
-                    let choices = [("abutting", tl!("Abutting")), ("overlapping", tl!("Overlapping"))];
-                    let current = choices.iter().find(|(m, _)| st.params["method"] == *m).map_or(choices[0].1, |(_, l)| *l);
-                    if let Some((m, _)) =
-                        widgets::dropdown_names(ui, "it-method", current, &choices.map(|(_, l)| l), ui.available_width()).and_then(|i| choices.get(i))
-                        && st.params["method"] != *m
-                    {
-                        st.params["method"] = json!(m);
-                        st.preset = "Custom".into();
-                        retrace = true;
-                    }
-                });
-                // Create: Fills and/or Strokes (one of them stays on), and the widest line stroked.
-                let create = |p: &Value, key: &str| p[key].as_bool().unwrap_or(key == "fills");
-                let strokes = create(&st.params, "strokes");
-                widgets::label_row(ui, tl!("Create:"), 62.0, |ui| {
-                    for (key, other, label) in [("fills", "strokes", tl!("Fills")), ("strokes", "fills", tl!("Strokes"))] {
-                        let on = create(&st.params, key);
-                        if widgets::check(ui, label, on, !on || create(&st.params, other)) {
-                            st.params[key] = json!(!on);
+                if palette == "documentLibrary" {
+                    widgets::label_row(ui, tl!("Library:"), 62.0, |ui| {
+                        let key = st.params["library"].as_str().unwrap_or(DOCUMENT_SWATCHES).to_string();
+                        if let Some(k) =
+                            widgets::combo(ui, "it-library", &library_label(app, &key), ui.available_width(), false, |ui| library_list(app, ui, &key))
+                        {
+                            st.params["library"] = json!(k);
                             st.preset = "Custom".into();
                             retrace = true;
                         }
-                    }
-                });
-                let mut v = st.params["strokeWidth"].as_f64().unwrap_or(10.0);
-                let (changed, release) = ui.add_enabled_ui(strokes, |ui| slider(ui, tl!("Stroke"), &mut v, 1.0..=100.0, " px")).inner;
-                if changed {
-                    st.params["strokeWidth"] = json!(v.round());
-                    st.preset = "Custom".into();
+                    });
                 }
-                retrace |= release;
             }
-            let on = st.params["snapCurvesToLines"].as_bool().unwrap_or(false);
-            if widgets::check(ui, tl!("Snap Curves To Lines"), on, true) {
-                st.params["snapCurvesToLines"] = json!(!on);
+            // Full Tone and Automatic: how many colours (Less … More); else a count or the threshold.
+            let (key, label, range, suffix) = match mode.as_str() {
+                "blackAndWhite" => ("threshold", tl!("Threshold"), 0.0..=255.0, ""),
+                "grayscale" => ("colors", tl!("Grays"), 2.0..=256.0, ""),
+                // Flat Logo finds a handful of flat colours: more than ten is almost always noise.
+                "logo" => ("colors", tl!("Colors"), 2.0..=10.0, ""),
+                _ if matches!(palette.as_str(), "fullTone" | "automatic") => ("colorDetail", tl!("Colors"), 0.0..=100.0, "%"),
+                _ => ("colors", tl!("Colors"), 2.0..=256.0, ""),
+            };
+            let mut v = st.params[key].as_f64().unwrap_or(0.0);
+            let (changed, release) = slider(ui, label, &mut v, range, suffix);
+            if changed {
+                st.params[key] = if key == "colorDetail" { json!(v.round()) } else { json!(v.round() as u64) };
+                st.preset = "Custom".into();
+            }
+            retrace |= release;
+
+            let ignore = st.params["ignoreWhite"].as_bool().unwrap_or(false);
+            if widgets::check(ui, tl!("Ignore White"), ignore, true) {
+                st.params["ignoreWhite"] = json!(!ignore);
                 st.preset = "Custom".into();
                 retrace = true;
             }
-        }
+
+            ui.add_space(4.0);
+            let open = app.ui.image_trace_advanced;
+            if widgets::section_toggle(ui, tl!("Advanced"), open) {
+                app.ui.image_trace_advanced = !open;
+            }
+            if open {
+                for (key, label, range, suffix) in [
+                    ("paths", tl!("Paths"), 0.0..=100.0, "%"),
+                    ("corners", tl!("Corners"), 0.0..=100.0, "%"),
+                    ("noise", tl!("Noise"), 1.0..=100.0, " px"),
+                ] {
+                    let mut v = st.params[key].as_f64().unwrap_or(0.0);
+                    let (changed, release) = slider(ui, label, &mut v, range, suffix);
+                    if changed {
+                        st.params[key] = if key == "noise" { json!(v.round() as u64) } else { json!(v.round()) };
+                        st.preset = "Custom".into();
+                    }
+                    retrace |= release;
+                }
+                // Flat Logo always paints biggest shapes first with a hair of overlap, so there is no choice.
+                if st.params["mode"] != "logo" {
+                    widgets::label_row(ui, tl!("Method:"), 62.0, |ui| {
+                        let choices = [("abutting", tl!("Abutting")), ("overlapping", tl!("Overlapping"))];
+                        let current = choices.iter().find(|(m, _)| st.params["method"] == *m).map_or(choices[0].1, |(_, l)| *l);
+                        if let Some((m, _)) = widgets::dropdown_names(ui, "it-method", current, &choices.map(|(_, l)| l), ui.available_width())
+                            .and_then(|i| choices.get(i))
+                            && st.params["method"] != *m
+                        {
+                            st.params["method"] = json!(m);
+                            st.preset = "Custom".into();
+                            retrace = true;
+                        }
+                    });
+                    // Create: Fills and/or Strokes (one of them stays on), and the widest line stroked.
+                    let create = |p: &Value, key: &str| p[key].as_bool().unwrap_or(key == "fills");
+                    let strokes = create(&st.params, "strokes");
+                    widgets::label_row(ui, tl!("Create:"), 62.0, |ui| {
+                        for (key, other, label) in [("fills", "strokes", tl!("Fills")), ("strokes", "fills", tl!("Strokes"))] {
+                            let on = create(&st.params, key);
+                            if widgets::check(ui, label, on, !on || create(&st.params, other)) {
+                                st.params[key] = json!(!on);
+                                st.preset = "Custom".into();
+                                retrace = true;
+                            }
+                        }
+                    });
+                    let mut v = st.params["strokeWidth"].as_f64().unwrap_or(10.0);
+                    let (changed, release) = ui.add_enabled_ui(strokes, |ui| slider(ui, tl!("Stroke"), &mut v, 1.0..=100.0, " px")).inner;
+                    if changed {
+                        st.params["strokeWidth"] = json!(v.round());
+                        st.preset = "Custom".into();
+                    }
+                    retrace |= release;
+                }
+                let on = st.params["snapCurvesToLines"].as_bool().unwrap_or(false);
+                if widgets::check(ui, tl!("Snap Curves To Lines"), on, true) {
+                    st.params["snapCurvesToLines"] = json!(!on);
+                    st.preset = "Custom".into();
+                    retrace = true;
+                }
+            }
+        });
     });
     st.dirty |= retrace || st.params != st.synced["params"] && is_trace;
     // A drag may stage parameters before release: the old request must not commit mid-drag.
@@ -494,9 +501,11 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     let mut apply = false;
     if app.trace_job.running() {
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(tl!(crate::trace_job::stage_label(app.trace_job.stage())));
+            let stage = tl!(crate::trace_job::stage_label(app.trace_job.stage()));
+            let width = (ui.available_width() - 22.0 - ui.spacing().item_spacing.x).max(1.0);
+            ui.add_sized(egui::vec2(width, 22.0), egui::Label::new(stage).truncate()).on_hover_text(stage);
             if widgets::icon_button_enabled(ui, "x", tl!("Cancel Image Trace"), false, !app.trace_job.cancelled(), 22.0).clicked() {
                 app.run("imageTrace.cancel", json!({})).ok();
             }
@@ -584,6 +593,61 @@ mod tests {
         app.run("file.place", json!({"name": "half.png", "dataBase64": data, "link": false})).unwrap();
         app.run("imageTrace.make", json!({"preset": "Default"})).unwrap();
         app
+    }
+
+    #[test]
+    fn advanced_settings_scroll_without_hiding_actions_or_cancel() {
+        for brightness in crate::theme::Brightness::ALL {
+            for scale in [1.0, 2.0] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx, brightness);
+                let mut app = traced_app();
+                app.ui.image_trace_advanced = true;
+                app.services.background_trace = true;
+                app.run("imageTrace.make", json!({"preset":"High Fidelity Photo"})).unwrap();
+                let screen = Rect::from_min_size(Pos2::ZERO, vec2(320.0, 340.0));
+                let mut out = egui::FullOutput::default();
+                for _ in 0..3 {
+                    let mut raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                    raw.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(scale);
+                    out = ctx.run_ui(raw, |ui| show_bounded(&mut app, ui, 320.0));
+                    out.textures_delta.clear();
+                }
+                for label in ["Preview", "Update Trace", "Expand"] {
+                    let text = out
+                        .shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == label => Some((s.clip_rect, t)),
+                            _ => None,
+                        })
+                        .unwrap();
+                    let bounds = text.1.galley.rect.translate(text.1.pos.to_vec2());
+                    assert!(screen.contains_rect(bounds) && text.0.contains_rect(bounds), "{brightness:?}/{scale}: {label} {bounds:?}");
+                }
+                let cancel = crate::toolbar::tests::widget_rects(&ctx, vec2(22.0, 22.0));
+                assert_eq!(cancel.len(), 1);
+                assert!(screen.contains_rect(cancel[0]));
+                let at = cancel[0].center();
+                for pressed in [true, false] {
+                    ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(screen),
+                            events: vec![
+                                Event::PointerMoved(at),
+                                Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() },
+                            ],
+                            ..Default::default()
+                        },
+                        |ui| show_bounded(&mut app, ui, 320.0),
+                    )
+                    .textures_delta
+                    .clear();
+                }
+                assert!(app.trace_job.cancelled());
+            }
+        }
     }
 
     #[test]

@@ -28,7 +28,19 @@ pub fn paint_icon_button(ui: &mut Ui, resp: Response, icon: &str, tip: &str, sel
     ui.painter().rect_filled(rect, CornerRadius::same(3), bg);
     let pad = (size * 0.2).round();
     icons::paint(ui, icon, rect.shrink(pad), if selected { t.text } else { t.icon });
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, tl!(tip)));
+    focus_ring(ui, &resp, 3);
     if !tip.is_empty() { resp.on_hover_text(tl!(tip)) } else { resp }
+}
+
+/// Keyboard focus remains visible on controls painted outside egui's standard widgets.
+fn focus_ring(ui: &Ui, resp: &Response, radius: u8) {
+    if resp.gained_focus() {
+        resp.scroll_to_me(Some(egui::Align::Center));
+    }
+    if resp.has_focus() {
+        ui.painter().rect_stroke(resp.rect, radius, Stroke::new(2.0, Tokens::get(ui.ctx()).accent), StrokeKind::Inside);
+    }
 }
 
 /// Small flat text button (Quick Actions style).
@@ -44,6 +56,8 @@ pub fn flat_button(ui: &mut Ui, text: &str, width: f32) -> Response {
         StrokeKind::Inside,
     );
     ui.painter().with_clip_rect(rect).text(rect.center(), egui::Align2::CENTER_CENTER, tl!(text), egui::FontId::proportional(12.5), t.text_strong);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(text)));
+    focus_ring(ui, &resp, 2);
     resp
 }
 
@@ -74,6 +88,10 @@ pub fn split_button(ui: &mut Ui, text: &str, width: f32) -> (Response, Response)
         t.text_strong,
     );
     icons::paint(ui, "chevron-down", Rect::from_center_size(arrow_rect.center(), vec2(12.0, 12.0)), t.text_dim);
+    for resp in [&main, &arrow] {
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(text)));
+        focus_ring(ui, resp, 2);
+    }
     (main, arrow)
 }
 
@@ -96,6 +114,13 @@ pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
     let bg = if resp.hovered() { t.accent } else { t.accent_strong };
     ui.painter().rect_filled(rect, CornerRadius::same(14), bg);
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, Color32::WHITE);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(text)));
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect.shrink(3.0), 11, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
+    }
+    if resp.gained_focus() {
+        resp.scroll_to_me(Some(egui::Align::Center));
+    }
     resp
 }
 
@@ -110,6 +135,8 @@ pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
     }
     ui.painter().rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.5, t.text_dim), StrokeKind::Inside);
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.text);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(text)));
+    focus_ring(ui, &resp, 14);
     resp
 }
 
@@ -133,6 +160,7 @@ pub fn section_toggle(ui: &mut Ui, text: &str, open: bool) -> bool {
     icons::paint(ui, if open { "chevron-down" } else { "chevron-right" }, chevron, if resp.hovered() { t.text_strong } else { t.icon });
     ui.painter().text(pos2(rect.left() + 18.0, rect.center().y), egui::Align2::LEFT_CENTER, tl!(text), theme::semibold(12.5), t.text);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, tl!(text)));
+    focus_ring(ui, &resp, 3);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
 
@@ -1009,6 +1037,12 @@ fn check_row(ui: &mut Ui, label: &str, value: Option<bool>, enabled: bool) -> (b
         }
         Some(false) => {}
     }
+    resp.widget_info(|| {
+        let mut info = egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled && resp.enabled(), checked, tl!(label));
+        info.selected = value;
+        info
+    });
+    focus_ring(ui, &resp, 2);
     (enabled && resp.clicked(), resp)
 }
 
@@ -1021,6 +1055,8 @@ pub fn radio(ui: &mut Ui, label: &str, selected: bool, enabled: bool) -> bool {
     if selected {
         ui.painter().circle_filled(c, 2.5, if enabled { Color32::WHITE } else { t.text_disabled });
     }
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, enabled && resp.enabled(), selected, tl!(label)));
+    focus_ring(ui, &resp, 2);
     enabled && resp.clicked()
 }
 
@@ -1668,6 +1704,8 @@ pub fn tab_bar(ui: &mut Ui, tabs: &[&str], current: usize) -> Option<usize> {
                     t.accent,
                 );
             }
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), sel, tl!(tab)));
+            focus_ring(ui, &resp, 2);
             if resp.clicked() {
                 clicked = Some(i);
             }
@@ -1694,6 +1732,8 @@ pub fn orientation_button(ui: &mut Ui, landscape: bool, selected: bool, tip: &st
     ui.painter().add(egui::Shape::convex_polygon(outline.clone(), fill, Stroke::new(1.2, color)));
     let corner = [page.right_top() - vec2(fold, 0.0), page.right_top() + vec2(-fold, fold), page.right_top() + vec2(0.0, fold)];
     ui.painter().add(egui::Shape::line(corner.to_vec(), Stroke::new(1.2, if selected { t.panel } else { color })));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, tl!(tip)));
+    focus_ring(ui, &resp, 3);
     resp.on_hover_text(tl!(tip)).clicked()
 }
 

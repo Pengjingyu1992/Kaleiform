@@ -346,7 +346,14 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     });
     let spec = spec(&d.kind);
     if let Some(window) = spec.window {
-        return window(app, ctx);
+        if focus_first {
+            ctx.data_mut(|m| m.insert_temp(widgets::dialog_focus_flag(), true));
+        }
+        window(app, ctx);
+        if focus_first && ctx.data_mut(|m| m.remove_temp::<bool>(widgets::dialog_focus_flag())).is_none() {
+            ctx.data_mut(|m| m.remove::<bool>(focus_id));
+        }
+        return;
     }
     let mut ok = false;
     let mut cancel = false;
@@ -390,7 +397,9 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
             }
         });
     });
-    if spec.ok.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+    // Focused buttons/combos handle Enter themselves; choosing a menu item must not save as well.
+    if spec.ok.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx)
+    {
         ok = true;
     }
     if discard {

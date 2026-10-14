@@ -185,42 +185,66 @@ fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     sync(app, &mut d);
     let t = Tokens::get(ctx);
     let mut b = Buttons::default();
-    let width = (ctx.content_rect().width() - 36.0).clamp(360.0, WIDTH);
+    let room = (ctx.content_rect().width() - 36.0).max(320.0);
+    let count = newdoc::category(&app.session, &d.str("category")).map_or(0, |list| list.len());
+    let preferred = if matches!(d.str("category").as_str(), "Recent" | "Saved") {
+        (DETAILS + 72.0 + (count.clamp(1, 4) as f32 * 128.0 - 10.0)).max(600.0)
+    } else {
+        WIDTH
+    };
+    let width = room.min(preferred);
     let height = (ctx.content_rect().height() - 48.0).clamp(200.0, HEIGHT + 36.0);
+    let stacked = room < 700.0;
     window(ctx, KIND, 0, |ui| {
         super::modal::drag_band(ui, ui.max_rect().top() + 44.0);
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.horizontal_top(|ui| {
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 22, right: 14, top: 14, bottom: 18 }).show(ui, |ui| {
-                ui.vertical(|ui| {
-                    ui.set_width((width - DETAILS - 72.0).max(160.0));
-                    ui.set_height(height - 32.0);
-                    b.create |= presets(app, ui, &mut d);
-                });
+        if stacked {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(18, 12)).show(ui, |ui| {
+                ui.set_width(width - 36.0);
+                ui.set_height(190.0);
+                b.create |= presets(app, ui, &mut d, true);
             });
-            // This pane touches the window's edge: match the inside of its rounded stroke.
-            let outer = ui.visuals().window_corner_radius;
-            let border = ui.visuals().window_stroke().width.ceil() as u8;
-            let corners = egui::CornerRadius { ne: outer.ne.saturating_sub(border), se: outer.se.saturating_sub(border), ..egui::CornerRadius::ZERO };
-            egui::Frame::NONE.fill(t.panel_darker).corner_radius(corners).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(DETAILS);
-                    ui.set_height(height - 36.0);
-                    egui::ScrollArea::vertical().id_salt("newdoc-details").max_height(height - 80.0).auto_shrink([false, false]).show(ui, |ui| {
-                        details(app, ui, &mut d);
+            egui::Frame::NONE.fill(t.panel_darker).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
+                detail_pane(app, ui, &mut d, &mut b, width - 36.0, (height - 254.0).max(110.0));
+            });
+        } else {
+            ui.horizontal_top(|ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 22, right: 14, top: 14, bottom: 18 }).show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width((width - DETAILS - 72.0).max(160.0));
+                        ui.set_height(height - 32.0);
+                        b.create |= presets(app, ui, &mut d, false);
                     });
-                    ui.add_space(12.0);
-                    footer(ui, &mut b, "Create");
+                });
+                // This pane touches the window's edge: match the inside of its rounded stroke.
+                let outer = ui.visuals().window_corner_radius;
+                let border = ui.visuals().window_stroke().width.ceil() as u8;
+                let corners =
+                    egui::CornerRadius { ne: outer.ne.saturating_sub(border), se: outer.se.saturating_sub(border), ..egui::CornerRadius::ZERO };
+                egui::Frame::NONE.fill(t.panel_darker).corner_radius(corners).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
+                    detail_pane(app, ui, &mut d, &mut b, DETAILS, height - 36.0);
                 });
             });
-        });
+        }
     });
     b.finish(app, ctx, d);
 }
 
-/// The category tabs and the chosen category's preset cards: a click chooses one, a double-click
-/// also creates it (true then).
-fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
+/// Only the fields scroll; the footer stays reachable when Advanced Options is open.
+fn detail_pane(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, b: &mut Buttons, width: f32, height: f32) {
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        ui.set_height(height);
+        egui::ScrollArea::vertical().id_salt("newdoc-details").max_height(height - 44.0).auto_shrink([false, false]).show(ui, |ui| {
+            details(app, ui, d);
+        });
+        ui.add_space(12.0);
+        footer(ui, b, "Create");
+    });
+}
+
+/// Preset cards wrap on wide screens and form a horizontal strip above the details on narrow ones.
+fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, strip: bool) -> bool {
     let t = Tokens::get(ui.ctx());
     let names: Vec<&str> = newdoc::category_names().collect();
     let cat = names.iter().position(|n| n.eq_ignore_ascii_case(&d.str("category"))).unwrap_or(0);
@@ -245,13 +269,16 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) -> bool {
         return false;
     }
     let mut create = false;
-    egui::ScrollArea::vertical().id_salt(("newdoc-presets", cat)).max_height(ui.available_height()).auto_shrink([false, false]).show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
+    let scroll = if strip { egui::ScrollArea::horizontal() } else { egui::ScrollArea::vertical() };
+    scroll.id_salt(("newdoc-presets", cat, strip)).max_height(ui.available_height()).auto_shrink([false, false]).show(ui, |ui| {
+        let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(!strip);
+        ui.with_layout(layout, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             let (w, h, preset) = (d.f64("width", 0.0), d.f64("height", 0.0), d.str("preset"));
             for s in &list {
                 let selected = d.fields.contains_key(APPLIED) && s.name == preset && s.width == w && s.height == h;
-                let card = preset_card_impl(ui, s, selected, true);
+                let label = if cat == 0 && s.name == "Custom" { tl!("Custom") } else { preset_name(&s.name) };
+                let card = preset_card_impl(ui, s, label, selected, true);
                 if card.clicked() || card.double_clicked() {
                     apply(d, s);
                 }
@@ -276,17 +303,20 @@ pub(crate) fn preset_name(name: &str) -> &str {
 /// A preset card: a page-proportioned thumbnail, the name and the size (New Document, the Home
 /// screen). Returns the card's response.
 pub fn preset_card(ui: &mut egui::Ui, s: &DocSettings, selected: bool) -> egui::Response {
-    preset_card_impl(ui, s, selected, false)
+    preset_card_impl(ui, s, preset_name(&s.name), selected, false)
 }
 
-fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, selected: bool, compact: bool) -> egui::Response {
+fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, label: &str, selected: bool, compact: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    let label = preset_name(&s.name);
     let size = if compact { egui::vec2(118.0, 126.0) } else { egui::vec2(146.0, 150.0) };
     let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let p = ui.painter();
     p.rect_filled(r, egui::CornerRadius::same(6), if resp.hovered() || selected { t.hover } else { t.panel_darker });
-    if selected {
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, format!("{label}, {}", s.size_label())));
+    if resp.gained_focus() {
+        resp.scroll_to_me(Some(egui::Align::Center));
+    }
+    if selected || resp.has_focus() {
         p.rect_stroke(r, egui::CornerRadius::same(6), egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     }
     let k = ((if compact { 50.0 } else { 60.0 }) / s.width.max(s.height).max(1e-9)) as f32;
@@ -318,11 +348,12 @@ fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, selected: bool, compact:
 /// The Preset Details column.
 fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     let t = Tokens::get(ui.ctx());
+    let width = ui.available_width();
     ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
     ui.label(egui::RichText::new(tl!("PRESET DETAILS")).font(theme::semibold(11.0)).color(t.text_dim));
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        form::text(ui, d, "name", DETAILS - 50.0);
+        form::text_edit(ui, d, "name", width - 50.0).on_hover_text(tl!("File Name:"));
         if widgets::icon_button(ui, "save", tl!("Save Preset"), d.bool(SAVING), 26.0).clicked() {
             let saving = !d.bool(SAVING);
             d.fields.insert(SAVING.into(), json!(saving));
@@ -338,7 +369,7 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     let unit = unit(d);
     form::caption(ui, tl!("Width"));
     ui.horizontal(|ui| {
-        form::length(ui, d, "width", unit, DETAILS - 124.0);
+        form::length(ui, d, "width", unit, width - 124.0);
         units_dropdown(ui, d, 112.0);
     });
     ui.add_space(4.0);
@@ -363,9 +394,9 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     form::bleed(ui, d, unit, 52.0);
     ui.add_space(8.0);
     form::caption(ui, tl!("Background Contents"));
-    background(ui, d, DETAILS - 34.0);
+    background(ui, d, width - 34.0);
     ui.add_space(8.0);
-    advanced(ui, d, 110.0, DETAILS - 116.0);
+    advanced(ui, d, 110.0, width - 116.0);
 }
 
 fn footer(ui: &mut egui::Ui, b: &mut Buttons, create: &str) {
@@ -381,10 +412,12 @@ fn footer(ui: &mut egui::Ui, b: &mut Buttons, create: &str) {
 
 /// Save Preset: the preset's name, Save and Cancel.
 fn save_row(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
+    let width = ui.available_width();
     ui.add_space(4.0);
     form::caption(ui, tl!("Preset Name"));
     ui.horizontal(|ui| {
-        let enter = form::text_edit(ui, d, "presetName", DETAILS - 140.0).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let enter = form::text_edit(ui, d, "presetName", width - 140.0).lost_focus()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         if widgets::flat_button(ui, tl!("Save"), 54.0).clicked() || enter {
             let mut p: Map<String, Value> = PARAMS.iter().filter_map(|k| Some((k.to_string(), d.fields.get(*k)?.clone()))).collect();
             p.insert("name".into(), json!(d.str("presetName")));
@@ -533,6 +566,68 @@ mod tests {
     use vectorcraft_engine::Session;
 
     use crate::VectorcraftApp;
+
+    #[test]
+    fn narrow_and_short_dialogs_keep_the_footer_and_fields_inside_the_window() {
+        for brightness in crate::theme::Brightness::ALL {
+            for scale in [1.0, 2.0] {
+                for width in [400.0, 640.0, 800.0] {
+                    let ctx = egui::Context::default();
+                    crate::theme::install_fonts(&ctx);
+                    crate::theme::apply(&ctx, brightness);
+                    let mut app = VectorcraftApp::new(Session::new(), Default::default());
+                    app.run("file.newDialog", json!({})).unwrap();
+                    set(&mut app, "advanced", json!(true));
+                    set(&mut app, super::SAVING, json!(true));
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 500.0));
+                    let mut out = egui::FullOutput::default();
+                    for _ in 0..4 {
+                        let mut raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                        raw.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(scale);
+                        out = ctx.run_ui(raw, |ui| crate::dialogs::show(&mut app, ui.ctx()));
+                        out.textures_delta.clear();
+                    }
+                    let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", super::KIND)))).unwrap();
+                    assert!(screen.contains_rect(rect), "{brightness:?}/{scale}/{width}: {rect:?}");
+                    for label in ["Create", "Close"] {
+                        let (clip, text) = out
+                            .shapes
+                            .iter()
+                            .find_map(|s| match &s.shape {
+                                egui::Shape::Text(t) if t.galley.text() == label => Some((s.clip_rect, t)),
+                                _ => None,
+                            })
+                            .unwrap();
+                        let bounds = text.galley.rect.translate(text.pos.to_vec2());
+                        assert!(rect.contains_rect(bounds) && clip.contains_rect(bounds), "{width}: {label} clipped");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn keyboard_starts_at_the_name_and_enter_on_save_preset_does_not_create() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.newDialog", json!({})).unwrap();
+        let mut run = |events| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| crate::dialogs::show(&mut app, ui.ctx())).textures_delta.clear();
+        };
+        for _ in 0..3 {
+            run(vec![]);
+        }
+        run(vec![egui::Event::Text("Keyboard drawing".into())]);
+        let key = |key| {
+            [true, false].map(|pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Default::default() }).to_vec()
+        };
+        run(key(egui::Key::Tab));
+        run(key(egui::Key::Enter));
+        assert_eq!(field(&app, "name"), "Keyboard drawing");
+        assert_eq!(field(&app, super::SAVING), true);
+        assert!(app.session.documents().is_empty());
+    }
 
     #[test]
     fn split_pane_background_follows_the_windows_rounded_inside_edge() {

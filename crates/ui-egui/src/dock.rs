@@ -326,6 +326,10 @@ pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width:
                 panels::layers::show(app, ui);
             }
             Some(DockTab::Libraries) => panels::libraries(app, ui),
+            None if id == "imageTrace" => {
+                ui.set_max_width((width - 20.0).max(1.0));
+                panels::image_trace::show_bounded(app, ui, tall);
+            }
             None => {
                 egui::ScrollArea::both()
                     .id_salt(("icon-panel-body", id))

@@ -10,6 +10,41 @@ fn app_with_doc() -> VectorcraftApp {
     app
 }
 
+#[test]
+fn home_temporarily_hides_drawing_chrome_and_preserves_workspace_and_errors() {
+    let mut app = app_with_doc();
+    app.ui.open_panel = Some("imageTrace".into());
+    let before = (app.ui.control_bar, app.ui.toolbar, app.ui.dock, app.ui.status_bar, app.ui.open_panel.clone());
+    let ctx = egui::Context::default();
+    let draw = |app: &mut VectorcraftApp| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        });
+        out.textures_delta.clear();
+        crate::tests_removeanchors::shapes_text(&out.shapes.into_iter().map(|s| s.shape).collect::<Vec<_>>())
+    };
+    for _ in 0..3 {
+        draw(&mut app);
+    }
+    assert!(draw(&mut app).iter().any(|(s, _)| s == "Properties"));
+    app.run("app.home", json!({})).unwrap();
+    app.status("Synthetic open error");
+    for _ in 0..3 {
+        draw(&mut app);
+    }
+    let texts = draw(&mut app);
+    assert!(!texts.iter().any(|(s, _)| matches!(s.as_str(), "Properties" | "Select an image to trace")));
+    assert!(texts.iter().any(|(s, _)| s == "Synthetic open error"));
+    assert_eq!(before, (app.ui.control_bar, app.ui.toolbar, app.ui.dock, app.ui.status_bar, app.ui.open_panel.clone()));
+    app.ui.home = None;
+    for _ in 0..3 {
+        draw(&mut app);
+    }
+    assert!(draw(&mut app).iter().any(|(s, _)| s == "Properties"));
+    assert_eq!(app.session.documents().len(), 1);
+}
+
 /// Draw one canvas frame; whether it drew the document (else the Home screen).
 fn shows_document(app: &mut VectorcraftApp) -> bool {
     app.canvas_rect = None;
