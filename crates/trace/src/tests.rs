@@ -347,6 +347,43 @@ fn a_trace_past_its_anchor_budget_is_refused() {
     assert_eq!(trace_within(&img, &p, anchors).unwrap(), full);
 }
 
+#[test]
+fn controlled_traces_preserve_output_and_never_return_stopped_partial_paths() {
+    use std::time::Duration;
+    let img = stripes(80, 4);
+    for preset in PRESET_NAMES.iter().filter(|&&n| n != "Flat Logo") {
+        let params = crate::preset(preset).unwrap();
+        let normal = trace_within(&img, &params, 100_000).unwrap();
+        let controlled = trace_controlled(&img, &params, 100_000, &TraceControl::default()).unwrap();
+        assert_eq!(normal, controlled, "{preset}");
+        let stopped = TraceControl::default();
+        stopped.cancel();
+        assert!(matches!(trace_controlled(&img, &params, 100_000, &stopped), Err(TraceError::Cancelled)));
+        assert!(matches!(trace_controlled(&img, &params, 100_000, &TraceControl::new(0, Duration::from_secs(10))), Err(TraceError::WorkLimit)));
+        assert!(matches!(trace_controlled(&img, &params, 100_000, &TraceControl::new(u64::MAX, Duration::ZERO)), Err(TraceError::TimeLimit)));
+    }
+}
+
+#[test]
+fn cancelling_an_active_color_trace_stops_the_worker() {
+    use std::time::{Duration, Instant};
+    let img = stripes(1000, 32);
+    let control = TraceControl::default();
+    let worker_control = control.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = trace_controlled(&img, &crate::preset("High Fidelity Photo").unwrap(), 2_000_000, &worker_control);
+        tx.send(result).unwrap();
+    });
+    let start = Instant::now();
+    while control.stage() == Stage::Decode && start.elapsed() < Duration::from_secs(2) {
+        std::thread::yield_now();
+    }
+    control.cancel();
+    assert!(matches!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), Err(TraceError::Cancelled)));
+    worker.join().unwrap();
+}
+
 /// Layers traced in parallel come out in the same order every time: bottom (largest) first.
 #[test]
 fn parallel_layers_keep_their_order() {

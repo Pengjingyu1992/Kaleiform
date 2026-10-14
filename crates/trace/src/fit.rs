@@ -27,6 +27,9 @@ fn seg_dist(p: Point, a: Point, b: Point) -> f64 {
 fn rdp(pts: &[Point], a: usize, b: usize, tol: f64, keep: &mut [bool]) {
     let mut stack = vec![(a, b)];
     while let Some((a, b)) = stack.pop() {
+        if !crate::control::checkpoint(b.saturating_sub(a) as u64) {
+            return;
+        }
         if b <= a + 1 {
             continue;
         }
@@ -117,6 +120,9 @@ fn dejag(v: &[(i32, i32)]) -> Vec<Point> {
 /// Fit one loop into a closed Bézier subpath (pixel coordinates).
 pub(crate) fn fit_loop(l: &Loop, o: &FitOptions) -> Option<SubPath> {
     let poly = polygon(&l.pts, o.polygon_tol);
+    if !crate::control::checkpoint(0) {
+        return None;
+    }
     if poly.len() < 3 {
         return None;
     }
@@ -137,6 +143,9 @@ pub(crate) fn fit_loop(l: &Loop, o: &FitOptions) -> Option<SubPath> {
 /// points within `polygon_tol` of it are dropped (Douglas–Peucker), then curves are fitted. A
 /// `closed` line runs back to its first point.
 pub(crate) fn fit_polyline(pts: &[Point], closed: bool, o: &FitOptions) -> Option<SubPath> {
+    if !crate::control::checkpoint(pts.len() as u64) {
+        return None;
+    }
     let n = pts.len();
     let first = *pts.first()?;
     if n < 2 {

@@ -31,6 +31,9 @@ pub(crate) fn contours(f: &[f32], w: usize, h: usize) -> Vec<Vec<Point>> {
     }
     let mut next: HashMap<usize, usize> = HashMap::new();
     for y in 0..h - 1 {
+        if !crate::control::checkpoint(w as u64) {
+            return vec![];
+        }
         for x in 0..w - 1 {
             let v = |xx: usize, yy: usize| f.get(yy * w + xx).copied().unwrap_or(-1.0);
             let (tl, tr, br, bl) = (v(x, y), v(x + 1, y), v(x + 1, y + 1), v(x, y + 1));
@@ -79,6 +82,9 @@ pub(crate) fn contours(f: &[f32], w: usize, h: usize) -> Vec<Vec<Point>> {
     let mut starts: Vec<usize> = next.keys().copied().collect();
     starts.sort_unstable();
     for s in starts {
+        if !crate::control::checkpoint(1) {
+            return vec![];
+        }
         if !next.contains_key(&s) {
             continue;
         }

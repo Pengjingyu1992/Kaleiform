@@ -578,7 +578,19 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                         );
                     }
                     // Background saves and exports in progress, else the last message.
-                    if app.geometry_job.running() {
+                    if app.trace_job.running() {
+                        ui.label(crate::i18n::t(if app.trace_job.cancelled() {
+                            "Cancelling Image Trace…"
+                        } else {
+                            crate::trace_job::stage_label(app.trace_job.stage())
+                        }));
+                        ui.add(egui::Spinner::new().size(12.0).color(t.accent));
+                        if widgets::icon_button_enabled(ui, "x", crate::i18n::t("Cancel Image Trace"), false, !app.trace_job.cancelled(), 20.0)
+                            .clicked()
+                        {
+                            app.run("imageTrace.cancel", json!({})).ok();
+                        }
+                    } else if app.geometry_job.running() {
                         ui.label(crate::i18n::t(if app.geometry_job.cancelled() { "Cancelling Offset Path…" } else { "Computing Offset Path…" }));
                         ui.add(egui::Spinner::new().size(12.0).color(t.accent));
                         if widgets::icon_button_enabled(ui, "x", crate::i18n::t("Cancel Offset Path"), false, !app.geometry_job.cancelled(), 20.0)

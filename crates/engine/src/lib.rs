@@ -26,6 +26,7 @@ pub use cmd::distortcmds::perspective_click;
 pub use cmd::pathops::{OffsetResult, OffsetTask};
 pub use cmd::rasterfx::{export_pdf, flatten_raster_effects};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
+pub use cmd::{TraceResult, TraceTask};
 pub use tooling::{UiRequest, ViewInfo};
 pub use vectorcraft_doc as doc;
 pub use vectorcraft_tools as tools;
@@ -779,6 +780,7 @@ impl Default for Prefs {
 
 pub struct Session {
     pending_offset: Option<OffsetResult>,
+    pending_trace: Option<TraceResult>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub prefs: Prefs,
@@ -879,6 +881,7 @@ impl Session {
         Self {
             docs: vec![],
             pending_offset: None,
+            pending_trace: None,
             active: None,
             prefs: Prefs::default(),
             paint: PaintDefaults::default(),

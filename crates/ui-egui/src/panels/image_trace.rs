@@ -217,6 +217,10 @@ fn trace(app: &mut VectorcraftApp, st: &mut TraceUi) {
     let preset = if st.preset == "Custom" { "Default" } else { st.preset.as_str() };
     match app.run("imageTrace.make", json!({ "preset": preset, "params": st.params, "view": st.view.id() })) {
         Ok(r) => {
+            if r["background"] == true {
+                st.dirty = true;
+                return;
+            }
             st.info = Some((r["paths"].as_u64().unwrap_or(0), r["anchors"].as_u64().unwrap_or(0), r["colors"].as_u64().unwrap_or(0)));
             st.dirty = false;
             st.target = first_selected(app).map(|n| n.id);
@@ -466,9 +470,21 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     if widgets::check(ui, tl!("Preview"), st.preview, is_trace || is_image) {
         st.preview = !st.preview;
+        if !st.preview {
+            app.trace_job.cancel();
+        }
         retrace = st.preview && st.dirty;
     }
     let mut apply = false;
+    if app.trace_job.running() {
+        ui.horizontal_wrapped(|ui| {
+            ui.spinner();
+            ui.label(tl!(crate::trace_job::stage_label(app.trace_job.stage())));
+            if widgets::icon_button_enabled(ui, "x", tl!("Cancel Image Trace"), false, !app.trace_job.cancelled(), 22.0).clicked() {
+                app.run("imageTrace.cancel", json!({})).ok();
+            }
+        });
+    }
     ui.horizontal(|ui| {
         let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(40.0);
         let r = ui
@@ -478,7 +494,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             apply = true;
         }
         if ui
-            .add_enabled_ui(is_trace && !st.dirty, |ui| widgets::flat_button(ui, tl!("Expand"), width))
+            .add_enabled_ui(is_trace && !st.dirty && !app.trace_job.running(), |ui| widgets::flat_button(ui, tl!("Expand"), width))
             .inner
             .on_hover_text(tl!("Convert the trace to editable paths"))
             .on_disabled_hover_text(tl!("Apply tracing settings before expanding"))

@@ -54,6 +54,7 @@ pub mod theme;
 pub mod titlebar;
 pub mod toolbar;
 mod touch;
+mod trace_job;
 mod ui_fonts;
 pub mod unsaved;
 pub mod widgets;
@@ -194,6 +195,8 @@ pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Platform services injected by the host app (desktop or web).
 #[derive(Default)]
 pub struct Services {
+    /// The desktop host enables asynchronous Image Trace; headless/wasm clients keep synchronous commands.
+    pub background_trace: bool,
     /// Show an open dialog; returns a path.
     pub pick_open: Option<PickOpen>,
     /// Show a save dialog (suggested name, folder, file types); returns a path.
@@ -258,6 +261,7 @@ pub struct CanvasCache {
     pub texture: Option<egui::TextureHandle>,
     pub glass: glass::BackdropCache,
     pub key: Option<CacheKey>,
+    pub failed: Option<CacheKey>,
     pub last_ms: f64,
     pub worker: Option<render_worker::Worker>,
     pub worker_started: bool,
@@ -382,6 +386,7 @@ pub struct VectorcraftApp {
     /// Saves and exports running in the background (Preferences → File Handling).
     pub background: background::Background,
     pub(crate) geometry_job: geometry_job::GeometryJob,
+    pub(crate) trace_job: trace_job::TraceJob,
     /// UI-only staged trace settings; document identity prevents blocking another selection.
     pub(crate) pending_trace: Option<(u64, vectorcraft_doc::NodeId)>,
     /// Data Recovery's timer and startup question ([`recovery`]).
@@ -421,6 +426,7 @@ impl VectorcraftApp {
                 texture: None,
                 glass: Default::default(),
                 key: None,
+                failed: None,
                 last_ms: 0.0,
                 worker: None,
                 worker_started: false,
@@ -464,6 +470,7 @@ impl VectorcraftApp {
             paste_chord: Default::default(),
             background: Default::default(),
             geometry_job: Default::default(),
+            trace_job: Default::default(),
             pending_trace: None,
             recovery: Default::default(),
             host_modifiers: Default::default(),
@@ -540,13 +547,20 @@ impl VectorcraftApp {
     /// [`Self::run`] it, inside what asks for file dialogs.
     fn run_now(&mut self, id: &str, params: Value) -> Result<Value, String> {
         self.run_count = self.run_count.wrapping_add(1);
-        if id == "imageTrace.expand" && self.trace_settings_pending() {
+        if id == "imageTrace.expand" && (self.trace_settings_pending() || self.trace_job.running()) {
             let error = tl!("Apply tracing settings before expanding").to_string();
             self.status(&error);
             return Err(error);
         }
         if id == "object.path.offsetPath" && !self.session.in_interaction() {
             let result = geometry_job::start(self, &params);
+            if let Err(e) = &result {
+                self.status(e);
+            }
+            return result;
+        }
+        if self.services.background_trace && !cfg!(target_arch = "wasm32") && matches!(id, "imageTrace.make" | "imageTrace.makeAndExpand") {
+            let result = trace_job::start(self, &params, id == "imageTrace.makeAndExpand");
             if let Err(e) = &result {
                 self.status(e);
             }
@@ -866,6 +880,10 @@ impl VectorcraftApp {
         picks::poll(self, ctx);
         background::poll(self);
         geometry_job::poll(self);
+        trace_job::poll(self);
+        if self.trace_job.running() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
         if self.geometry_job.running() {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }

@@ -9,6 +9,7 @@ description = "Kaleiform egui frontend (menus, panels, tools and canvas); swappa
 workspace = true
 
 [dependencies]
+vectorcraft-trace = { workspace = true }
 vectorcraft-geom = { workspace = true }
 vectorcraft-color = { workspace = true }
 vectorcraft-doc = { workspace = true }

@@ -107,6 +107,9 @@ pub(crate) fn unmix(pix: &[Px], width: usize, height: usize, classes: &[[f64; 4]
     let mut residual = vec![0.0f32; n];
     let subs = subsets(classes);
     for (i, px) in pix.iter().take(n).enumerate() {
+        if !crate::control::pixel_checkpoint(i) {
+            return (vec![], vec![]);
+        }
         let p = [f64::from(px[0]), f64::from(px[1]), f64::from(px[2]), f64::from(px[3])];
         // Fast path: a pixel that is (nearly) exactly one class.
         let mut near = (f64::MAX, 0usize);

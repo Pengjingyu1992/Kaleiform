@@ -277,13 +277,15 @@ mod tests {
         let mut app = VectorcraftApp::new(Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 400, "height": 400})).unwrap();
         let ctx = egui::Context::default();
-        for _ in 0..3 {
+        let start = std::time::Instant::now();
+        while app.canvas.key.is_none() && start.elapsed() < std::time::Duration::from_secs(5) {
             let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))), ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
                 app.logic(ui.ctx());
                 app.ui(ui);
             });
             out.textures_delta.clear();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         let key = app.canvas.key.clone().unwrap();
         (app, ctx, key)

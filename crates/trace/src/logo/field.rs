@@ -22,6 +22,9 @@ pub(crate) fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f64) {
     };
     let mut tmp = vec![0.0f32; w * h];
     for y in 0..h as i64 {
+        if !crate::control::checkpoint(w as u64) {
+            return;
+        }
         for x in 0..w as i64 {
             let v: f64 = k.iter().enumerate().map(|(j, kv)| kv * at(plane, x + j as i64 - r, y)).sum();
             if let Some(d) = tmp.get_mut(y as usize * w + x as usize) {
@@ -30,6 +33,9 @@ pub(crate) fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f64) {
         }
     }
     for y in 0..h as i64 {
+        if !crate::control::checkpoint(w as u64) {
+            return;
+        }
         for x in 0..w as i64 {
             let v: f64 = k.iter().enumerate().map(|(j, kv)| kv * at(&tmp, x, y + j as i64 - r)).sum();
             if let Some(d) = plane.get_mut(y as usize * w + x as usize) {
@@ -104,6 +110,9 @@ fn coefficients(plane: &[f32], w: usize, h: usize) -> Vec<f64> {
     }
     let mut col = vec![0.0f64; h];
     for x in 0..w {
+        if !crate::control::checkpoint(h as u64) {
+            return vec![];
+        }
         for (y, v) in col.iter_mut().enumerate() {
             *v = c.get(y * w + x).copied().unwrap_or(0.0);
         }
@@ -138,6 +147,9 @@ pub(crate) fn upsample(plane: &[f32], w: usize, h: usize, u: usize) -> Vec<f32> 
         return Vec::new();
     }
     let coef = coefficients(plane, w, h);
+    if !crate::control::checkpoint(0) {
+        return vec![];
+    }
     let (tx, ty) = (taps(w, u), taps(h, u));
     let ow = w * u;
     // Whole-sample mirror boundaries, matching the prefilter.
@@ -151,6 +163,9 @@ pub(crate) fn upsample(plane: &[f32], w: usize, h: usize, u: usize) -> Vec<f32> 
     };
     let mut tmp = vec![0.0f64; h * ow];
     for y in 0..h {
+        if !crate::control::checkpoint(ow as u64) {
+            return vec![];
+        }
         let row = coef.get(y * w..(y + 1) * w).unwrap_or(&[]);
         for (ox, &(base, wt)) in tx.iter().enumerate() {
             let mut s = 0.0;
@@ -164,6 +179,9 @@ pub(crate) fn upsample(plane: &[f32], w: usize, h: usize, u: usize) -> Vec<f32> 
     }
     let mut out = vec![0.0f32; ow * h * u];
     for (oy, &(base, wt)) in ty.iter().enumerate() {
+        if !crate::control::checkpoint(ow as u64) {
+            return vec![];
+        }
         let rows: [usize; 4] = std::array::from_fn(|j| clampi(base + j as i64, h));
         for ox in 0..ow {
             let mut s = 0.0;

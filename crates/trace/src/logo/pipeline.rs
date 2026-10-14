@@ -37,6 +37,9 @@ fn working_copy(img: &Raster, at_least: usize) -> (Vec<Px>, usize, usize, usize)
     let (ow, oh) = (w.div_ceil(factor), h.div_ceil(factor));
     let mut out = Vec::with_capacity(ow * oh);
     for oy in 0..oh {
+        if !crate::control::checkpoint((w * factor) as u64) {
+            return (vec![], 0, 0, factor);
+        }
         for ox in 0..ow {
             let mut acc = [0.0f32; 4];
             let mut n = 0.0f32;
@@ -342,6 +345,12 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
         return Ok(TraceResult::default());
     }
     let (mut pix, mut w, mut h, mut factor) = working_copy(img, 1);
+    if !crate::control::checkpoint(0) {
+        return Err(TraceError::Cancelled);
+    }
+    if let Some(c) = crate::control::current() {
+        c.set_stage(crate::Stage::Palette);
+    }
     let mut palette = choose_palette(params, &pix, w, h)?;
     if palette.is_empty() {
         return Ok(TraceResult::default());
@@ -359,6 +368,9 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
         (pix, w, h, factor) = working_copy(img, factor * 2);
     }
     let (mut planes, residual) = unmix(&pix, w, h, &classes);
+    if !crate::control::checkpoint(0) {
+        return Err(TraceError::Cancelled);
+    }
     let mut planes = if params.logo_colors.is_empty() && palette.len() < MAX_COLOURS {
         // Colours too small to be found at first show up as pixels nothing explains: add them.
         let extra = unexplained_colours(&pix, w, h, &residual, &palette);
@@ -373,6 +385,12 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
         std::mem::take(&mut planes)
     };
     let (white, transparent) = (palette.len(), palette.len() + 1);
+    if !crate::control::checkpoint(0) {
+        return Err(TraceError::Cancelled);
+    }
+    if let Some(c) = crate::control::current() {
+        c.set_stage(crate::Stage::Noise);
+    }
     let aliased = soften_if_aliased(&mut planes, w, h);
     fill_knockouts(&mut planes, w, h, white, transparent);
     let n = w * h;
@@ -389,6 +407,9 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
     let mut second = vec![f32::MIN; ow * oh];
     let mut best_id = vec![0u8; ow * oh];
     for (c, pl) in padded.iter().enumerate() {
+        if !crate::control::checkpoint(0) {
+            return Err(TraceError::Cancelled);
+        }
         let m = upsample(pl, wp, hp, u);
         if m.len() != ow * oh {
             return Ok(TraceResult::default());
@@ -417,6 +438,12 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
     let mut shapes: Vec<Shape> = Vec::new();
     let mut anchors_made = 0usize;
     for class in 0..=white {
+        if !crate::control::checkpoint(0) {
+            return Err(TraceError::Cancelled);
+        }
+        if let Some(c) = crate::control::current() {
+            c.set_stage(crate::Stage::Contours);
+        }
         if class == white && params.ignore_white {
             continue;
         }
@@ -450,6 +477,9 @@ pub(crate) fn trace_logo(img: &Raster, params: &TraceParams, max_anchors: usize)
             Vec::new()
         };
         for (idx, (area, mut pts)) in outers.into_iter().enumerate() {
+            if !crate::control::checkpoint(pts.len() as u64) {
+                return Err(TraceError::Cancelled);
+            }
             grow_into_neighbours(&mut pts, class, &around);
             let Some(outer) = fit_outline(&pts, &style, &mut stats) else { continue };
             let hole_fits: Vec<Vec<Cubic>> =

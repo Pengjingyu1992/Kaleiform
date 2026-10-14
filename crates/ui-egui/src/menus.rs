@@ -52,6 +52,7 @@ use Item::Sep;
 /// UI-level commands: (id, label, shortcut, params doc).
 pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("geometry.cancel", "Cancel Offset Path", "", "{} cancel the running offset; discard its result"),
+    ("imageTrace.cancel", "Cancel Image Trace", "", "{} cancel the running trace and pending request; keep the original artwork"),
     (
         "app.language",
         "Interface Language",
@@ -821,6 +822,10 @@ pub(crate) fn opt_bool(p: &Value, key: &str) -> Result<Option<bool>, String> {
 
 /// Handle a UI command. `None` = not a UI command (the engine handles it).
 pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
+    if id == "imageTrace.cancel" {
+        app.trace_job.cancel();
+        return Some(Ok(json!({"cancelled": true})));
+    }
     if id == "geometry.cancel" {
         app.geometry_job.cancel();
         return Some(Ok(json!({"cancelled": true})));

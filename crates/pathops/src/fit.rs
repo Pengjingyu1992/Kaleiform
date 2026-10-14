@@ -48,6 +48,9 @@ fn dedup(pts: &[Point]) -> Vec<Point> {
 }
 
 fn fit_rec(pts: &[Point], t0: Vec2, t1: Vec2, tol: f64, out: &mut Vec<CubicBez>, depth: usize) {
+    if !linesweeper::budget::checkpoint(pts.len() as u64) {
+        return;
+    }
     let n = pts.len();
     if n == 2 {
         let d = pts[0].distance(pts[1]) / 3.0;

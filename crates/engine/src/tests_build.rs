@@ -627,6 +627,60 @@ fn image_trace_make_places_paths_over_the_image() {
 }
 
 #[test]
+fn prepared_trace_commits_once_and_undo_restores_the_original() {
+    let mut s = session();
+    image_doc(&mut s);
+    let before = s.doc().unwrap().doc.clone();
+    let steps = s.doc().unwrap().history.undo.len();
+    let journals = s.journal.len();
+    let task = TraceTask::prepare(&s, &json!({"params":{"ignoreWhite":true}}), false).unwrap();
+    let result = task.compute(&vectorcraft_trace::TraceControl::default()).unwrap();
+    assert_eq!(s.doc().unwrap().doc, before);
+    let r = s.finish_trace(result).unwrap();
+    assert_eq!(r["paths"], 1);
+    assert_eq!(s.doc().unwrap().history.undo.len(), steps + 1);
+    assert_eq!(s.journal.len(), journals + 1);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.doc().unwrap().doc, before);
+}
+
+#[test]
+fn prepared_traces_reject_changed_documents_selections_and_cancelled_computation() {
+    for change in ["edit", "selection", "switch", "interaction"] {
+        let mut s = session();
+        image_doc(&mut s);
+        let task = TraceTask::prepare(&s, &json!({}), false).unwrap();
+        let result = task.compute(&vectorcraft_trace::TraceControl::default()).unwrap();
+        match change {
+            "edit" => {
+                s.execute("shape.rectangle", &json!({"x":1,"y":2,"width":10,"height":10})).unwrap();
+            }
+            "selection" => {
+                s.execute("select.none", &json!({})).unwrap();
+            }
+            "switch" => {
+                s.add_document(Document::new(100.0, 100.0), None);
+            }
+            _ => {
+                s.begin_interaction("test").unwrap();
+            }
+        }
+        let before = s.doc().unwrap().doc.clone();
+        let journals = s.journal.len();
+        assert!(s.finish_trace(result).is_err(), "{change}");
+        assert_eq!(s.doc().unwrap().doc, before);
+        assert_eq!(s.journal.len(), journals);
+    }
+    let mut s = session();
+    image_doc(&mut s);
+    let before = s.doc().unwrap().doc.clone();
+    let control = vectorcraft_trace::TraceControl::default();
+    control.cancel();
+    assert!(TraceTask::prepare(&s, &json!({}), false).unwrap().compute(&control).is_err());
+    assert_eq!(s.doc().unwrap().doc, before);
+}
+
+#[test]
 fn image_trace_release_and_expand() {
     let mut s = session();
     let img = image_doc(&mut s);

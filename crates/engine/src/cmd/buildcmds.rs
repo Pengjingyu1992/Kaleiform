@@ -704,99 +704,196 @@ fn trace_library(s: &Session, params: &mut tr::TraceParams) -> Result<Vec<([u8; 
 pub const MAX_TRACE_ANCHORS: usize = 2_000_000;
 
 fn trace_make(s: &mut Session, p: &Value, expand: bool) -> Result<Value> {
-    const C: &str = "imageTrace.make";
-    let mut params = trace_params(p)?;
-    let view = view_param(C, p)?;
-    let params_json = serde_json::to_value(&params).map_err(|e| EngineError::Other(e.to_string()))?;
-    // The preset's name if the parameters are exactly that preset's, else "Custom".
-    let named = str_param(p, "preset").unwrap_or("Default");
-    let preset_label = match tr::preset(named) {
-        Some(b) if serde_json::to_value(&b).ok().as_ref() == Some(&params_json) => named.to_string(),
-        _ => "Custom".to_string(),
+    let result = match s.pending_trace.take() {
+        Some(result) => result,
+        None => TraceTask::prepare(s, p, expand)?.compute(&tr::TraceControl::default())?,
     };
-    let roots = root_ids(s, p)?;
-    // The image (inside a trace group, or selected directly).
-    let (target, img) = {
-        let d = &s.doc()?.doc;
-        roots
-            .iter()
-            .find_map(|r| {
-                let n = d.node(*r)?;
-                match &n.kind {
-                    NodeKind::Image(i) => Some((*r, i.clone())),
-                    _ if is_trace_group(n) => match &n.children()?.first()?.kind {
-                        NodeKind::Image(i) => Some((*r, i.clone())),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-            })
-            .ok_or_else(|| bad(C, "select an image (or an Image Trace group)"))?
-    };
-    let blob = s.doc()?.doc.images.get(&img.key).ok_or_else(|| EngineError::Other(format!("image data `{}` is missing", img.key)))?;
-    let raster = tr::Raster::decode(&blob.bytes).map_err(|e| EngineError::Other(e.to_string()))?;
-    let library = trace_library(s, &mut params)?;
-    let res = tr::trace_within(&raster, &params, MAX_TRACE_ANCHORS).map_err(|e| EngineError::Other(e.to_string()))?;
-    // Pixel space of the decoded raster → the image object's pixel space → document.
-    let sx = img.width.max(1) as f64 / raster.width.max(1) as f64;
-    let sy = img.height.max(1) as f64 / raster.height.max(1) as f64;
-    let xf = img.xf * vectorcraft_geom::Affine::scale_non_uniform(sx, sy);
-    // Document units per raster pixel (stroke widths).
-    let unit = xf.determinant().abs().sqrt();
-    let (npaths, anchors, colors) = (res.paths.len(), res.anchor_count(), res.palette.len());
+    if !result.task.is_current(s) {
+        return Err(EngineError::Other("Image Trace: document or selection changed; result discarded".into()));
+    }
     let label = if expand { "Image Trace (Make and Expand)" } else { "Image Trace" };
-    let id = s.edit(label, |d, sel| {
-        let src = d.node(target).cloned().ok_or(EngineError::NoNode(target))?;
-        let mut image = if is_trace_group(&src) {
-            src.children()
-                .and_then(|c| c.first())
-                .map(|c| (**c).clone())
-                .ok_or_else(|| EngineError::Other("Image Trace: the traced image is missing".into()))?
-        } else {
-            src.clone()
-        };
-        image.visible = true;
-        let mut children: Vec<Arc<Node>> = vec![];
-        if !expand {
-            let mut hidden = image.clone();
-            hidden.visible = false;
-            children.push(Arc::new(hidden));
-        }
-        for tp in res.paths {
-            let path = tp.path.transformed(xf);
-            let mut n = shape_node(d, path, None);
-            // A library colour fills with the swatch's own colour (its model kept).
-            let color = library.iter().find(|(rgb, _)| *rgb == tp.color).map_or_else(|| Color::rgb8(tp.color[0], tp.color[1], tp.color[2]), |l| l.1);
-            let paint = Paint::solid(color);
-            n.appearance = match tp.stroke {
-                // Traced lines: round ends and corners, as drawn lines have.
-                Some(width) => Appearance {
-                    items: vec![AppearanceItem::Stroke(StrokeLayer {
-                        cap: LineCap::Round,
-                        join: LineJoin::Round,
-                        ..StrokeLayer::new(paint, width * unit)
-                    })],
-                    ..Default::default()
-                },
-                None => fill_only(paint),
-            };
-            children.push(Arc::new(n));
-        }
-        let gid = d.alloc_id();
-        let mut g = Node::group(gid, children);
-        g.name = if expand { None } else { Some(TRACE_NAME.into()) };
-        if !expand {
-            // Tracing again keeps the object's view unless another is asked for.
-            let view = view.unwrap_or_else(|| src.trace_view());
-            g.trace = Some(Box::new(json!({ "preset": preset_label, "params": params_json, "view": view.id() })));
-        }
-        let (par, idx, _) = d.position(target).ok_or(EngineError::NoNode(target))?;
-        d.remove(target)?;
-        d.insert(par, idx, g)?;
-        sel.set([gid]);
-        Ok(gid)
+    let value = result.value;
+    s.edit(label, |d, sel| {
+        *d = result.doc;
+        *sel = result.selection;
+        Ok(())
     })?;
-    Ok(json!({ "id": id.0, "paths": npaths, "anchors": anchors, "colors": colors }))
+    Ok(value)
+}
+
+/// An immutable command snapshot; preparation never decodes or traces an image.
+#[derive(Clone)]
+pub struct TraceTask {
+    doc: Arc<Document>,
+    selection: Selection,
+    uid: u64,
+    revision: u64,
+    target: NodeId,
+    image: vectorcraft_doc::ImageObject,
+    params: tr::TraceParams,
+    params_json: Value,
+    request: Value,
+    preset_label: String,
+    library: Vec<([u8; 3], Color)>,
+    view: Option<TraceView>,
+    expand: bool,
+}
+
+pub struct TraceResult {
+    task: TraceTask,
+    doc: Document,
+    selection: Selection,
+    value: Value,
+}
+
+impl TraceTask {
+    pub fn prepare(s: &Session, p: &Value, expand: bool) -> Result<Self> {
+        const C: &str = "imageTrace.make";
+        if s.in_interaction() {
+            return Err(bad(C, "finish the current edit before tracing"));
+        }
+        let mut params = trace_params(p)?;
+        let view = view_param(C, p)?;
+        let params_json = serde_json::to_value(&params).map_err(|e| EngineError::Other(e.to_string()))?;
+        // The preset's name if the parameters are exactly that preset's, else "Custom".
+        let named = str_param(p, "preset").unwrap_or("Default");
+        let preset_label = match tr::preset(named) {
+            Some(b) if serde_json::to_value(&b).ok().as_ref() == Some(&params_json) => named.to_string(),
+            _ => "Custom".to_string(),
+        };
+        let roots = root_ids(s, p)?;
+        // The image (inside a trace group, or selected directly).
+        let (target, img) = {
+            let d = &s.doc()?.doc;
+            roots
+                .iter()
+                .find_map(|r| {
+                    let n = d.node(*r)?;
+                    match &n.kind {
+                        NodeKind::Image(i) => Some((*r, i.clone())),
+                        _ if is_trace_group(n) => match &n.children()?.first()?.kind {
+                            NodeKind::Image(i) => Some((*r, i.clone())),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                })
+                .ok_or_else(|| bad(C, "select an image (or an Image Trace group)"))?
+        };
+        let library = trace_library(s, &mut params)?;
+        let st = s.doc()?;
+        Ok(Self {
+            doc: st.doc.clone(),
+            selection: st.selection.clone(),
+            uid: st.uid,
+            revision: st.revision,
+            target,
+            image: img,
+            params,
+            params_json,
+            request: p.clone(),
+            preset_label,
+            library,
+            view,
+            expand,
+        })
+    }
+
+    pub fn is_current(&self, s: &Session) -> bool {
+        s.active()
+            .is_some_and(|st| st.uid == self.uid && st.revision == self.revision && Arc::ptr_eq(&st.doc, &self.doc) && st.selection == self.selection)
+    }
+
+    pub fn compute(self, control: &tr::TraceControl) -> Result<TraceResult> {
+        let error = |e: tr::TraceError| EngineError::Other(e.to_string());
+        control.check(0).map_err(error)?;
+        control.set_stage(tr::Stage::Decode);
+        let blob = self.doc.images.get(&self.image.key).ok_or_else(|| EngineError::Other("Image Trace: image data is missing".into()))?;
+        let raster = tr::Raster::decode(&blob.bytes).map_err(error)?;
+        control.check(0).map_err(error)?;
+        let res = tr::trace_controlled(&raster, &self.params, MAX_TRACE_ANCHORS, control).map_err(error)?;
+        control.set_stage(tr::Stage::Building);
+        let (img, expand, target) = (&self.image, self.expand, self.target);
+        // Pixel space of the decoded raster → the image object's pixel space → document.
+        let sx = img.width.max(1) as f64 / raster.width.max(1) as f64;
+        let sy = img.height.max(1) as f64 / raster.height.max(1) as f64;
+        let xf = img.xf * vectorcraft_geom::Affine::scale_non_uniform(sx, sy);
+        // Document units per raster pixel (stroke widths).
+        let unit = xf.determinant().abs().sqrt();
+        let (npaths, anchors, colors) = (res.paths.len(), res.anchor_count(), res.palette.len());
+        let mut d = (*self.doc).clone();
+        let mut selection = self.selection.clone();
+        let id = (|| -> Result<NodeId> {
+            let src = d.node(target).cloned().ok_or(EngineError::NoNode(target))?;
+            let mut image = if is_trace_group(&src) {
+                src.children()
+                    .and_then(|c| c.first())
+                    .map(|c| (**c).clone())
+                    .ok_or_else(|| EngineError::Other("Image Trace: the traced image is missing".into()))?
+            } else {
+                src.clone()
+            };
+            image.visible = true;
+            let mut children: Vec<Arc<Node>> = vec![];
+            if !expand {
+                let mut hidden = image.clone();
+                hidden.visible = false;
+                children.push(Arc::new(hidden));
+            }
+            for tp in res.paths {
+                control.check(1).map_err(error)?;
+                let path = tp.path.transformed(xf);
+                let mut n = shape_node(&mut d, path, None);
+                // A library colour fills with the swatch's own colour (its model kept).
+                let color =
+                    self.library.iter().find(|(rgb, _)| *rgb == tp.color).map_or_else(|| Color::rgb8(tp.color[0], tp.color[1], tp.color[2]), |l| l.1);
+                let paint = Paint::solid(color);
+                n.appearance = match tp.stroke {
+                    // Traced lines: round ends and corners, as drawn lines have.
+                    Some(width) => Appearance {
+                        items: vec![AppearanceItem::Stroke(StrokeLayer {
+                            cap: LineCap::Round,
+                            join: LineJoin::Round,
+                            ..StrokeLayer::new(paint, width * unit)
+                        })],
+                        ..Default::default()
+                    },
+                    None => fill_only(paint),
+                };
+                children.push(Arc::new(n));
+            }
+            let gid = d.alloc_id();
+            let mut g = Node::group(gid, children);
+            g.name = if expand { None } else { Some(TRACE_NAME.into()) };
+            if !expand {
+                // Tracing again keeps the object's view unless another is asked for.
+                let view = self.view.unwrap_or_else(|| src.trace_view());
+                g.trace = Some(Box::new(json!({ "preset": self.preset_label, "params": self.params_json, "view": view.id() })));
+            }
+            let (par, idx, _) = d.position(target).ok_or(EngineError::NoNode(target))?;
+            d.remove(target)?;
+            d.insert(par, idx, g)?;
+            selection.set([gid]);
+            Ok(gid)
+        })()?;
+        control.check(0).map_err(error)?;
+        Ok(TraceResult { task: self, doc: d, selection, value: json!({ "id": id.0, "paths": npaths, "anchors": anchors, "colors": colors }) })
+    }
+}
+
+impl Session {
+    /// Commit through the ordinary command path, keeping journal and undo atomic.
+    pub fn finish_trace(&mut self, result: TraceResult) -> Result<Value> {
+        if !result.task.is_current(self) || self.in_interaction() {
+            return Err(EngineError::Other("Image Trace: document or selection changed; result discarded".into()));
+        }
+        let request = result.task.request.clone();
+        let command = if result.task.expand { "imageTrace.makeAndExpand" } else { "imageTrace.make" };
+        self.pending_trace = Some(result);
+        let r = self.execute(command, &request);
+        self.pending_trace = None;
+        r
+    }
 }
 
 fn trace_targets(s: &Session, p: &Value) -> Result<Vec<NodeId>> {

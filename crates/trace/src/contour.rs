@@ -53,6 +53,9 @@ fn label(mask: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<usize>) {
     let mut sizes = Vec::new();
     let mut stack = Vec::new();
     for s in 0..w * h {
+        if !crate::control::pixel_checkpoint(s) {
+            return (vec![], vec![]);
+        }
         if !mask[s] || comp[s] != u32::MAX {
             continue;
         }
@@ -61,6 +64,9 @@ fn label(mask: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<usize>) {
         comp[s] = id;
         stack.push(s);
         while let Some(i) = stack.pop() {
+            if !crate::control::pixel_checkpoint(i) {
+                return (vec![], vec![]);
+            }
             n += 1;
             let (x, y) = (i % w, i / w);
             let mut go = |j: usize| {
@@ -91,10 +97,16 @@ fn label(mask: &[bool], w: usize, h: usize) -> (Vec<u32>, Vec<usize>) {
 pub fn trace_mask(mask: &[bool], w: usize, h: usize) -> Vec<Component> {
     assert_eq!(mask.len(), w * h);
     let (comp, sizes) = label(mask, w, h);
+    if comp.len() != mask.len() {
+        return vec![];
+    }
     let vw = w + 1;
     let mut dirs = vec![0u8; vw * (h + 1)];
     let inside = |x: isize, y: isize| x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h && mask[y as usize * w + x as usize];
     for y in 0..h {
+        if !crate::control::checkpoint(w as u64) {
+            return vec![];
+        }
         for x in 0..w {
             if !mask[y * w + x] {
                 continue;
@@ -117,6 +129,9 @@ pub fn trace_mask(mask: &[bool], w: usize, h: usize) -> Vec<Component> {
     let mut outers: Vec<Option<Loop>> = vec![None; sizes.len()];
     let mut holes: Vec<Vec<Loop>> = vec![Vec::new(); sizes.len()];
     for start in 0..dirs.len() {
+        if !crate::control::pixel_checkpoint(start) {
+            return vec![];
+        }
         // Every loop has an R edge (the top edge of some inside pixel); start there so the loop
         // closes exactly (right-turn rule at the start vertex, too).
         while dirs[start] & R != 0 {
@@ -129,6 +144,9 @@ pub fn trace_mask(mask: &[bool], w: usize, h: usize) -> Vec<Component> {
             let mut area2: i64 = 0;
             let mut prev = (sx, sy);
             loop {
+                if !crate::control::checkpoint(1) {
+                    return vec![];
+                }
                 area2 += prev.0 as i64 * y as i64 - x as i64 * prev.1 as i64;
                 prev = (x, y);
                 let v = y as usize * vw + x as usize;

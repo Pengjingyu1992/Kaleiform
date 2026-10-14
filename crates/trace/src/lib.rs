@@ -31,6 +31,7 @@
 
 mod centerline;
 mod contour;
+mod control;
 mod fit;
 mod logo;
 mod mosaic;
@@ -42,12 +43,21 @@ use serde::{Deserialize, Serialize};
 use vectorcraft_geom::PathData;
 
 pub use contour::{Component, Loop, trace_mask};
+pub use control::{Stage, TraceControl};
 pub use mosaic::mosaic;
 pub use quantize::{FULL_TONE_MAX, Quantized, TRANSPARENT, denoise, quantize};
 
 /// Errors decoding a raster.
 #[derive(Debug, thiserror::Error)]
 pub enum TraceError {
+    #[error("Image Trace: cancelled; original artwork kept")]
+    Cancelled,
+    #[error("Image Trace: work limit reached; lower fidelity or image size")]
+    WorkLimit,
+    #[error("Image Trace: time limit reached; lower fidelity or image size")]
+    TimeLimit,
+    #[error("Image Trace: working memory limit reached; reduce image size")]
+    MemoryLimit,
     #[error("could not decode image: {0}")]
     Decode(String),
     #[error("image is empty")]
@@ -366,15 +376,32 @@ pub fn trace(img: &Raster, params: &TraceParams) -> TraceResult {
 /// than `max_anchors` anchor points (a photo traced at high fidelity can make millions). The
 /// colour layers are traced in parallel where threads are available.
 pub fn trace_within(img: &Raster, params: &TraceParams, max_anchors: usize) -> Result<TraceResult, TraceError> {
+    trace_controlled(img, params, max_anchors, &TraceControl::default())
+}
+
+pub fn trace_controlled(img: &Raster, params: &TraceParams, max_anchors: usize, control: &TraceControl) -> Result<TraceResult, TraceError> {
+    control.run(|| trace_inner(img, params, max_anchors, control))
+}
+
+fn trace_inner(img: &Raster, params: &TraceParams, max_anchors: usize, control: &TraceControl) -> Result<TraceResult, TraceError> {
     let (w, h) = (img.width as usize, img.height as usize);
-    if w == 0 || h == 0 || img.rgba.len() != w * h * 4 {
+    let pixels = w.saturating_mul(h);
+    if w == 0 || h == 0 || img.rgba.len() != pixels.saturating_mul(4) {
         return Ok(TraceResult::default());
+    }
+    // Bound one layer's label, mask, component and boundary storage, including the source.
+    if pixels.saturating_mul(40) > 768 * 1024 * 1024 {
+        return Err(TraceError::MemoryLimit);
     }
     if params.mode == Mode::Logo {
         return logo::trace_logo(img, params, max_anchors);
     }
+    control.set_stage(Stage::Palette);
     let mut q = quantize(img, params);
+    control.check(0)?;
+    control.set_stage(Stage::Noise);
     denoise(&mut q.labels, w, h, params.noise as usize);
+    control.check(0)?;
     // Skipping the white layer alone leaves overlapping colours painting beneath it.
     // Remove its pixels from every layer, after the usual noise cleanup.
     if params.ignore_white {
@@ -416,7 +443,9 @@ pub fn trace_within(img: &Raster, params: &TraceParams, max_anchors: usize) -> R
         max_anchors,
     };
     let mut out = TraceResult::default();
-    for (paths, &(_, ci)) in parallel_map(&layers, |&(r, ci)| job.layer(r, ci)).into_iter().zip(&layers) {
+    control.set_stage(Stage::Contours);
+    let workers = (768 * 1024 * 1024 / pixels.saturating_mul(40).max(1)).clamp(1, 4);
+    for (paths, &(_, ci)) in parallel_map(&layers, workers, |&(r, ci)| job.layer(r, ci)).into_iter().zip(&layers) {
         out.paths.extend(paths.ok_or(TraceError::TooComplex { max: max_anchors })?);
         let color = q.palette[ci];
         if !out.palette.contains(&color) {
@@ -444,6 +473,9 @@ impl Layers<'_> {
     /// The paths of layer `r` (palette entry `ci`), or `None` once the anchors made pass the
     /// maximum.
     fn layer(&self, r: usize, ci: usize) -> Option<Vec<TracedPath>> {
+        if !control::checkpoint(0) {
+            return None;
+        }
         let (params, opts) = (self.params, &self.opts);
         let color = *self.q.palette.get(ci)?;
         let overlapping = params.method == Method::Overlapping;
@@ -459,12 +491,20 @@ impl Layers<'_> {
             .labels
             .iter()
             .enumerate()
-            .map(|(i, &l)| {
-                l != TRANSPARENT
-                    && !thin.get(i).copied().unwrap_or(false)
-                    && if overlapping { self.rank.get(l as usize).is_some_and(|&lr| lr >= r) } else { l as usize == ci }
+            .map_while(|(i, &l)| {
+                if !control::pixel_checkpoint(i) {
+                    return None;
+                }
+                Some(
+                    l != TRANSPARENT
+                        && !thin.get(i).copied().unwrap_or(false)
+                        && if overlapping { self.rank.get(l as usize).is_some_and(|&lr| lr >= r) } else { l as usize == ci },
+                )
             })
             .collect();
+        if mask.len() != w * h {
+            return None;
+        }
         // Without Fills, areas are outlined with a 1 px stroke.
         let area_stroke = (params.strokes && !params.fills).then_some(1.0);
         let min_hole = params.noise.max(1) as i64;
@@ -478,6 +518,9 @@ impl Layers<'_> {
             true
         };
         for comp in trace_mask(&mask, w, h) {
+            if !control::checkpoint(1) {
+                return None;
+            }
             let Some(outer) = fit::fit_loop(&comp.outer, opts) else { continue };
             let mut subs = vec![outer];
             for hole in &comp.holes {
@@ -501,8 +544,10 @@ impl Layers<'_> {
 
 /// `f` of each of `items`, in order, spread over the available cores.
 #[cfg(not(target_arch = "wasm32"))]
-fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(items.len());
+fn parallel_map<T: Sync, R: Send>(items: &[T], max_threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    // Leave cores for the UI; large masks are processed serially to bound working memory.
+    let control = control::current();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(2).max(1)).min(items.len()).min(max_threads);
     if threads <= 1 {
         return items.iter().map(f).collect();
     }
@@ -515,7 +560,15 @@ fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Ve
                     loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
                         let Some(item) = items.get(i) else { break };
-                        mine.push((i, f(item)));
+                        let value = match &control {
+                            Some(c) => c.run(|| Ok(f(item))).ok(),
+                            None => Some(f(item)),
+                        };
+                        if let Some(value) = value {
+                            mine.push((i, value));
+                        } else {
+                            break;
+                        }
                     }
                     mine
                 })
@@ -531,7 +584,7 @@ fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Ve
 
 /// `f` of each of `items`, in order (no threads on the web).
 #[cfg(target_arch = "wasm32")]
-fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+fn parallel_map<T: Sync, R: Send>(items: &[T], _max_threads: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     items.iter().map(f).collect()
 }
 

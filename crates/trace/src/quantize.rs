@@ -24,21 +24,28 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
         Mode::BlackAndWhite => {
             let t = params.threshold;
             let labels = px
-                .map(|p| {
-                    if p[3] < 128 {
+                .enumerate()
+                .map_while(|(i, p)| {
+                    if !crate::control::pixel_checkpoint(i) {
+                        return None;
+                    }
+                    Some(if p[3] < 128 {
                         TRANSPARENT
                     } else if luma(p) < t {
                         1
                     } else {
                         0
-                    }
+                    })
                 })
                 .collect();
             Quantized { labels, palette: vec![[255, 255, 255], [0, 0, 0]] }
         }
         Mode::Grayscale => {
             let mut hist = [0u64; 256];
-            for p in img.rgba.as_chunks::<4>().0 {
+            for (i, p) in img.rgba.as_chunks::<4>().0.iter().enumerate() {
+                if !crate::control::pixel_checkpoint(i) {
+                    return Quantized { labels: vec![], palette: vec![] };
+                }
                 if p[3] >= 128 {
                     hist[luma([p[0], p[1], p[2], p[3]]) as usize] += 1;
                 }
@@ -48,7 +55,10 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
             for (v, slot) in lut.iter_mut().enumerate() {
                 *slot = nearest_1d(&levels, v as f64) as u16;
             }
-            let labels = px.map(|p| if p[3] < 128 { TRANSPARENT } else { lut[luma(p) as usize] }).collect();
+            let labels = px
+                .enumerate()
+                .map_while(|(i, p)| crate::control::pixel_checkpoint(i).then(|| if p[3] < 128 { TRANSPARENT } else { lut[luma(p) as usize] }))
+                .collect();
             let palette = levels.iter().map(|&l| {
                 let g = l.round().clamp(0.0, 255.0) as u8;
                 [g, g, g]
@@ -59,7 +69,10 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
         Mode::Color | Mode::Logo => {
             // 15-bit colour histogram with per-bin sums (exact bin means).
             let mut bins: Vec<Bin> = vec![Bin::default(); 1 << 15];
-            for p in img.rgba.as_chunks::<4>().0 {
+            for (i, p) in img.rgba.as_chunks::<4>().0.iter().enumerate() {
+                if !crate::control::pixel_checkpoint(i) {
+                    return Quantized { labels: vec![], palette: vec![] };
+                }
                 if p[3] >= 128 {
                     let b = &mut bins[key(p[0], p[1], p[2])];
                     b.n += 1;
@@ -70,11 +83,17 @@ pub fn quantize(img: &Raster, params: &TraceParams) -> Quantized {
             }
             let used: Vec<Used> = bins.iter().enumerate().filter(|(_, b)| b.n > 0).map(|(i, b)| (i, b.mean(), b.n as f64)).collect();
             let centers = color_palette(&used, params);
+            if !crate::control::checkpoint(0) {
+                return Quantized { labels: vec![], palette: vec![] };
+            }
             let mut lut = vec![0u16; 1 << 15];
             for (i, c, _) in &used {
                 lut[*i] = nearest_rgb(&centers, *c) as u16;
             }
-            let labels = px.map(|p| if p[3] < 128 { TRANSPARENT } else { lut[key(p[0], p[1], p[2])] }).collect();
+            let labels = px
+                .enumerate()
+                .map_while(|(i, p)| crate::control::pixel_checkpoint(i).then(|| if p[3] < 128 { TRANSPARENT } else { lut[key(p[0], p[1], p[2])] }))
+                .collect();
             let palette = centers.iter().map(|c| [c[0].round() as u8, c[1].round() as u8, c[2].round() as u8]).collect();
             compact(labels, palette)
         }
@@ -178,6 +197,9 @@ fn dist2(a: [f64; 3], b: [f64; 3]) -> f64 {
 fn nearest_rgb(centers: &[[f64; 3]], c: [f64; 3]) -> usize {
     let mut best = (f64::INFINITY, 0);
     for (i, &m) in centers.iter().enumerate() {
+        if i.is_multiple_of(4096) && !crate::control::checkpoint(centers.len().saturating_sub(i).min(4096) as u64) {
+            return 0;
+        }
         let d = dist2(m, c);
         if d < best.0 {
             best = (d, i);
@@ -250,6 +272,9 @@ const FLAT_BINS: usize = 96;
 fn library_colors(used: &[Used], swatches: &[[u8; 3]], k: usize) -> Vec<[f64; 3]> {
     let mut all: Vec<[f64; 3]> = vec![];
     for s in swatches {
+        if !crate::control::checkpoint(all.len() as u64) {
+            return vec![];
+        }
         let c = s.map(f64::from);
         if !all.contains(&c) {
             all.push(c);
@@ -257,6 +282,9 @@ fn library_colors(used: &[Used], swatches: &[[u8; 3]], k: usize) -> Vec<[f64; 3]
     }
     let mut weight = vec![0.0; all.len()];
     for (_, c, n) in used {
+        if !crate::control::checkpoint(0) {
+            return vec![];
+        }
         if let Some(w) = weight.get_mut(nearest_rgb(&all, *c)) {
             *w += n;
         }
@@ -290,6 +318,9 @@ fn median_cut(used: &[Used], k: usize, spread: f64) -> Vec<ColorBox> {
     }
     let mut boxes: Vec<Vec<usize>> = vec![(0..used.len()).collect()];
     while boxes.len() < k {
+        if !crate::control::checkpoint(used.len() as u64) {
+            return vec![];
+        }
         let mut best: Option<(f64, usize, usize)> = None;
         for (bi, b) in boxes.iter().enumerate() {
             if b.len() < 2 {
@@ -350,6 +381,9 @@ fn median_cut(used: &[Used], k: usize, spread: f64) -> Vec<ColorBox> {
 /// Lloyd refinement of `centers` over the bins `used`.
 fn refine(used: &[Used], mut centers: Vec<[f64; 3]>) -> Vec<[f64; 3]> {
     for _ in 0..12 {
+        if !crate::control::checkpoint((used.len() * centers.len()) as u64) {
+            return centers;
+        }
         let mut sum = vec![[0.0; 3]; centers.len()];
         let mut cnt = vec![0.0; centers.len()];
         for (_, c, n) in used {
@@ -385,6 +419,9 @@ pub fn denoise(labels: &mut [u16], w: usize, h: usize, min_area: usize) {
     let mut comp: Vec<usize> = Vec::new();
     let mut neigh: Vec<(u16, u32)> = Vec::new();
     for start in 0..w * h {
+        if !crate::control::pixel_checkpoint(start) {
+            return;
+        }
         if seen[start] || labels[start] == TRANSPARENT {
             continue;
         }
@@ -395,6 +432,9 @@ pub fn denoise(labels: &mut [u16], w: usize, h: usize, min_area: usize) {
         seen[start] = true;
         let mut small = true;
         while let Some(i) = stack.pop() {
+            if !crate::control::pixel_checkpoint(i) {
+                return;
+            }
             if small {
                 comp.push(i);
                 if comp.len() >= min_area {

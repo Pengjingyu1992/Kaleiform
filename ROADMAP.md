@@ -18,6 +18,7 @@ macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 Ap
 
 2026-10-11 本地化修复：效果子菜单、外观效果名称与对话框统一处理带省略号的翻译键；补齐文档文字语言的简繁中文名称。macOS 包声明全部已编译界面语言，让系统窗口菜单按系统应用语言选择本地化，不替换系统窗口操作。
 2026-10-12 顶栏修订：去掉居中的应用名，macOS 文档标签并入顶栏，使用圆角标签、新建入口、未保存圆点及右侧缩放按钮；其他平台保留独立标签栏。不调整功能成熟度评分。
+2026-10-14 稳定性第一轮：桌面图像描摹改为可取消的后台快照任务，连续请求仅保留最新一份；提交前核对文档、修订和选择，成功只增加一步撤销。描摹新增协作式时间/计算量保护与工作内存估算上限。首次画布及切换文档后台渲染，渲染请求和结果各限制为一份。验证和边界见 [第一轮说明](docs/stability-round1.md)。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 
@@ -91,6 +92,8 @@ Ordered by how much each gap blocks someone from switching. Sizes are one-agent 
 7. **Views and windows:** multiple windows and arrange, Consolidate All Windows, video
    rulers. 15–25 h.
 8. **Hardening at scale:** Offset Path now has cooperative work/deadline limits and cancellable desktop computation,
+   Desktop Image Trace also runs off-thread with cancellation, bounded latest requests and stale-result checks;
+   first canvas frames/document switches render off-thread. Broader latency profiling and incremental redraw remain open.
    including dialog previews. Cancelled/stale results keep the original art; exact reproduction
    and algorithmic optimization of the earlier random slow case remain open. Dense Ungroup's selection
    sanity/pruning and the following frame's bounds, stroke, recolor, blend and path-type overlay

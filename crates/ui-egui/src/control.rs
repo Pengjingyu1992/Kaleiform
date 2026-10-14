@@ -102,6 +102,7 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         // Saves and exports still being written in the background (Background Save / Export).
         "background": app.background.jobs.iter().map(|j| j.label.as_str()).collect::<Vec<_>>(),
         "geometryJob": { "running": app.geometry_job.running(), "cancelled": app.geometry_job.cancelled() },
+        "traceJob": { "running": app.trace_job.running(), "cancelled": app.trace_job.cancelled(), "stage": format!("{:?}", app.trace_job.stage()) },
     })
 }
 

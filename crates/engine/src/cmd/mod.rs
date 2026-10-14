@@ -5,6 +5,7 @@ mod assets;
 mod attributes;
 mod brushsym;
 mod buildcmds;
+pub use buildcmds::{TraceResult, TraceTask};
 pub mod clipboard;
 mod colorcmds;
 pub mod colormgmt;

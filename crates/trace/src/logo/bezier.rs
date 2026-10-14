@@ -72,6 +72,9 @@ fn max_err(c: &Cubic, p: &[Point], u: &[f64]) -> (f64, usize) {
 }
 
 fn rec(p: &[Point], t1: Vec2, t2: Vec2, tol: f64, depth: usize, out: &mut Vec<Cubic>) {
+    if !crate::control::checkpoint(p.len() as u64) {
+        return;
+    }
     let (Some(&a), Some(&b)) = (p.first(), p.last()) else { return };
     if p.len() == 2 {
         let d = a.distance(b) / 3.0;

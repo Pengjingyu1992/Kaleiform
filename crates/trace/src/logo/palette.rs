@@ -95,6 +95,9 @@ fn kmeans(px: &[[f64; 3]], k: usize, seed: u64) -> (Vec<[f64; 3]>, Vec<usize>, f
     }
     let mut lab = vec![0usize; px.len()];
     for _ in 0..30 {
+        if !crate::control::checkpoint((px.len() * k) as u64) {
+            return (c, lab, f64::INFINITY);
+        }
         for (i, p) in px.iter().enumerate() {
             lab[i] = (0..c.len()).min_by(|&a, &b| dist2(*p, c[a]).total_cmp(&dist2(*p, c[b]))).unwrap_or(0);
         }

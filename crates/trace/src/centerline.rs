@@ -39,9 +39,15 @@ pub(crate) fn lines(labels: &[u16], label: u16, w: usize, h: usize, max_width: f
     }
     let mask = |i: usize| labels.get(i) == Some(&label);
     let dt = distance(&mask, w, h);
+    if !crate::control::checkpoint(0) {
+        return (thin, out);
+    }
     let mut seen = vec![false; w * h];
     let mut stack = vec![];
     for start in 0..w * h {
+        if !crate::control::pixel_checkpoint(start) {
+            return (thin, out);
+        }
         if !mask(start) || seen[start] {
             continue;
         }
@@ -49,6 +55,9 @@ pub(crate) fn lines(labels: &[u16], label: u16, w: usize, h: usize, max_width: f
         seen[start] = true;
         stack.push(start);
         while let Some(i) = stack.pop() {
+            if !crate::control::pixel_checkpoint(i) {
+                return (thin, out);
+            }
             comp.push(i);
             for j in neighbours(i, w, h) {
                 if mask(j) && !seen[j] {
@@ -88,6 +97,9 @@ fn distance(mask: &impl Fn(usize) -> bool, w: usize, h: usize) -> Vec<u16> {
         if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 { 0 } else { d.get(y as usize * w + x as usize).copied().unwrap_or(0) }
     };
     for y in 0..h {
+        if !crate::control::checkpoint(w as u64) {
+            return vec![];
+        }
         for x in 0..w {
             let i = y * w + x;
             if mask(i) {
@@ -98,6 +110,9 @@ fn distance(mask: &impl Fn(usize) -> bool, w: usize, h: usize) -> Vec<u16> {
         }
     }
     for y in (0..h).rev() {
+        if !crate::control::checkpoint(w as u64) {
+            return vec![];
+        }
         for x in (0..w).rev() {
             let i = y * w + x;
             if mask(i) {
@@ -156,6 +171,9 @@ fn thin(g: &mut Grid) {
     };
     let mut picked = vec![];
     loop {
+        if !crate::control::checkpoint(g.on.len() as u64) {
+            return;
+        }
         let mut changed = false;
         for step in 0..2 {
             picked.clear();
@@ -184,6 +202,9 @@ fn thin(g: &mut Grid) {
     // Staircase corners: a pixel whose neighbours stay connected without it (Yokoi's
     // 8-connectivity number 1) and that doesn't end the line.
     loop {
+        if !crate::control::checkpoint(g.on.len() as u64) {
+            return;
+        }
         let mut changed = false;
         for i in g.interior() {
             if !g.on[i] || g.degree(i) < 2 {
@@ -231,6 +252,9 @@ fn trace_line(comp: &[usize], w: usize, max_width: f64, o: &FitOptions) -> Optio
         g.on[(i / w - y0 + 1) * gw + (i % w - x0 + 1)] = true;
     }
     thin(&mut g);
+    if !crate::control::checkpoint(0) {
+        return None;
+    }
     let skeleton: Vec<usize> = g.interior().filter(|&i| g.on[i]).collect();
     if skeleton.len() < 2 {
         return None;
@@ -239,6 +263,9 @@ fn trace_line(comp: &[usize], w: usize, max_width: f64, o: &FitOptions) -> Optio
     let mut node = vec![usize::MAX; g.on.len()];
     let mut centres: Vec<Point> = vec![];
     for &i in &skeleton {
+        if !crate::control::pixel_checkpoint(i) {
+            return None;
+        }
         let d = g.degree(i);
         if d == 2 || node[i] != usize::MAX {
             continue;
@@ -273,6 +300,9 @@ fn trace_line(comp: &[usize], w: usize, max_width: f64, o: &FitOptions) -> Optio
             let mut pts = vec![centres[node[p]], g.centre(q)];
             let (mut prev, mut cur) = (p, q);
             while node[cur] == usize::MAX {
+                if !crate::control::checkpoint(1) {
+                    return None;
+                }
                 let Some(next) = g.neighbours(cur).find(|&n| n != prev && !used.contains(&edge(cur, n))) else { break };
                 used.insert(edge(cur, next));
                 pts.push(g.centre(next));
@@ -293,6 +323,9 @@ fn trace_line(comp: &[usize], w: usize, max_width: f64, o: &FitOptions) -> Optio
         let (mut prev, mut cur) = (usize::MAX, s);
         let mut closed = false;
         while let Some(next) = g.neighbours(cur).find(|&n| n != prev && !used.contains(&edge(cur, n))) {
+            if !crate::control::checkpoint(1) {
+                return None;
+            }
             used.insert(edge(cur, next));
             if next == s {
                 closed = true;
@@ -347,6 +380,9 @@ fn prune(runs: Vec<Run>, nodes: usize, width: f64) -> Vec<Run> {
 fn join(runs: Vec<Run>, nodes: usize) -> Vec<Run> {
     let mut runs: Vec<Option<Run>> = runs.into_iter().map(Some).collect();
     for n in 0..nodes {
+        if !crate::control::checkpoint(runs.len() as u64) {
+            return vec![];
+        }
         let at: Vec<(usize, usize)> = runs
             .iter()
             .enumerate()

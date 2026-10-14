@@ -262,15 +262,23 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         }
     }
     // Upload finished background renders.
+    if let Some((failed, message)) = app.canvas.worker.as_mut().and_then(|w| w.poll_error())
+        && failed == key
+    {
+        app.canvas.failed = Some(failed);
+        app.status(message);
+    }
     if let Some(done) = app.canvas.worker.as_mut().and_then(|w| w.poll())
         && done.key.doc == key.doc
+        && done.key.revision == key.revision
     {
         upload(app, ui.ctx(), &done.img, &done.key);
+        app.canvas.failed = None;
         app.canvas.key = Some(done.key);
         app.perf.render_ms = done.ms;
         app.canvas.last_ms = done.ms;
     }
-    if app.canvas.key.as_ref() != Some(&key) || app.canvas.texture.is_none() {
+    if (app.canvas.key.as_ref() != Some(&key) || app.canvas.texture.is_none()) && app.canvas.failed.as_ref() != Some(&key) {
         let (w, h, view) = match pixel {
             Some([x0, y0, x1, y1]) => ((x1 - x0) as u32, (y1 - y0) as u32, Affine::translate((-x0 as f64, -y0 as f64))),
             None => (
@@ -301,10 +309,10 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             smooth_images,
             ..opts
         };
-        // Light documents render synchronously (no lag vs overlays); heavy ones go to the worker.
-        // A document switch renders synchronously so another document's frame is never shown.
+        // First frames/switches use paper as a placeholder; never block on an unknown document.
+        // Light edits stay synchronous so overlays do not get ahead of the artwork.
         let same_doc = app.canvas.key.as_ref().is_some_and(|k| k.doc == key.doc);
-        let heavy = app.canvas.last_ms > 8.0 && app.canvas.texture.is_some() && same_doc;
+        let heavy = !same_doc || app.canvas.texture.is_none() || app.canvas.last_ms > 8.0;
         match (&mut app.canvas.worker, heavy) {
             (Some(worker), true) => worker.submit(crate::render_worker::Job { key: key.clone(), doc: doc.clone(), w, h, view, opts }),
             _ => {
@@ -2707,7 +2715,12 @@ mod tests {
         let red_line = |s: &Shape| matches!(s, Shape::LineSegment { stroke, .. } if stroke.color == red);
         // → (index of the first red gridline, index of the art's image).
         let order = |app: &mut VectorcraftApp| {
-            let s = shapes(app, &ctx);
+            let mut s = shapes(app, &ctx);
+            let start = std::time::Instant::now();
+            while app.canvas.texture.is_none() && start.elapsed() < std::time::Duration::from_secs(5) {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                s = shapes(app, &ctx);
+            }
             let art = app.canvas.texture.as_ref().unwrap().id();
             let image = s.iter().position(|s| matches!(s, Shape::Mesh(m) if m.texture_id == art)).expect("the art");
             (s.iter().position(red_line).expect("a gridline in Grid Color"), image, s)

@@ -48,6 +48,9 @@ pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
     let tol = opts.tolerance.max(1e-6);
     let mut out = Vec::new();
     for sp in &path.subpaths {
+        if !linesweeper::budget::checkpoint(sp.anchors.len() as u64) {
+            return PathData::default();
+        }
         let mut segs = subpath_segs(sp);
         let n = segs.len();
         if n == 0 {
@@ -80,6 +83,9 @@ pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
             }
             let mut pts = Vec::new();
             for (k, s) in run.iter().enumerate() {
+                if !linesweeper::budget::checkpoint(1) {
+                    return PathData::default();
+                }
                 let len = s.c.arclen(1e-6);
                 let m = ((len / (tol * 0.5)).ceil() as usize).clamp(4, 256);
                 sample(&s.c, m, &mut pts, k == 0);

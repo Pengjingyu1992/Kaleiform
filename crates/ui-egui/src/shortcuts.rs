@@ -223,6 +223,12 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
         return;
     }
     let typing = ctx.egui_wants_keyboard_input();
+    if !typing && app.trace_job.running() && ctx.input(|i| i.key_pressed(Key::Escape)) {
+        app.run("imageTrace.cancel", json!({})).ok();
+        if !app.session.tool_busy() && !app.session.in_interaction() {
+            return;
+        }
+    }
     let view = app.view_info();
     // While an IME composes, Enter and Escape are its own (confirm / cancel).
     let composing = app.session.tool_composing();
