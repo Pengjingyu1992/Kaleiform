@@ -72,8 +72,8 @@ pub(crate) fn corner_radius(app: &VectorcraftApp, n: &Node) -> Option<f64> {
 /// point, their labels and the W/H link, so every field in the panel is as wide (#696). Measured
 /// from the full row, before its widgets.
 pub(crate) fn field_width(ui: &Ui) -> f32 {
-    // The reference point and its gap, the four labels and the W/H link.
-    const AROUND: f32 = 37.0 + 70.0;
+    // Reserve the reference point, grouped labels, surface margins and W/H link.
+    const AROUND: f32 = 127.0;
     ((ui.available_width() - AROUND) / 2.0).clamp(60.0, 110.0)
 }
 

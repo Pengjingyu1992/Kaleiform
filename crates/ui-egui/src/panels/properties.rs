@@ -130,11 +130,24 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     for pair in actions.chunks(2) {
         ui.horizontal(|ui| {
             for (label, id) in pair {
-                if widgets::flat_button(ui, label, w).clicked() {
+                if widgets::command_button(ui, action_icon(id), label, egui::vec2(w, 26.0), false).clicked() {
                     crate::menus::invoke(app, id, json!({}));
                 }
             }
         });
+    }
+}
+
+fn action_icon(id: &str) -> &'static str {
+    match id {
+        "object.group" => "group",
+        "object.ungroup" => "ungroup",
+        "ui.recolorDialog" => "palette",
+        "ui.cropImage" => "frame",
+        "object.path.simplify" => "spline",
+        "object.arrange.bringToFront" => "layers",
+        "object.lock" => "lock",
+        _ => "square-dashed",
     }
 }
 
@@ -153,10 +166,10 @@ fn image_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     let links = crate::panels::links::ID;
     ui.horizontal(|ui| crate::place::link_buttons(app, ui, id, linked, &name, Some(w)));
     ui.horizontal(|ui| {
-        if app.services.pick_open.is_some() && widgets::flat_button(ui, tl!("Relink…"), w).clicked() {
+        if app.services.pick_open.is_some() && widgets::command_button(ui, "rotate-cw", tl!("Relink…"), egui::vec2(w, 26.0), false).clicked() {
             crate::panels::links::relink(app, vec![id]);
         }
-        if widgets::flat_button(ui, tl!("Links"), w).clicked() {
+        if widgets::command_button(ui, "link", tl!("Links"), egui::vec2(w, 26.0), false).clicked() {
             app.ui.open_panel = Some(links.into());
         }
     });
@@ -178,7 +191,12 @@ fn trace_section(app: &mut VectorcraftApp, ui: &mut Ui, preset: &str, view: vect
     let w = (ui.available_width() - 6.0) / 2.0;
     ui.horizontal(|ui| {
         for (label, id) in [(tl!("Expand"), "imageTrace.expand"), (tl!("Release"), "imageTrace.release")] {
-            if ui.add_enabled_ui(crate::menus::enabled(app, id), |ui| widgets::flat_button(ui, label, w)).inner.clicked() {
+            let icon = if id == "imageTrace.expand" { "shapes" } else { "undo-2" };
+            if ui
+                .add_enabled_ui(crate::menus::enabled(app, id), |ui| widgets::command_button(ui, icon, label, egui::vec2(w, 26.0), false))
+                .inner
+                .clicked()
+            {
                 app.run(id, json!({})).ok();
             }
         }
@@ -235,10 +253,12 @@ fn artboard_sections(app: &mut VectorcraftApp, ui: &mut Ui) {
     ui.add_space(4.0);
     let w = (ui.available_width() - 6.0) / 2.0;
     ui.horizontal(|ui| {
-        if widgets::flat_button(ui, tl!("New Artboard"), w).clicked() && app.run("artboard.new", json!({})).is_ok() {
+        if widgets::command_button(ui, "plus", tl!("New Artboard"), egui::vec2(w, 26.0), false).clicked()
+            && app.run("artboard.new", json!({})).is_ok()
+        {
             super::artboards::select(app, n);
         }
-        if ui.add_enabled_ui(n > 1, |ui| widgets::flat_button(ui, tl!("Delete Artboard"), w)).inner.clicked() {
+        if ui.add_enabled_ui(n > 1, |ui| widgets::command_button(ui, "trash-2", tl!("Delete Artboard"), egui::vec2(w, 26.0), false)).inner.clicked() {
             app.run("artboard.delete", json!({"index": i})).ok();
         }
     });
@@ -246,7 +266,7 @@ fn artboard_sections(app: &mut VectorcraftApp, ui: &mut Ui) {
     section_header(ui, tl!("Quick Actions"));
     ui.horizontal(|ui| {
         rearrange_button(app, ui, n, w);
-        if widgets::flat_button(ui, tl!("Exit"), w).clicked() {
+        if widgets::command_button(ui, "undo-2", tl!("Exit"), egui::vec2(w, 26.0), false).clicked() {
             app.select_tool("selection");
         }
     });
@@ -254,7 +274,11 @@ fn artboard_sections(app: &mut VectorcraftApp, ui: &mut Ui) {
 
 /// Rearrange All (#681): opens Rearrange All Artboards; disabled with fewer than two artboards.
 fn rearrange_button(app: &mut VectorcraftApp, ui: &mut Ui, artboards: usize, w: f32) {
-    if ui.add_enabled_ui(artboards > 1, |ui| widgets::flat_button(ui, tl!("Rearrange All"), w)).inner.clicked() {
+    if ui
+        .add_enabled_ui(artboards > 1, |ui| widgets::command_button(ui, "layout-grid", tl!("Rearrange All"), egui::vec2(w, 26.0), false))
+        .inner
+        .clicked()
+    {
         super::artboards::open_rearrange(app);
     }
 }
@@ -321,10 +345,10 @@ fn document_sections(app: &mut VectorcraftApp, ui: &mut Ui) {
     });
     let w = (ui.available_width() - 6.0) / 2.0;
     ui.horizontal(|ui| {
-        if widgets::flat_button(ui, tl!("Document Setup"), w).clicked() {
+        if widgets::command_button(ui, "settings", tl!("Document Setup"), egui::vec2(w, 26.0), false).clicked() {
             app.run("file.documentSetup", json!({})).ok();
         }
-        if widgets::flat_button(ui, tl!("Edit Artboards"), w).clicked() {
+        if widgets::command_button(ui, "frame", tl!("Edit Artboards"), egui::vec2(w, 26.0), false).clicked() {
             app.select_tool("artboard");
         }
     });
@@ -388,10 +412,10 @@ fn document_sections(app: &mut VectorcraftApp, ui: &mut Ui) {
     section_header(ui, tl!("Quick Actions"));
     let w = (ui.available_width() - 6.0) / 2.0;
     ui.horizontal(|ui| {
-        if widgets::flat_button(ui, tl!("Document Setup"), w).clicked() {
+        if widgets::command_button(ui, "settings", tl!("Document Setup"), egui::vec2(w, 26.0), false).clicked() {
             app.run("file.documentSetup", json!({})).ok();
         }
-        if widgets::flat_button(ui, tl!("Preferences"), w).clicked() {
+        if widgets::command_button(ui, "settings", tl!("Preferences"), egui::vec2(w, 26.0), false).clicked() {
             app.run("edit.preferences", json!({})).ok();
         }
     });
@@ -412,7 +436,7 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     let rp = bx.reference_point(refi);
     section_header(ui, tl!("Transform"));
     let fw = super::field_width(ui);
-    let compact = ui.available_width() < 227.0;
+    let compact = ui.available_width() < 247.0;
     if compact {
         ui.horizontal(|ui| {
             if let Some(i) = widgets::reference_point(ui, refi) {
@@ -429,26 +453,28 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
             ui.add_space(6.0);
         }
         let link = app.session.prefs.constrain_proportions;
-        egui::Grid::new("xf-grid").num_columns(4).spacing([4.0, 6.0]).min_col_width(0.0).show(ui, |ui| {
-            dim_label(ui, "X:");
-            if let Some(v) = widgets::num_field(ui, "tx", Some(rp.x), units, fw) {
-                app.run("object.setBounds", json!({"x": v, "reference": refi})).ok();
-            }
-            dim_label(ui, "W:");
-            if let Some(v) = widgets::num_field(ui, "tw", Some(b.width()), units, fw) {
-                app.run("object.setBounds", json!({"width": v, "reference": refi, "proportional": link})).ok();
-            }
-            ui.end_row();
-            dim_label(ui, "Y:");
-            if let Some(v) = widgets::num_field(ui, "ty", Some(rp.y), units, fw) {
-                app.run("object.setBounds", json!({"y": v, "reference": refi})).ok();
-            }
-            dim_label(ui, "H:");
-            if let Some(v) = widgets::num_field(ui, "th", Some(b.height()), units, fw) {
-                app.run("object.setBounds", json!({"height": v, "reference": refi, "proportional": link})).ok();
-            }
-            ui.end_row();
-        });
+        for values in [[("X:", "x", "tx", rp.x), ("Y:", "y", "ty", rp.y)], [("W:", "width", "tw", b.width()), ("H:", "height", "th", b.height())]] {
+            widgets::field_group(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (label, key, id, value) in values {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            widgets::label_row(ui, label, 20.0, |ui| {
+                                if let Some(v) = widgets::inline_num_field(ui, id, Some(value), units, fw) {
+                                    let mut params = json!({key: v, "reference": refi});
+                                    if matches!(key, "width" | "height") {
+                                        params["proportional"] = json!(link);
+                                    }
+                                    app.run("object.setBounds", params).ok();
+                                }
+                                ui.ctx().accesskit_node_builder(ui.id().with(id), |node| node.set_label(label));
+                            });
+                        });
+                    }
+                });
+            });
+        }
         if !compact {
             super::transform::constrain_link(app, ui);
         }
@@ -507,7 +533,8 @@ fn appearance_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     });
     ui.horizontal(|ui| {
         // The fx button opens the effect menu, as the Appearance panel's does.
-        let r = widgets::flat_button(ui, "fx", 34.0).on_hover_text(tl!("Add New Effect"));
+        let r = widgets::command_button(ui, "", "fx", egui::vec2(34.0, 26.0), false).on_hover_text(tl!("Add New Effect"));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, r.enabled(), tl!("Add New Effect")));
         egui::Popup::menu(&r).show(|ui| super::appearance::fx_menu(app, ui));
         if widgets::icon_button(ui, "ellipsis", tl!("Appearance panel"), false, 22.0).clicked() {
             app.ui.open_panel = Some("appearance".into());

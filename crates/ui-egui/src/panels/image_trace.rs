@@ -241,16 +241,18 @@ fn trace(app: &mut VectorcraftApp, st: &mut TraceUi) {
 fn slider(ui: &mut Ui, label: &str, v: &mut f64, range: std::ops::RangeInclusive<f64>, suffix: &str) -> (bool, bool) {
     let mut out = (false, false);
     widgets::label_row(ui, label, 62.0, |ui| {
-        let t = crate::theme::Tokens::get(ui.ctx());
         let (min, max) = (*range.start(), *range.end());
         let width = (ui.available_width() - 62.0 - ui.spacing().item_spacing.x).max(24.0);
-        let (new, phase) = widgets::color_slider(ui, ("trace-slider", label), ((*v - min) / (max - min)) as f32, width, &|_| t.input_border);
-        if let Some(n) = new {
-            let n = (min + n as f64 * (max - min)).round();
-            out.0 = *v != n;
-            *v = n;
-        }
-        out.1 = phase == widgets::Live::Released;
+        let response = ui
+            .push_id(("trace-slider", label), |ui| {
+                ui.spacing_mut().slider_width = width;
+                ui.spacing_mut().slider_rail_height = 3.0;
+                ui.add(egui::Slider::new(v, range).integer().show_value(false).trailing_fill(true).handle_shape(egui::style::HandleShape::Circle))
+            })
+            .inner;
+        ui.ctx().accesskit_node_builder(response.id, |node| node.set_label(label));
+        out.0 = response.changed();
+        out.1 = response.drag_stopped() || response.changed() && !response.dragged();
         if let Some(n) = widgets::plain_field(ui, ("trace-field", label), *v, suffix, 0, 62.0) {
             let n = n.round().clamp(min, max);
             out = (*v != n, *v != n);
@@ -355,13 +357,28 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
             });
             widgets::label_row(ui, tl!("Mode:"), 62.0, |ui| {
                 let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
-                let label = MODES.iter().find(|m| m.0 == mode).map_or("Black and White", |m| m.1);
-                let labels: Vec<&str> = MODES.iter().map(|m| m.1).collect();
-                if let Some(m) = widgets::dropdown(ui, "it-mode", label, &labels, ui.available_width()).and_then(|i| MODES.get(i)) {
-                    st.params["mode"] = json!(m.0);
-                    st.preset = "Custom".into();
-                    retrace = true;
-                }
+                let width = ((ui.available_width() - 5.0) / MODES.len() as f32).max(1.0);
+                widgets::field_group(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 1.0;
+                        ui.spacing_mut().button_padding.x = 3.0;
+                        for (value, label) in MODES {
+                            if ui
+                                .add_sized(
+                                    egui::vec2(width, 24.0),
+                                    egui::Button::selectable(mode == value, egui::RichText::new(tl!(label)).size(12.0)).truncate(),
+                                )
+                                .on_hover_text(tl!(label))
+                                .clicked()
+                                && mode != value
+                            {
+                                st.params["mode"] = json!(value);
+                                st.preset = "Custom".into();
+                                retrace = true;
+                            }
+                        }
+                    });
+                });
             });
             let mode = st.params["mode"].as_str().unwrap_or("blackAndWhite").to_string();
             let palette = st.params["palette"].as_str().unwrap_or("limited").to_string();
@@ -541,13 +558,17 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
         let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(40.0);
         let r = ui
-            .add_enabled_ui(is_trace || is_image, |ui| widgets::flat_button(ui, if is_trace { tl!("Update Trace") } else { tl!("Trace") }, width))
+            .add_enabled_ui(is_trace || is_image, |ui| {
+                widgets::command_button(ui, "", if is_trace { tl!("Update Trace") } else { tl!("Trace") }, egui::vec2(width, row), true)
+            })
             .inner;
         if r.on_disabled_hover_text(tl!("Select an image to trace")).clicked() {
             apply = true;
         }
         if ui
-            .add_enabled_ui(is_trace && !st.dirty && !app.trace_job.running(), |ui| widgets::flat_button(ui, tl!("Expand"), width))
+            .add_enabled_ui(is_trace && !st.dirty && !app.trace_job.running(), |ui| {
+                widgets::command_button(ui, "shapes", tl!("Expand"), egui::vec2(width, row), false)
+            })
             .inner
             .on_hover_text(tl!("Convert the trace to editable paths"))
             .on_disabled_hover_text(tl!("Apply tracing settings before expanding"))
@@ -758,6 +779,28 @@ mod tests {
         crate::trace_job::poll(&mut app);
         assert_eq!(app.session.doc().unwrap().doc, before);
         app.trace_job.cancel();
+    }
+
+    #[test]
+    fn parameter_slider_keyboard_changes_commit_without_a_pointer_release() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut value = 50.0;
+        let mut draw = |events| {
+            let mut changed = (false, false);
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                changed = slider(ui, "Paths", &mut value, 0.0..=100.0, "%");
+            })
+            .textures_delta
+            .clear();
+            changed
+        };
+        draw(vec![]);
+        draw(vec![Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }]);
+        let changed =
+            draw(vec![Event::Key { key: egui::Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }]);
+        assert_eq!(changed, (true, true));
+        assert!(value > 50.0);
     }
 
     #[test]

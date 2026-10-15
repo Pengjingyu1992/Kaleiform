@@ -449,14 +449,21 @@ pub fn control_bar_details(app: &mut VectorcraftApp, ui: &mut egui::Ui) -> bool 
 /// (Control bar, Properties). The buttons are `width` wide, or fit their labels.
 pub fn link_buttons(app: &mut VectorcraftApp, ui: &mut egui::Ui, id: u64, linked: bool, name: &str, width: Option<f32>) {
     let w = |fit: f32| width.unwrap_or(fit);
+    let button = |ui: &mut egui::Ui, icon: &str, label: &str, fit| {
+        if width.is_some() {
+            widgets::command_button(ui, icon, label, egui::vec2(w(fit), 26.0), false)
+        } else {
+            widgets::flat_button(ui, label, w(fit))
+        }
+    };
     if linked {
-        if widgets::flat_button(ui, tl!("Embed"), w(60.0)).clicked() {
+        if button(ui, "image", tl!("Embed"), 60.0).clicked() {
             app.run("links.embed", json!({ "ids": [id] })).ok();
         }
-        if widgets::flat_button(ui, tl!("Edit Original"), w(92.0)).clicked() {
+        if button(ui, "external-link", tl!("Edit Original"), 92.0).clicked() {
             crate::menus::invoke(app, "links.editOriginal", json!({ "id": id }));
         }
-    } else if widgets::flat_button(ui, tl!("Unembed…"), w(80.0)).clicked() {
+    } else if button(ui, "link-2-off", tl!("Unembed…"), 80.0).clicked() {
         crate::panels::links::unembed(app, id, name);
     }
 }

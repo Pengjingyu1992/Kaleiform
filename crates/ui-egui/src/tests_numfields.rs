@@ -132,6 +132,39 @@ fn plain_fields_do_math_with_their_suffix() {
     assert_eq!(f.frame(vec![enter()], &draw), Some(90.0));
 }
 
+#[test]
+fn grouped_fields_keep_unit_math_keyboard_steps_and_neighbour_values_independent() {
+    let mut f = Field::new();
+    let value = Cell::new(Unit::Millimeters.to_pt(4.0));
+    let neighbour = Cell::new(72.0);
+    let field_id = Cell::new(egui::Id::NULL);
+    let draw = |ui: &mut egui::Ui| {
+        widgets::field_group(ui, |ui| {
+            ui.horizontal(|ui| {
+                field_id.set(ui.id().with("first"));
+                let changed = widgets::inline_num_field(ui, "first", Some(value.get()), Unit::Millimeters, 100.0).inspect(|v| value.set(*v));
+                if let Some(v) = widgets::inline_num_field(ui, "second", Some(neighbour.get()), Unit::Points, 100.0) {
+                    neighbour.set(v);
+                }
+                changed
+            })
+            .inner
+        })
+    };
+    f.frame(vec![], &draw);
+    let resting_rect = f.rect.get();
+    f.ctx.memory_mut(|m| m.request_focus(field_id.get()));
+    f.frame(vec![], &draw);
+    f.frame(vec![], &draw);
+    assert_eq!(f.rect.get(), resting_rect, "focus must not move the grouped fields");
+    let stepped = f.frame(vec![key(Key::ArrowUp, Modifiers::NONE)], &draw).unwrap();
+    assert!((stepped - Unit::Millimeters.to_pt(5.0)).abs() < 1e-9);
+    f.frame(vec![Event::Text("1in/2".into())], &draw);
+    assert_eq!(f.frame(vec![enter()], &draw), Some(36.0));
+    assert_eq!(value.get(), 36.0);
+    assert_eq!(neighbour.get(), 72.0);
+}
+
 /// Preferences › Units › Numbers Without Units Are Points (#394): on (the default), a number typed
 /// with no unit into a field in picas is read in points; a typed unit still wins (`2p6`, `1in`);
 /// off, it is in picas. A field in any other unit reads it in its unit either way.

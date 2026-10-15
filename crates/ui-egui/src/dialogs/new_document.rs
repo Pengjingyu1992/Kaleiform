@@ -354,7 +354,9 @@ fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, label: &str, selected: b
     let size = if compact { egui::vec2(118.0, 126.0) } else { egui::vec2(146.0, 150.0) };
     let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let p = ui.painter();
-    p.rect_filled(r, egui::CornerRadius::same(6), if resp.hovered() || selected { t.hover } else { t.panel_darker });
+    if resp.hovered() || selected {
+        p.rect_filled(r, egui::CornerRadius::same(6), if selected { t.row_selected.gamma_multiply(0.45) } else { t.hover });
+    }
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, format!("{label}, {}", s.size_label())));
     if resp.gained_focus() {
         resp.scroll_to_me(None);
@@ -412,16 +414,24 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     }
     ui.add_space(8.0);
     let unit = unit(d);
-    form::caption(ui, tl!("Width"));
+    let field = (width - 8.0) / 2.0;
     ui.horizontal(|ui| {
-        form::length(ui, d, "width", unit, width - 124.0);
-        units_dropdown(ui, d, 112.0);
+        for label in [tl!("Width"), tl!("Height")] {
+            ui.add_sized(egui::vec2(field, 14.0), egui::Label::new(egui::RichText::new(label).size(11.0).color(t.text_dim)));
+        }
     });
-    ui.add_space(4.0);
+    widgets::field_group(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            form::inline_length(ui, d, "width", unit, field);
+            form::inline_length(ui, d, "height", unit, field);
+        });
+    });
+    ui.add_space(6.0);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            form::caption(ui, tl!("Height"));
-            form::length(ui, d, "height", unit, 104.0);
+            form::caption(ui, tl!("Units"));
+            units_dropdown(ui, d, 104.0);
         });
         ui.add_space(6.0);
         ui.vertical(|ui| {

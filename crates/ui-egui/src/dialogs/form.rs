@@ -39,8 +39,20 @@ pub(super) fn length_field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: 
 /// "5 mm", wins), kept in points (a string with a unit, "12 pt", also reads). Returns true when it
 /// changed.
 pub(super) fn length(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32) -> bool {
+    length_impl(ui, d, key, unit, width, false)
+}
+
+pub(super) fn inline_length(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32) -> bool {
+    length_impl(ui, d, key, unit, width, true)
+}
+
+fn length_impl(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32, inline: bool) -> bool {
     let value = d.fields.contains_key(key).then(|| d.f64(key, 0.0));
-    let changed = crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width);
+    let changed = if inline {
+        crate::widgets::inline_num_field(ui, ("dlg-len", key), value, unit, width)
+    } else {
+        crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width)
+    };
     let label = match key {
         "width" => Some(tl!("Width")),
         "height" => Some(tl!("Height")),
@@ -105,17 +117,14 @@ pub(super) fn text_edit(ui: &mut egui::Ui, d: &mut Dialog, key: &str, width: f32
     let mut s = d.str(key);
     let id = ui.id().with(("dlg-text", key));
     crate::widgets::take_dialog_focus(ui, id, &s);
-    let r = egui::Frame::NONE
-        .fill(t.input)
-        .stroke(egui::Stroke::new(1.0, t.input_border))
-        .corner_radius(egui::CornerRadius::same(3))
+    let r = crate::widgets::input_frame(ui, ui.memory(|m| m.has_focus(id)))
         .inner_margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| ui.add(egui::TextEdit::singleline(&mut s).id(id).frame(egui::Frame::NONE).desired_width(width)));
     if r.inner.changed() {
         d.fields.insert(key.into(), Value::String(s));
     }
     if r.inner.has_focus() {
-        ui.painter().rect_stroke(r.response.rect, 3, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(r.response.rect, 5, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
     }
     r.inner
 }
@@ -123,18 +132,15 @@ pub(super) fn text_edit(ui: &mut egui::Ui, d: &mut Dialog, key: &str, width: f32
 /// A text box `rows` lines tall and `width` wide bound to `d.fields[key]`. Enter adds a line (it
 /// doesn't press OK while the box has focus).
 pub(super) fn text_area(ui: &mut egui::Ui, d: &mut Dialog, key: &str, width: f32, rows: usize) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
     let mut s = d.str(key);
-    let r = egui::Frame::NONE
-        .fill(t.input)
-        .stroke(egui::Stroke::new(1.0, t.input_border))
-        .corner_radius(egui::CornerRadius::same(3))
+    let r = crate::widgets::input_frame(ui, false)
         .inner_margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| ui.add(egui::TextEdit::multiline(&mut s).frame(egui::Frame::NONE).desired_width(width).desired_rows(rows)));
     if r.inner.changed() {
         d.fields.insert(key.into(), Value::String(s));
     }
     if r.inner.has_focus() {
+        ui.painter().rect_stroke(r.response.rect, 5, egui::Stroke::new(2.0, Tokens::get(ui.ctx()).accent), egui::StrokeKind::Inside);
         ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
     }
     r.inner
@@ -527,14 +533,20 @@ pub(super) fn bleed(ui: &mut egui::Ui, d: &mut Dialog, unit: vectorcraft_doc::Un
     let mut changed = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        for (i, side) in ["Top", "Bottom", "Left", "Right"].into_iter().enumerate() {
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(tl!(side)).size(11.0).color(t.text_dim));
-                if let Some(v) = crate::widgets::num_field(ui, ("bleed", i), Some(b[i]), unit, width) {
-                    changed = Some((i, v.clamp(0.0, vectorcraft_doc::setup::MAX_BLEED)));
+        crate::widgets::field_group(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (i, side) in ["Top", "Bottom", "Left", "Right"].into_iter().enumerate() {
+                    ui.vertical(|ui| {
+                        ui.add_sized(egui::vec2(width, 14.0), egui::Label::new(egui::RichText::new(tl!(side)).size(11.0).color(t.text_dim)));
+                        if let Some(v) = crate::widgets::inline_num_field(ui, ("bleed", i), Some(b[i]), unit, width) {
+                            changed = Some((i, v.clamp(0.0, vectorcraft_doc::setup::MAX_BLEED)));
+                        }
+                        ui.ctx().accesskit_node_builder(ui.id().with(("bleed", i)), |node| node.set_label(tl!(side)));
+                    });
                 }
             });
-        }
+        });
         ui.vertical(|ui| {
             ui.add_space(15.0);
             let tip = if linked { tl!("Make the bleed values differ") } else { tl!("Make all bleed settings the same") };

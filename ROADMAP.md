@@ -22,7 +22,9 @@ macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 Ap
 
 2026-10-15 界面质感第二轮：首页临时收起绘图面板而不改变工作区设置；新建文档适配窄窗口并固定操作栏，少量最近预设使用紧凑宽度；图像描摹的参数单独滚动，预览、取消与操作按钮保持可见。共享按钮、复选框和表单补充可访问名称、焦点提示与键盘操作，保存格式选择不会误触确认。此轮不增加绘图功能或性能达标比例，见 [第二轮说明](docs/polish-round2.md)。
 
-2026-10-15 第二轮收尾：描摹统计和任务状态使用稳定行高，失败信息就地显示且跟随当前文档修订；新建文档增加完整分类菜单并改进短窗口布局；补齐命令、开关、展开项的可访问语义、菜单 Esc 和对话框关闭后的焦点恢复。首页错误可重试和关闭，普通提示自动收起。版本为本地开发版 `0.7.0-kaleiform.9`，不调整功能或性能成熟度评分。
+2026-10-15 第二轮收尾：描摹统计和任务状态使用稳定行高，失败信息就地显示且跟随当前文档修订；新建文档增加完整分类菜单并改进短窗口布局；补齐命令、开关、展开项的可访问语义、菜单 Esc 和对话框关闭后的焦点恢复。首页错误可重试和关闭，普通提示自动收起。
+
+2026-10-16 第二轮整体轻量化：属性与浮动任务栏去除重复按钮框；位置、尺寸、文档宽高和出血改为组合输入；统一轻输入与下拉样式；描摹采用细轨圆形滑块与四模式分段选择，浮动正文使用中性底色；新建预设及最近文件减少常驻底板。版本为本地开发版 `0.7.0-kaleiform.10`，继续属于第二轮，不调整功能或性能成熟度评分。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 

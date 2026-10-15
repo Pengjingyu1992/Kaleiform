@@ -128,7 +128,7 @@ impl Tokens {
             guide: hex(0x4affff),
             measure_bg: Color32::from_rgba_unmultiplied(92, 92, 92, 235),
             button: hex(0x444444),
-            radius: 2,
+            radius: 4,
             text_strong: hex(0xf5f5f5),
             tab_strip: hex(0x282828),
             button_border: hex(0x6a6a6a),

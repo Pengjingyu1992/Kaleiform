@@ -75,6 +75,55 @@ pub fn flat_button(ui: &mut Ui, text: &str, width: f32) -> Response {
     resp
 }
 
+/// A labelled command with a quiet resting state and an optional primary emphasis.
+pub fn command_button(ui: &mut Ui, icon: &str, text: &str, size: Vec2, primary: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let enabled = resp.enabled();
+    let fill = if primary && enabled {
+        if resp.is_pointer_button_down_on() { t.accent } else { t.accent_strong }
+    } else if enabled && resp.is_pointer_button_down_on() {
+        t.tool_active
+    } else if enabled && resp.hovered() {
+        t.hover
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, 5, fill);
+    let color = if !enabled {
+        t.text_disabled
+    } else if primary {
+        Color32::WHITE
+    } else {
+        t.text_strong
+    };
+    let inset = if icon.is_empty() { 8.0 } else { 28.0 };
+    let mut job = egui::text::LayoutJob::simple(tl!(text).to_string(), egui::FontId::proportional(12.5), color, (size.x - inset - 8.0).max(1.0));
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    job.wrap.overflow_character = Some('\u{2026}');
+    let galley = ui.painter().layout_job(job);
+    if !icon.is_empty() {
+        icons::paint(ui, icon, Rect::from_center_size(pos2(rect.left() + 14.0, rect.center().y), Vec2::splat(16.0)), color);
+    }
+    let left = if primary && icon.is_empty() { rect.center().x - galley.size().x / 2.0 } else { rect.left() + inset };
+    ui.painter().with_clip_rect(rect).galley(pos2(left, rect.center().y - galley.size().y / 2.0), galley, color);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tl!(text)));
+    focus_ring(ui, &resp, 5);
+    resp.on_hover_text(tl!(text))
+}
+
+/// Shared backing for editable values; the focus boundary is intentionally stronger.
+pub(crate) fn input_frame(ui: &Ui, focused: bool) -> egui::Frame {
+    let t = Tokens::get(ui.ctx());
+    egui::Frame::NONE.fill(t.input).stroke(Stroke::new(1.0, if focused { t.accent } else { t.input_border.gamma_multiply(0.35) })).corner_radius(5)
+}
+
+/// Related numeric values share one editing surface, with individual focus targets.
+pub(crate) fn field_group<R>(ui: &mut Ui, contents: impl FnOnce(&mut Ui) -> R) -> R {
+    input_frame(ui, false).show(ui, contents).inner
+}
+
 /// Width of a [`split_button`]'s arrow.
 pub const SPLIT_ARROW: f32 = 18.0;
 
@@ -89,11 +138,12 @@ pub fn split_button(ui: &mut Ui, text: &str, menu_name: &str, width: f32) -> (Re
     let arrow_rect = Rect::from_min_max(pos2(split, rect.top()), rect.max);
     let main = ui.interact(main_rect, ui.id().with((text, "split")), Sense::click());
     let arrow = ui.interact(arrow_rect, ui.id().with((text, "split-arrow")), Sense::click());
+    if main.hovered() || arrow.hovered() {
+        ui.painter().rect_filled(rect, 5, t.hover);
+    }
     flat_fill(ui, main_rect, &main);
     flat_fill(ui, arrow_rect, &arrow);
-    let border = if main.hovered() || arrow.hovered() { t.text } else { t.button_border };
-    ui.painter().rect_stroke(rect, CornerRadius::same(2), Stroke::new(1.0, border), StrokeKind::Inside);
-    ui.painter().vline(split, rect.y_range().shrink(4.0), Stroke::new(1.0, t.button_border));
+    ui.painter().vline(split, rect.y_range().shrink(4.0), Stroke::new(1.0, t.divider));
     ui.painter().with_clip_rect(main_rect).text(
         main_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -231,6 +281,14 @@ pub(crate) fn typed_unit(ctx: &egui::Context, unit: Unit) -> Unit {
 /// without a unit is in `unit` ([`typed_unit`]: in points in a picas field with Numbers Without
 /// Units Are Points on).
 pub fn num_field(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value: Option<f64>, unit: Unit, width: f32) -> Option<f64> {
+    num_field_impl(ui, id, value, unit, width, true)
+}
+
+pub(crate) fn inline_num_field(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value: Option<f64>, unit: Unit, width: f32) -> Option<f64> {
+    num_field_impl(ui, id, value, unit, width, false)
+}
+
+fn num_field_impl(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value: Option<f64>, unit: Unit, width: f32, framed: bool) -> Option<f64> {
     let t = Tokens::get(ui.ctx());
     let id = ui.id().with(id);
     let shown = value.map(|v| unit.format(v)).unwrap_or_default();
@@ -243,26 +301,25 @@ pub fn num_field(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value:
     let (rect, resp) = ui
         .allocate_ui_with_layout(vec2(width, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(width);
-            let framed = egui::Frame::NONE
-                .fill(t.input)
-                .stroke(Stroke::new(1.0, if editing { t.accent } else { t.input_border }))
-                .corner_radius(CornerRadius::same(2))
-                .inner_margin(egui::Margin::symmetric(6, 4))
-                .show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut buf)
-                            .id(id)
-                            .frame(egui::Frame::NONE)
-                            .desired_width(width - 14.0)
-                            .min_size(vec2(width - 14.0, 0.0))
-                            .font(egui::FontId::proportional(12.5))
-                            .text_color(t.text_strong),
-                    )
-                });
+            let frame = if framed || editing { input_frame(ui, editing) } else { egui::Frame::NONE.stroke(Stroke::new(1.0, Color32::TRANSPARENT)) };
+            let framed = frame.inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut buf)
+                        .id(id)
+                        .frame(egui::Frame::NONE)
+                        .desired_width(width - 14.0)
+                        .min_size(vec2(width - 14.0, 0.0))
+                        .font(egui::FontId::proportional(12.5))
+                        .text_color(t.text_strong),
+                )
+            });
             (framed.response.rect, framed.inner)
         })
         .inner;
     select_all_on_focus(ui, &resp, &buf);
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect, 5, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+    }
     // ↑/↓ and the wheel step in the field's unit; a drag on its label scrubs it.
     let read = typed_unit(ui.ctx(), unit);
     let stepped = step_value(ui, &resp, &mut buf, |b| Some(unit.from_pt(read.parse(b)?)), |v| unit.format(unit.to_pt(v)));
@@ -397,25 +454,23 @@ fn recessed_text(ui: &mut Ui, id: egui::Id, shown: &str, width: f32, rows: usize
     let (rect, resp) = ui
         .allocate_ui_with_layout(vec2(width, height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(width);
-            let framed = egui::Frame::NONE
-                .fill(t.input)
-                .stroke(Stroke::new(1.0, if editing { t.accent } else { t.input_border }))
-                .corner_radius(CornerRadius::same(2))
-                .inner_margin(egui::Margin::symmetric(6, 4))
-                .show(ui, |ui| {
-                    let edit = if rows > 1 { egui::TextEdit::multiline(&mut buf).desired_rows(rows) } else { egui::TextEdit::singleline(&mut buf) };
-                    ui.add(
-                        edit.id(id)
-                            .frame(egui::Frame::NONE)
-                            .desired_width(width - 14.0)
-                            .min_size(vec2(width - 14.0, 0.0))
-                            .font(egui::FontId::proportional(12.5))
-                            .text_color(t.text_strong),
-                    )
-                });
+            let framed = input_frame(ui, editing).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+                let edit = if rows > 1 { egui::TextEdit::multiline(&mut buf).desired_rows(rows) } else { egui::TextEdit::singleline(&mut buf) };
+                ui.add(
+                    edit.id(id)
+                        .frame(egui::Frame::NONE)
+                        .desired_width(width - 14.0)
+                        .min_size(vec2(width - 14.0, 0.0))
+                        .font(egui::FontId::proportional(12.5))
+                        .text_color(t.text_strong),
+                )
+            });
             (framed.response.rect, framed.inner)
         })
         .inner;
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect, 5, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+    }
     ui.data_mut(|d| d.insert_temp(id, buf.clone()));
     (buf, resp, rect)
 }
@@ -709,23 +764,26 @@ pub(crate) fn combo<R>(
     list: impl FnOnce(&mut Ui) -> Option<R>,
 ) -> Option<R> {
     let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE
-        .fill(t.input)
-        .stroke(Stroke::new(1.0, t.input_border))
-        .corner_radius(CornerRadius::same(3))
-        .show(ui, |ui| {
-            if searchable {
-                return searchable_combo(ui, ui.id().with(id), current, width - 4.0, list);
-            }
-            egui::ComboBox::from_id_salt(ui.id().with(id))
-                .selected_text(egui::RichText::new(current).size(12.0))
-                .width(width - 4.0)
-                .height(ui.spacing().combo_height)
-                .show_ui(ui, list)
-                .inner
-                .flatten()
-        })
-        .inner
+    ui.scope(|ui| {
+        let v = &mut ui.visuals_mut().widgets;
+        v.inactive.bg_fill = t.input;
+        v.inactive.weak_bg_fill = t.input;
+        v.inactive.bg_stroke = Stroke::new(1.0, t.input_border.gamma_multiply(0.35));
+        for state in [&mut v.inactive, &mut v.hovered, &mut v.active, &mut v.open] {
+            state.corner_radius = CornerRadius::same(5);
+        }
+        if searchable {
+            return searchable_combo(ui, ui.id().with(id), current, width - 4.0, list);
+        }
+        egui::ComboBox::from_id_salt(ui.id().with(id))
+            .selected_text(egui::RichText::new(current).size(12.0))
+            .width(width - 4.0)
+            .height(ui.spacing().combo_height)
+            .show_ui(ui, list)
+            .inner
+            .flatten()
+    })
+    .inner
 }
 
 /// A dropdown whose list keeps its own search field and scrolling rows (the font menu): drawn as
@@ -1865,6 +1923,8 @@ mod accessibility_tests {
             icon_toggle(ui, "save", "Save Preset", false, 24.0);
             ui.add_enabled_ui(false, |ui| section_toggle(ui, "Advanced Options", true));
             split_button(ui, "Image Trace", "Tracing Presets", 180.0);
+            command_button(ui, "group", "Group", vec2(90.0, 26.0), false);
+            ui.add_enabled_ui(false, |ui| command_button(ui, "shapes", "Expand", vec2(90.0, 26.0), false));
         });
         output.textures_delta.clear();
         let update = output.platform_output.accesskit_update.unwrap();
@@ -1877,6 +1937,9 @@ mod accessibility_tests {
         assert_eq!(node("Advanced Options").toggled(), None);
         assert_eq!(node("Tracing Presets").has_popup(), Some(egui::accesskit::HasPopup::Menu));
         assert_eq!(node("Image Trace").has_popup(), None);
+        assert_eq!(node("Group").role(), egui::accesskit::Role::Button);
+        assert_eq!(node("Group").toggled(), None);
+        assert!(node("Expand").is_disabled());
     }
 
     #[test]

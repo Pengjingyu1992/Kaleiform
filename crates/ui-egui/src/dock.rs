@@ -304,47 +304,51 @@ pub(crate) fn panel_width(id: &str) -> f32 {
 /// fill (Layers) or scroll (Properties) `tall` points.
 pub(crate) fn panel_body(app: &mut VectorcraftApp, ui: &mut Ui, id: &str, width: f32, tall: f32) {
     let available = ui.available_width().max(width);
-    egui::Frame::NONE.inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-        ui.set_width(width - 20.0);
-        if DockTab::from_id(id).is_none() {
-            ui.set_max_width((available - 20.0).max(1.0));
-        }
-        match DockTab::from_id(id) {
-            Some(DockTab::Properties) => {
-                // At least `tall` when the sections are taller: the flyout's area keeps the size its
-                // content needs, and egui sizes a new area at most 400 points high, so a scroll area
-                // that only took the room it was given never grew past it.
-                egui::ScrollArea::vertical()
-                    .id_salt("props-flyout")
-                    .max_height(tall)
-                    .min_scrolled_height(tall)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| panels::properties::show(app, ui));
+    egui::Frame::NONE
+        .fill(Tokens::get(ui.ctx()).panel)
+        .corner_radius(CornerRadius { nw: 0, ne: 0, sw: 8, se: 8 })
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.set_width(width - 20.0);
+            if DockTab::from_id(id).is_none() {
+                ui.set_max_width((available - 20.0).max(1.0));
             }
-            Some(DockTab::Layers) => {
-                ui.set_max_height(tall);
-                panels::layers::show(app, ui);
+            match DockTab::from_id(id) {
+                Some(DockTab::Properties) => {
+                    // At least `tall` when the sections are taller: the flyout's area keeps the size its
+                    // content needs, and egui sizes a new area at most 400 points high, so a scroll area
+                    // that only took the room it was given never grew past it.
+                    egui::ScrollArea::vertical()
+                        .id_salt("props-flyout")
+                        .max_height(tall)
+                        .min_scrolled_height(tall)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| panels::properties::show(app, ui));
+                }
+                Some(DockTab::Layers) => {
+                    ui.set_max_height(tall);
+                    panels::layers::show(app, ui);
+                }
+                Some(DockTab::Libraries) => panels::libraries(app, ui),
+                None if id == "imageTrace" => {
+                    ui.set_max_width((width - 20.0).max(1.0));
+                    panels::image_trace::show_bounded(app, ui, tall);
+                }
+                None => {
+                    egui::ScrollArea::both()
+                        .id_salt(("icon-panel-body", id))
+                        .max_width((available - 20.0).max(1.0))
+                        .max_height(tall)
+                        .min_scrolled_height(tall)
+                        .auto_shrink([true, true])
+                        .show(ui, |ui| {
+                            // Lay out at the preferred width; only controls that need more space grow it.
+                            ui.set_width((width - 20.0).max(1.0));
+                            panels::show_icon_panel(app, ui, id);
+                        });
+                }
             }
-            Some(DockTab::Libraries) => panels::libraries(app, ui),
-            None if id == "imageTrace" => {
-                ui.set_max_width((width - 20.0).max(1.0));
-                panels::image_trace::show_bounded(app, ui, tall);
-            }
-            None => {
-                egui::ScrollArea::both()
-                    .id_salt(("icon-panel-body", id))
-                    .max_width((available - 20.0).max(1.0))
-                    .max_height(tall)
-                    .min_scrolled_height(tall)
-                    .auto_shrink([true, true])
-                    .show(ui, |ui| {
-                        // Lay out at the preferred width; only controls that need more space grow it.
-                        ui.set_width((width - 20.0).max(1.0));
-                        panels::show_icon_panel(app, ui, id);
-                    });
-            }
-        }
-    });
+        });
 }
 
 #[cfg(test)]

@@ -1890,8 +1890,9 @@ fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
             if response.gained_focus() {
                 response.scroll_to_me(None);
             }
-            let stroke = Stroke::new(1.0, if response.hovered() || response.has_focus() { t.accent } else { t.border });
-            ui.painter().rect(rect, 6.0, t.panel, stroke, StrokeKind::Inside);
+            if response.hovered() || response.has_focus() {
+                ui.painter().rect(rect, 6.0, t.hover, Stroke::new(if response.has_focus() { 2.0 } else { 1.0 }, t.accent), StrokeKind::Inside);
+            }
             let preview = egui::Rect::from_min_max(rect.min + vec2(8.0, 8.0), rect.right_top() + vec2(-8.0, 116.0));
             ui.painter().rect_filled(preview, 2.0, t.pasteboard);
             if let Some(texture) = app.recent.texture(&path, ui.ctx()) {
@@ -2034,7 +2035,7 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
         egui::Frame::NONE
             .fill(t.panel)
             .stroke(Stroke::new(1.0, t.tool_active))
-            .corner_radius(CornerRadius::same(5))
+            .corner_radius(CornerRadius::same(10))
             .inner_margin(egui::Margin::symmetric(8, 6))
             .shadow(egui::epaint::Shadow { offset: [0, 3], blur: 10, spread: 0, color: Color32::from_black_alpha(70) })
             .show(ui, |ui| {
@@ -2051,13 +2052,7 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
                     }
                     for (label, icon, cmd) in &items {
                         let galley = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), t.text_strong);
-                        let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 38.0, 30.0), Sense::click());
-                        if resp.hovered() {
-                            ui.painter().rect_filled(r, CornerRadius::same(3), t.hover);
-                        }
-                        ui.painter().rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-                        crate::icons::paint(ui, icon, egui::Rect::from_min_size(r.min + vec2(8.0, 7.0), vec2(16.0, 16.0)), t.icon);
-                        ui.painter().galley(pos2(r.left() + 30.0, r.center().y - galley.size().y / 2.0), galley, t.text_strong);
+                        let resp = widgets::command_button(ui, icon, label, vec2(galley.size().x + 38.0, 30.0), false);
                         if resp.clicked() {
                             run = Some((*cmd, json!({})));
                         }
