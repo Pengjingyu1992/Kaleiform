@@ -96,6 +96,10 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "documents": app.session.documents().iter().map(|d| json!({"title": d.title(), "dirty": d.is_dirty()})).collect::<Vec<_>>(),
         "activeDocument": app.session.active_index(),
         "perf": {"frameMs": app.perf.frame_ms, "renderMs": app.perf.render_ms, "fps": app.perf.fps},
+        "canvasRaster": {
+            "generation": app.canvas.key.as_ref().map(|k| k.revision),
+            "pending": app.canvas.worker.as_ref().and_then(|w| w.pending.as_ref()).is_some(),
+        },
         "graphicsAdapter": app.graphics_adapter,
         // The menus are in the macOS menu bar rather than the window.
         "nativeMenuBar": app.services.native_menu.is_some(),

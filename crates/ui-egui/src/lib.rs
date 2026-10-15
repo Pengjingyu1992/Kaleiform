@@ -265,6 +265,10 @@ pub struct CanvasCache {
     pub last_ms: f64,
     pub worker: Option<render_worker::Worker>,
     pub worker_started: bool,
+    /// Artwork identity and display settings, independent of selection-only revisions.
+    pub raster_stamp: Option<canvas::RasterStamp>,
+    /// Selected nodes, layer colours and blend spines, collected once per selection revision.
+    pub overlay_query: Option<std::sync::Arc<canvas::OverlayQuery>>,
     /// The slices as laid out for (document uid, revision): the canvas draws them every frame.
     pub slices: Option<SliceCache>,
     /// The print tiling's pages for (document uid, revision) (View → Show Print Tiling).
@@ -286,6 +290,7 @@ pub type PrintTilingCache = ((u64, u64), std::sync::Arc<Vec<vectorcraft_pdf::Til
 #[derive(Clone, Debug, PartialEq)]
 pub struct CacheKey {
     pub doc: usize,
+    /// Canvas artwork/display epoch (not the engine's selection revision).
     pub revision: u64,
     pub zoom: f64,
     pub cx: f64,
@@ -430,6 +435,8 @@ impl VectorcraftApp {
                 last_ms: 0.0,
                 worker: None,
                 worker_started: false,
+                raster_stamp: None,
+                overlay_query: None,
                 slices: None,
                 print_tiling: None,
                 selection_box: None,

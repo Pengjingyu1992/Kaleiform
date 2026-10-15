@@ -2589,7 +2589,7 @@ fn arrange_items() -> Vec<Item> {
 pub fn context_items(app: &VectorcraftApp) -> Vec<Item> {
     use vectorcraft_doc::NodeKind;
     let Some(st) = app.session.active() else { return vec![] };
-    let roots: Vec<&vectorcraft_doc::Node> = st.selection.objects.iter().filter_map(|id| st.doc.node(*id)).collect();
+    let roots = st.selection.nodes(&st.doc);
     let any = |f: fn(&NodeKind) -> bool| roots.iter().any(|n| f(&n.kind));
     let several = roots.len() >= 2;
     let mut v = vec![c("Undo", "edit.undo"), c("Redo", "edit.redo"), Sep];

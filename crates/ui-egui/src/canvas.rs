@@ -3,6 +3,8 @@
 
 use egui::{Color32, CornerRadius, Pos2, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use vectorcraft_doc::{Node, NodeKind, Unit};
 use vectorcraft_geom::{Affine, BezPath, PathEl, Point, Rect};
 use vectorcraft_tools::{Cursor, Mods, Overlay, PointerEvent, PointerKind};
@@ -12,6 +14,52 @@ use crate::theme::{self, Tokens};
 use crate::{CacheKey, VectorcraftApp, now_ms, widgets};
 
 const RULER: f32 = 16.0;
+
+struct RasterPresentation {
+    mask: Option<vectorcraft_doc::NodeId>,
+    proof: vectorcraft_render::proof::ProofView,
+    cms: Arc<vectorcraft_color::cms::Cms>,
+    fonts: u64,
+    tile_edge: String,
+}
+
+impl PartialEq for RasterPresentation {
+    fn eq(&self, other: &Self) -> bool {
+        self.mask == other.mask
+            && self.proof == other.proof
+            && Arc::ptr_eq(&self.cms, &other.cms)
+            && self.fonts == other.fonts
+            && self.tile_edge == other.tile_edge
+    }
+}
+
+pub struct RasterStamp {
+    uid: u64,
+    doc: Arc<vectorcraft_doc::Document>,
+    presentation: RasterPresentation,
+    epoch: u64,
+}
+
+fn raster_epoch(app: &mut VectorcraftApp) -> u64 {
+    let Some(st) = app.session.active() else { return 0 };
+    let presentation = RasterPresentation {
+        mask: st.shown_mask(),
+        proof: vectorcraft_render::proof::view(),
+        cms: vectorcraft_color::cms::active(),
+        fonts: vectorcraft_text::FontDb::global().generation(),
+        tile_edge: app.session.prefs.pattern_tile_edge_color.clone(),
+    };
+    if let Some(stamp) = &app.canvas.raster_stamp
+        && stamp.uid == st.uid
+        && Arc::ptr_eq(&stamp.doc, &st.doc)
+        && stamp.presentation == presentation
+    {
+        return stamp.epoch;
+    }
+    let epoch = app.canvas.raster_stamp.as_ref().map_or(1, |s| s.epoch.wrapping_add(1));
+    app.canvas.raster_stamp = Some(RasterStamp { uid: st.uid, doc: st.doc.clone(), presentation, epoch });
+    epoch
+}
 
 /// Screen ↔ document mapping for one frame.
 #[derive(Clone, Copy, Debug)]
@@ -152,6 +200,12 @@ pub fn fit(app: &mut VectorcraftApp, how: &str) {
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let full = ui.available_rect_before_wrap();
+    if app.session.active().is_none() {
+        app.canvas.raster_stamp = None;
+        app.canvas.overlay_query = None;
+    } else if app.canvas.overlay_query.as_ref().is_some_and(|q| app.session.active().is_none_or(|st| st.uid != q.uid)) {
+        app.canvas.overlay_query = None;
+    }
     // A document that opened, closed or became active since Home was chosen replaces it.
     if app.ui.home.is_some_and(|k| k != crate::menus::home_key(app)) {
         app.ui.home = None;
@@ -188,6 +242,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     panel_drop(app, ui, &resp, &xf);
     context_menu(app, &resp, &xf);
     let painter = ui.painter_at(rect);
+    let epoch = raster_epoch(app);
     let Some(st) = app.session.active() else { return };
     let doc = st.doc.clone();
     let mask_view = st.shown_mask();
@@ -235,7 +290,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let smooth_images = pixel.is_none() || app.session.prefs.anti_aliased_bitmaps;
     let key = CacheKey {
         doc: st.uid as usize,
-        revision: st.revision,
+        revision: epoch,
         zoom: v.zoom,
         cx: v.center.x,
         cy: v.center.y,
@@ -1235,6 +1290,70 @@ const KEY_OUTLINE: f32 = 2.5;
 /// would make a mesh larger than the GPU takes in one buffer (#525).
 const OVERLAY_MAX_ANCHORS: usize = 100_000;
 
+type OverlayNode = (Arc<Node>, Color32);
+
+pub struct OverlayQuery {
+    uid: u64,
+    revision: u64,
+    doc: Arc<vectorcraft_doc::Document>,
+    ids: Vec<vectorcraft_doc::NodeId>,
+    nodes: Vec<OverlayNode>,
+    spines: Vec<OverlayNode>,
+    big: bool,
+}
+
+/// Resolve selection metadata in one tree walk; no root-to-leaf lookup per selected object.
+fn overlay_query(app: &mut VectorcraftApp) -> Option<Arc<OverlayQuery>> {
+    let st = app.session.active()?;
+    if let Some(q) = &app.canvas.overlay_query
+        && q.uid == st.uid
+        && q.revision == st.revision
+        && Arc::ptr_eq(&q.doc, &st.doc)
+        && q.ids == st.selection.objects
+    {
+        return Some(q.clone());
+    }
+    let selected: HashSet<_> = st.selection.objects.iter().copied().collect();
+    let mut remaining = selected.clone();
+    let mut found = HashMap::new();
+    let mut blends = HashMap::new();
+    let mut stack: Vec<_> = st.doc.layers.iter().rev().map(|n| (n, c32(vectorcraft_doc::LAYER_COLORS[0].1), None)).collect();
+    while !remaining.is_empty() {
+        let Some((node, inherited, blend)) = stack.pop() else { break };
+        let color = match &node.kind {
+            NodeKind::Layer { color, .. } => c32(color.rgb()),
+            _ => inherited,
+        };
+        let blend = if matches!(node.kind, NodeKind::Blend { .. }) { Some((node, color)) } else { blend };
+        if remaining.remove(&node.id) {
+            found.insert(node.id, (node.clone(), color));
+            if let Some((b, color)) = blend {
+                blends.insert(node.id, (b.clone(), color));
+            }
+        }
+        if let Some(children) = node.children() {
+            stack.extend(children.iter().rev().map(|c| (c, color, blend)));
+        }
+    }
+    let nodes: Vec<_> = st.selection.objects.iter().filter_map(|id| found.get(id).cloned()).collect();
+    let mut seen = HashSet::new();
+    let spines = st
+        .selection
+        .objects
+        .iter()
+        .filter_map(|id| blends.get(id).cloned())
+        .filter(|(b, _)| seen.insert(b.id))
+        .filter(|(b, _)| {
+            selected.contains(&b.id)
+                || b.children().is_some_and(|ch| ch.iter().any(|c| selected.contains(&c.id) && !matches!(c.kind, NodeKind::Blend { .. })))
+        })
+        .collect();
+    let big = too_many_anchors(nodes.iter().map(|(n, _)| n.as_ref()));
+    let q = Arc::new(OverlayQuery { uid: st.uid, revision: st.revision, doc: st.doc.clone(), ids: st.selection.objects.clone(), nodes, spines, big });
+    app.canvas.overlay_query = Some(q.clone());
+    Some(q)
+}
+
 /// Whether `nodes` have more than [`OVERLAY_MAX_ANCHORS`] anchor points to outline (counting
 /// stops there).
 fn too_many_anchors<'a>(nodes: impl IntoIterator<Item = &'a Node>) -> bool {
@@ -1573,8 +1692,8 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
         && app.ui.view.bounding_box
         && app.session.active().is_some_and(|st| !st.selection.is_empty() && st.selection.anchors.is_empty());
     let bbox = if show_box { app.selection_box() } else { None };
-    let st = app.session.active();
-    let big = st.is_some_and(|st| too_many_anchors(st.selection.nodes(&st.doc)));
+    let Some(query) = overlay_query(app) else { return };
+    let big = query.big;
     let big_bounds = if big { app.selection_bounds() } else { None };
     let app = &*app;
     let Some(st) = app.session.active() else { return };
@@ -1589,8 +1708,8 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
     // anchors are selected off shows them for a single one only).
     let (mut handles, mut with_handles) = (vec![], 0);
     // Too many paths to outline: the selection's bounds stand for them.
-    if let Some((b, id)) = big_bounds.zip(st.selection.objects.first()) {
-        stroke_path(p, &vectorcraft_geom::shapes::rectangle(b).to_bezpath(), xf, Stroke::new(1.0, c32(st.doc.layer_color(*id))));
+    if let Some((b, (_, color))) = big_bounds.zip(query.nodes.first()) {
+        stroke_path(p, &vectorcraft_geom::shapes::rectangle(b).to_bezpath(), xf, Stroke::new(1.0, *color));
     }
     // The key object (Align to Key Object): its outline drawn thicker, or its bounds when it has
     // too many paths to outline.
@@ -1604,10 +1723,10 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
             stroke_path(p, &bp, xf, Stroke::new(KEY_OUTLINE, c32(st.doc.layer_color(k))));
         }
     }
-    for id in st.selection.objects.iter().filter(|_| !big) {
-        let Some(n) = st.doc.node(*id) else { continue };
-        let color = c32(st.doc.layer_color(*id));
-        let partial = st.selection.partial(*id);
+    for (n, color) in query.nodes.iter().filter(|_| !big) {
+        let id = n.id;
+        let color = *color;
+        let partial = st.selection.partial(id);
         // Path outlines.
         stroke_path(p, &node_outline(n), xf, Stroke::new(1.0, color));
         // Anchors (and handles for selected anchors in direct mode); a mesh envelope's points.
@@ -1622,7 +1741,7 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
             for (si, ai, a) in path.anchors() {
                 let sel = match partial {
                     Some(set) => set.contains(&(si, ai)),
-                    None => !direct || c.id == *id,
+                    None => !direct || c.id == id,
                 };
                 let sp = xf.to_screen(a.p);
                 if sel && (direct || partial.is_some()) {
@@ -1657,15 +1776,10 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
         }
     }
     // The spine of each selected blend (or of the blend a selected key object belongs to).
-    let selected: std::collections::HashSet<_> = st.selection.objects.iter().copied().collect();
-    let spines = st.selection.matching_ancestors(&st.doc, |n| matches!(n.kind, NodeKind::Blend { .. }));
-    for b in spines {
-        let Some(NodeKind::Blend { children, spec }) = st.doc.node(b).map(|n| &n.kind) else { continue };
-        if !selected.contains(&b) && !children.iter().any(|c| selected.contains(&c.id) && !matches!(c.kind, NodeKind::Blend { .. })) {
-            continue;
-        }
+    for (b, color) in &query.spines {
+        let NodeKind::Blend { children, spec } = &b.kind else { continue };
         let Some((path, _)) = vectorcraft_doc::live::blend_spine(children, spec) else { continue };
-        let color = c32(st.doc.layer_color(b));
+        let color = *color;
         stroke_path(p, &path.to_bezpath(), xf, Stroke::new(1.0, color));
         for (_, _, a) in path.anchors() {
             anchor_square(p, xf.to_screen(a.p), color, false, anchor(direct));
@@ -1691,7 +1805,7 @@ fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
     }
     // Bounding box with handles (Selection tool).
     if let Some(b) = bbox {
-        let color = c32(st.doc.layer_color(st.selection.objects[0]));
+        let color = query.nodes.first().map_or_else(|| c32(vectorcraft_doc::LAYER_COLORS[0].1), |(_, c)| *c);
         p.add(Shape::closed_line(b.corners().iter().map(|q| xf.to_screen(*q)).collect(), Stroke::new(1.0, color)));
         for h in vectorcraft_tools::bbox::Handle::ALL {
             let c = xf.to_screen(b.to_doc() * h.pos(b.rect));
@@ -2112,6 +2226,133 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn overlay_query_preserves_selection_order_layer_colours_and_refreshes() {
+        use vectorcraft_doc::{Appearance, Document, LayerColor, NodeId};
+        let mut doc = Document::new(400.0, 300.0);
+        let outer = doc.layers[0].id;
+        let sub = doc.alloc_id();
+        let a = doc.alloc_id();
+        let b = doc.alloc_id();
+        let path = |id| Node::path(id, vectorcraft_geom::shapes::rectangle(Rect::new(0.0, 0.0, 10.0, 10.0)), Appearance::default_art());
+        doc.insert(Some(outer), 0, path(a)).unwrap();
+        let mut sublayer = Node::layer(sub, "Sublayer", LayerColor::Custom([200, 30, 100]));
+        sublayer.children_mut().unwrap().push(Arc::new(path(b)));
+        doc.insert(Some(outer), 1, sublayer).unwrap();
+        let mut session = Session::new();
+        session.add_document(doc, None);
+        let mut app = VectorcraftApp::new(session, Default::default());
+        app.session.active_mut().unwrap().selection.objects = vec![b, a, b, NodeId(u64::MAX)];
+        let q = overlay_query(&mut app).unwrap();
+        assert_eq!(
+            q.nodes.iter().map(|(n, c)| (n.id, *c)).collect::<Vec<_>>(),
+            vec![(b, c32([200, 30, 100])), (a, c32(vectorcraft_doc::LAYER_COLORS[0].1)), (b, c32([200, 30, 100]))]
+        );
+        assert!(Arc::ptr_eq(&q, &overlay_query(&mut app).unwrap()), "unchanged frames reuse the metadata");
+        app.run("select.set", json!({"ids": [a.0]})).unwrap();
+        let next = overlay_query(&mut app).unwrap();
+        assert!(!Arc::ptr_eq(&q, &next));
+        assert_eq!(next.nodes[0].0.id, a);
+        app.run("object.group", json!({})).unwrap();
+        assert!(!Arc::ptr_eq(&next, &overlay_query(&mut app).unwrap()));
+        app.run("edit.undo", json!({})).unwrap();
+        assert_eq!(overlay_query(&mut app).unwrap().nodes[0].0.id, a);
+    }
+
+    #[test]
+    fn overlay_query_keeps_blend_spines_and_drops_closed_document_snapshots() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({"width":400,"height":300})).unwrap();
+        let a = app.run("shape.rectangle", json!({"x":10,"y":10,"width":20,"height":20})).unwrap()["id"].clone();
+        let b = app.run("shape.ellipse", json!({"x":100,"y":100,"width":20,"height":20})).unwrap()["id"].clone();
+        app.run("select.set", json!({"ids":[a,b]})).unwrap();
+        app.run("object.blend.make", json!({})).unwrap();
+        let blend = app.session.active().unwrap().selection.objects[0];
+        assert_eq!(overlay_query(&mut app).unwrap().spines[0].0.id, blend);
+        app.run("select.set", json!({"ids":[a]})).unwrap();
+        assert_eq!(overlay_query(&mut app).unwrap().spines[0].0.id, blend);
+        raster_epoch(&mut app);
+        app.session.execute("file.close", &json!({})).unwrap();
+        app.sync_views();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut out = ctx.run_ui(Default::default(), |ui| show(&mut app, ui));
+        out.textures_delta.clear();
+        assert!(app.canvas.overlay_query.is_none());
+        assert!(app.canvas.raster_stamp.is_none());
+    }
+
+    #[test]
+    fn raster_identity_skips_selection_only_changes_but_not_edit_undo_or_switch() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({"width":100,"height":100})).unwrap();
+        app.run("shape.rectangle", json!({"x":10,"y":10,"width":20,"height":20})).unwrap();
+        let original = raster_epoch(&mut app);
+        app.run("select.none", json!({})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        assert_eq!(raster_epoch(&mut app), original);
+        app.run("shape.ellipse", json!({"x":40,"y":40,"width":20,"height":20})).unwrap();
+        let edited = raster_epoch(&mut app);
+        assert_ne!(edited, original);
+        app.run("edit.undo", json!({})).unwrap();
+        assert_ne!(raster_epoch(&mut app), edited);
+        app.run("file.new", json!({"width":50,"height":50})).unwrap();
+        let other = raster_epoch(&mut app);
+        app.run("file.close", json!({"discard":true})).unwrap();
+        assert_ne!(raster_epoch(&mut app), other);
+    }
+
+    #[test]
+    fn raster_identity_tracks_non_art_display_inputs() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({})).unwrap();
+        let first = raster_epoch(&mut app);
+        app.session.prefs.pattern_tile_edge_color = "#123456".into();
+        let edge = raster_epoch(&mut app);
+        assert_ne!(edge, first);
+        // These are deliberately independent of the document and selection revisions.
+        app.canvas.raster_stamp.as_mut().unwrap().presentation.fonts = u64::MAX;
+        let fonts = raster_epoch(&mut app);
+        assert_ne!(fonts, edge);
+        app.canvas.raster_stamp.as_mut().unwrap().presentation.mask = Some(vectorcraft_doc::NodeId(987));
+        let mask = raster_epoch(&mut app);
+        assert_ne!(mask, fonts);
+        app.canvas.raster_stamp.as_mut().unwrap().presentation.proof.overprint ^= true;
+        let proof = raster_epoch(&mut app);
+        assert_ne!(proof, mask);
+        app.canvas.raster_stamp.as_mut().unwrap().presentation.cms = Arc::new(vectorcraft_color::cms::Cms::default());
+        assert_ne!(raster_epoch(&mut app), proof);
+    }
+
+    #[test]
+    fn selection_only_frames_do_not_upload_another_artwork_texture() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({"width":100,"height":100})).unwrap();
+        app.run("shape.rectangle", json!({"x":10,"y":10,"width":20,"height":20})).unwrap();
+        app.canvas.worker_started = true;
+        let ctx = egui::Context::default();
+        let frame = |app: &mut VectorcraftApp| {
+            let mut out = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))), ..Default::default() },
+                |ui| show(app, ui),
+            );
+            let uploads = out.textures_delta.set.len();
+            out.textures_delta.clear();
+            uploads
+        };
+        frame(&mut app);
+        frame(&mut app);
+        let key = app.canvas.key.clone();
+        app.run("select.none", json!({})).unwrap();
+        assert_eq!(frame(&mut app), 0);
+        assert_eq!(app.canvas.key, key);
+        app.run("select.all", json!({})).unwrap();
+        assert_eq!(frame(&mut app), 0);
+        app.run("shape.ellipse", json!({"x":40,"y":40,"width":20,"height":20})).unwrap();
+        assert!(frame(&mut app) > 0);
+        assert_ne!(app.canvas.key, key);
+    }
     use vectorcraft_doc::{Appearance, Document};
     use vectorcraft_engine::Session;
     use vectorcraft_geom::Shape as _;
