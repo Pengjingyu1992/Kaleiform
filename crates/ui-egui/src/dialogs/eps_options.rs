@@ -27,6 +27,7 @@ pub(super) const SPEC: DialogSpec = DialogSpec {
     ok_label: Some(|app| if app.ui.dialog.as_ref().is_some_and(|d| d.fields.contains_key("__save")) { "Save" } else { "Export" }),
     min_width: 420.0,
     max_width: Some(460.0),
+    scroll_body: true,
     ..DialogSpec::FORM
 };
 
@@ -144,4 +145,48 @@ fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> Result<Value, String> {
         );
     }
     io::export(app, Some("eps"), path, &params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eps_save_options_scroll_without_hiding_the_heading_or_footer() {
+        for brightness in crate::theme::Brightness::ALL {
+            for scale in [1.0, 2.0] {
+                for size in [egui::vec2(800.0, 500.0), egui::vec2(800.0, 360.0), egui::vec2(640.0, 500.0)] {
+                    let ctx = egui::Context::default();
+                    crate::theme::install_fonts(&ctx);
+                    crate::theme::apply(&ctx, brightness);
+                    let mut app = VectorcraftApp::new(vectorcraft_engine::Session::new(), Default::default());
+                    app.run("file.new", json!({})).unwrap();
+                    app.run("shape.rectangle", json!({"x":10,"y":10,"width":20,"height":20})).unwrap();
+                    open(&mut app, &json!({"__save":"file.saveAs","path":"synthetic.eps"}));
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+                    let mut out = egui::FullOutput::default();
+                    for _ in 0..4 {
+                        let mut raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+                        raw.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(scale);
+                        out = ctx.run_ui(raw, |ui| crate::dialogs::show(&mut app, ui.ctx()));
+                        out.textures_delta.clear();
+                    }
+                    let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", KIND)))).unwrap();
+                    assert!(screen.contains_rect(rect), "{brightness:?}/{scale}/{size:?}: {rect:?}");
+                    for label in ["EPS Options", "Save", "Cancel"] {
+                        let (clip, text) = out
+                            .shapes
+                            .iter()
+                            .find_map(|s| match &s.shape {
+                                egui::Shape::Text(t) if t.galley.text() == label => Some((s.clip_rect, t)),
+                                _ => None,
+                            })
+                            .unwrap();
+                        let bounds = text.galley.rect.translate(text.pos.to_vec2());
+                        assert!(rect.contains_rect(bounds) && clip.contains_rect(bounds), "{size:?}: {label} clipped");
+                    }
+                }
+            }
+        }
+    }
 }

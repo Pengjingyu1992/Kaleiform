@@ -216,8 +216,8 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context) {
         if crate::shortcut_editor::is_recording(app) {
             return;
         }
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            app.ui.dialog = None;
+        if ctx.input(|i| i.key_pressed(Key::Escape)) && !egui::Popup::is_any_open(ctx) {
+            crate::dialogs::cancel(app);
             app.ui.palette_open = false;
         }
         return;

@@ -3240,3 +3240,9 @@ axis	Both	兩者
 @msg	Image Trace: worker stopped	影像描圖背景工作已停止
 @msg	Image Trace: working memory limit reached; reduce image size	描圖所需記憶體超限，請縮小影像尺寸
 @msg	Image Trace: complete	影像描圖完成
+	Document Categories	文件分類
+	Ready to trace	可以開始描圖
+	Retry Open	重新開啟
+	Dismiss Message	關閉提示
+	Social Portrait Post 1080×1350	社群直式貼文 1080×1350
+	Could not open {name}	無法開啟：{name}

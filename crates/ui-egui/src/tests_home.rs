@@ -29,7 +29,7 @@ fn home_temporarily_hides_drawing_chrome_and_preserves_workspace_and_errors() {
     }
     assert!(draw(&mut app).iter().any(|(s, _)| s == "Properties"));
     app.run("app.home", json!({})).unwrap();
-    app.status("Synthetic open error");
+    app.error("Synthetic open error");
     for _ in 0..3 {
         draw(&mut app);
     }
@@ -208,4 +208,55 @@ fn thumbnail_grid_wraps_long_names_and_obeys_recent_count() {
     app.session.prefs.recent_files_count = 0;
     let texts = home_texts(&mut app, &ctx, vec![]);
     assert!(!texts.iter().any(|(s, _)| s == "Recent Files" || s.contains("very-long-file-name")));
+}
+
+#[test]
+fn home_errors_can_retry_and_transient_notices_expire_without_restoring_old_status() {
+    let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = reads.clone();
+    let mut app = VectorcraftApp::new(
+        vectorcraft_engine::Session::new(),
+        crate::Services {
+            read: Some(Box::new(move |_| {
+                if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Err("Synthetic open error".into())
+                } else {
+                    Ok(br#"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"/>"#.to_vec())
+                }
+            })),
+            ..Default::default()
+        },
+    );
+    assert!(crate::io::open_path(&mut app, "/synthetic/retry.svg").is_err());
+    let notice = app.ui.home_notice.as_ref().unwrap();
+    assert!(notice.error && notice.expires.is_none());
+    assert_eq!(notice.retry_path.as_deref(), Some("/synthetic/retry.svg"));
+    let ctx = egui::Context::default();
+    crate::theme::install_fonts(&ctx);
+    home_texts(&mut app, &ctx, vec![]);
+    let mut buttons = crate::toolbar::tests::widget_rects(&ctx, egui::vec2(24.0, 24.0));
+    buttons.sort_by(|a, b| a.left().total_cmp(&b.left()));
+    assert_eq!(buttons.len(), 2);
+    let at = buttons[0].center();
+    for pressed in [true, false] {
+        home_texts(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
+            ],
+        );
+    }
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(app.session.documents().len(), 1);
+    assert!(app.ui.home_notice.is_none());
+    assert!(app.ui.status.is_empty(), "a successful retry clears the old failure from the drawing status bar too");
+    app.run("app.home", json!({})).unwrap();
+    app.status("Temporary success");
+    app.ui.home_notice.as_mut().unwrap().expires = Some(0.0);
+    assert!(!home_texts(&mut app, &ctx, vec![]).iter().any(|(s, _)| s == "Temporary success"));
+    assert!(app.ui.home_notice.is_none());
+    home_texts(&mut app, &ctx, vec![]);
+    assert!(app.ui.home_notice.is_none(), "old status does not reappear");
 }

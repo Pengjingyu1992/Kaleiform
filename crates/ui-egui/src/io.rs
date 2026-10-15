@@ -106,10 +106,23 @@ fn read(app: &VectorcraftApp, path: &str) -> Result<Vec<u8>, String> {
 
 /// Open the file at `path` (see [`open_bytes`]) → `document.open`'s result, or null.
 pub fn open_path(app: &mut VectorcraftApp, path: &str) -> Result<Value, String> {
-    let bytes = read(app, path)?;
-    let r = open_bytes(app, path, &bytes, Some(path.to_string()))?;
-    note_recent(app, path);
-    Ok(r)
+    let result = read(app, path).and_then(|bytes| open_bytes(app, path, &bytes, Some(path.to_string())));
+    match &result {
+        Ok(_) => {
+            note_recent(app, path);
+            if app.ui.home_notice.as_ref().is_some_and(|n| n.error && n.message == app.ui.status) {
+                app.ui.status.clear();
+            }
+            app.ui.home_notice = None;
+        }
+        Err(error) => {
+            app.error(error);
+            if let Some(notice) = &mut app.ui.home_notice {
+                notice.retry_path = Some(path.to_string());
+            }
+        }
+    }
+    result
 }
 
 /// File → New from Template…: a template (or any readable file) as a new untitled document. Without

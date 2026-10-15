@@ -128,6 +128,8 @@ pub(crate) struct DialogSpec {
     pub discard: Option<&'static str>,
     pub min_width: f32,
     pub max_width: Option<f32>,
+    /// Keep long option forms inside the viewport while their heading and buttons stay fixed.
+    pub scroll_body: bool,
     /// The body runs a live preview interaction that Cancel rolls back.
     pub preview: bool,
     /// The OK button's label when it depends on the app (Export for Screens' "Download" on the
@@ -152,6 +154,7 @@ impl DialogSpec {
         discard: None,
         min_width: 320.0,
         max_width: None,
+        scroll_body: false,
         preview: false,
         ok_label: None,
     };
@@ -329,14 +332,26 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     // The kind of dialog shown last frame: a different one (or none) means this one just opened, and
     // its first field is to take the keyboard focus (`focus_id`, until a field takes it).
     let (shown_id, focus_id) = (egui::Id::new("dialog-shown"), egui::Id::new("dialog-focus-pending"));
+    let return_id = egui::Id::new("dialog-return-focus");
     let Some(mut d) = app.ui.dialog.clone() else {
         app.ui.dialog_file = None;
-        ctx.data_mut(|m| {
+        let previous = ctx.data_mut(|m| {
             m.remove::<String>(shown_id);
             m.remove::<bool>(focus_id);
+            let previous = m.get_temp::<egui::Id>(return_id);
+            m.remove::<egui::Id>(return_id);
+            previous
         });
+        if let Some(previous) = previous {
+            ctx.memory_mut(|m| m.request_focus(previous));
+        }
         return;
     };
+    if ctx.data(|m| m.get_temp::<String>(shown_id)).is_none()
+        && let Some(previous) = ctx.memory(|m| m.focused())
+    {
+        ctx.data_mut(|m| m.insert_temp(return_id, previous));
+    }
     let focus_first = ctx.data_mut(|m| {
         if m.get_temp::<String>(shown_id).as_deref() != Some(d.kind.as_str()) {
             m.insert_temp(shown_id, d.kind.clone());
@@ -371,7 +386,20 @@ pub fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
         if focus_first {
             ui.data_mut(|m| m.insert_temp(widgets::dialog_focus_flag(), true));
         }
-        cancel = (spec.body)(app, ui, &mut d);
+        cancel = if spec.scroll_body {
+            let top = ui.cursor().top() - ui.max_rect().top();
+            let footer = ui.spacing().interact_size.y.max(28.0) + 16.0 + 2.0 * ui.spacing().item_spacing.y;
+            let height = (ctx.content_rect().height() - 2.0 * (f32::from(MARGIN) + EDGE_GAP) - top - footer).max(24.0);
+            egui::ScrollArea::vertical()
+                .id_salt(("dialog-options", &d.kind))
+                .min_scrolled_height(0.0)
+                .max_height(height)
+                .auto_shrink([false, true])
+                .show(ui, |ui| (spec.body)(app, ui, &mut d))
+                .inner
+        } else {
+            (spec.body)(app, ui, &mut d)
+        };
         // Taken (the flag is gone): done. Still there (the window's measuring frame): next frame.
         if focus_first && ui.data_mut(|m| m.remove_temp::<bool>(widgets::dialog_focus_flag())).is_none() {
             ui.data_mut(|m| m.remove::<bool>(focus_id));

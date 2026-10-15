@@ -15,10 +15,20 @@ pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str, selected: bool, size: f32
 
 /// [`icon_button`] drawn for a response the caller made (its own id or sense).
 pub fn paint_icon_button(ui: &mut Ui, resp: Response, icon: &str, tip: &str, selected: bool) -> Response {
+    paint_icon(ui, resp, icon, tip, selected.then_some(true))
+}
+
+/// An icon whose pressed and unpressed states are both meaningful.
+pub fn icon_toggle(ui: &mut Ui, icon: &str, tip: &str, selected: bool, size: f32) -> Response {
+    let (_, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
+    paint_icon(ui, resp, icon, tip, Some(selected))
+}
+
+fn paint_icon(ui: &mut Ui, resp: Response, icon: &str, tip: &str, selected: Option<bool>) -> Response {
     let t = Tokens::get(ui.ctx());
     let rect = resp.rect;
     let size = rect.width();
-    let bg = if selected {
+    let bg = if selected == Some(true) {
         t.tool_active
     } else if resp.hovered() {
         t.hover
@@ -27,8 +37,12 @@ pub fn paint_icon_button(ui: &mut Ui, resp: Response, icon: &str, tip: &str, sel
     };
     ui.painter().rect_filled(rect, CornerRadius::same(3), bg);
     let pad = (size * 0.2).round();
-    icons::paint(ui, icon, rect.shrink(pad), if selected { t.text } else { t.icon });
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, tl!(tip)));
+    icons::paint(ui, icon, rect.shrink(pad), if selected == Some(true) { t.text } else { t.icon });
+    resp.widget_info(|| {
+        let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(tip));
+        info.selected = selected;
+        info
+    });
     focus_ring(ui, &resp, 3);
     if !tip.is_empty() { resp.on_hover_text(tl!(tip)) } else { resp }
 }
@@ -36,7 +50,7 @@ pub fn paint_icon_button(ui: &mut Ui, resp: Response, icon: &str, tip: &str, sel
 /// Keyboard focus remains visible on controls painted outside egui's standard widgets.
 fn focus_ring(ui: &Ui, resp: &Response, radius: u8) {
     if resp.gained_focus() {
-        resp.scroll_to_me(Some(egui::Align::Center));
+        resp.scroll_to_me(None);
     }
     if resp.has_focus() {
         ui.painter().rect_stroke(resp.rect, radius, Stroke::new(2.0, Tokens::get(ui.ctx()).accent), StrokeKind::Inside);
@@ -66,7 +80,7 @@ pub const SPLIT_ARROW: f32 = 18.0;
 
 /// A [`flat_button`] `width` wide whose right end is a menu arrow (Image Trace ▾) → the
 /// responses of the button and of its arrow.
-pub fn split_button(ui: &mut Ui, text: &str, width: f32) -> (Response, Response) {
+pub fn split_button(ui: &mut Ui, text: &str, menu_name: &str, width: f32) -> (Response, Response) {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width, 24.0), Sense::hover());
     let rect = rect.shrink2(vec2(0.0, 0.5));
@@ -88,10 +102,11 @@ pub fn split_button(ui: &mut Ui, text: &str, width: f32) -> (Response, Response)
         t.text_strong,
     );
     icons::paint(ui, "chevron-down", Rect::from_center_size(arrow_rect.center(), vec2(12.0, 12.0)), t.text_dim);
-    for resp in [&main, &arrow] {
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(text)));
+    for (resp, name) in [(&main, text), (&arrow, menu_name)] {
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), tl!(name)));
         focus_ring(ui, resp, 2);
     }
+    ui.ctx().accesskit_node_builder(arrow.id, |node| node.set_has_popup(egui::accesskit::HasPopup::Menu));
     (main, arrow)
 }
 
@@ -119,7 +134,7 @@ pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
         ui.painter().rect_stroke(rect.shrink(3.0), 11, Stroke::new(1.5, Color32::WHITE), StrokeKind::Inside);
     }
     if resp.gained_focus() {
-        resp.scroll_to_me(Some(egui::Align::Center));
+        resp.scroll_to_me(None);
     }
     resp
 }
@@ -159,7 +174,8 @@ pub fn section_toggle(ui: &mut Ui, text: &str, open: bool) -> bool {
     let chevron = Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), vec2(12.0, 12.0));
     icons::paint(ui, if open { "chevron-down" } else { "chevron-right" }, chevron, if resp.hovered() { t.text_strong } else { t.icon });
     ui.painter().text(pos2(rect.left() + 18.0, rect.center().y), egui::Align2::LEFT_CENTER, tl!(text), theme::semibold(12.5), t.text);
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, tl!(text)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, resp.enabled(), tl!(text)));
+    ui.ctx().accesskit_node_builder(resp.id, |node| node.set_expanded(open));
     focus_ring(ui, &resp, 3);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
@@ -1833,4 +1849,78 @@ pub fn text_presets(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, val
         });
     });
     out
+}
+
+#[cfg(test)]
+mod accessibility_tests {
+    use super::*;
+
+    #[test]
+    fn commands_toggles_disclosures_and_menus_have_distinct_semantics() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.enable_accesskit();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            icon_button(ui, "x", "Cancel Image Trace", false, 24.0);
+            icon_toggle(ui, "save", "Save Preset", false, 24.0);
+            ui.add_enabled_ui(false, |ui| section_toggle(ui, "Advanced Options", true));
+            split_button(ui, "Image Trace", "Tracing Presets", 180.0);
+        });
+        output.textures_delta.clear();
+        let update = output.platform_output.accesskit_update.unwrap();
+        let node = |label: &str| update.nodes.iter().find(|(_, n)| n.label() == Some(label)).map(|(_, n)| n).unwrap();
+        assert_eq!(node("Cancel Image Trace").role(), egui::accesskit::Role::Button);
+        assert_eq!(node("Cancel Image Trace").toggled(), None);
+        assert_eq!(node("Save Preset").toggled(), Some(egui::accesskit::Toggled::False));
+        assert_eq!(node("Advanced Options").is_expanded(), Some(true));
+        assert!(node("Advanced Options").is_disabled());
+        assert_eq!(node("Advanced Options").toggled(), None);
+        assert_eq!(node("Tracing Presets").has_popup(), Some(egui::accesskit::HasPopup::Menu));
+        assert_eq!(node("Image Trace").has_popup(), None);
+    }
+
+    #[test]
+    fn focusing_an_already_visible_control_does_not_recentre_the_scroll_area() {
+        let ctx = egui::Context::default();
+        let mut target = egui::Id::NULL;
+        let mut draw = || {
+            let mut offset = Vec2::ZERO;
+            ctx.run_ui(Default::default(), |ui| {
+                offset = egui::ScrollArea::vertical()
+                    .max_height(110.0)
+                    .show(ui, |ui| {
+                        for i in 0..12 {
+                            let response = flat_button(ui, &format!("Action {i}"), 120.0);
+                            if i == 2 {
+                                target = response.id;
+                            }
+                        }
+                    })
+                    .state
+                    .offset;
+            })
+            .textures_delta
+            .clear();
+            offset
+        };
+        assert_eq!(draw().y, 0.0);
+        ctx.memory_mut(|m| m.request_focus(target));
+        for _ in 0..4 {
+            let mut offset = Vec2::ZERO;
+            ctx.run_ui(Default::default(), |ui| {
+                offset = egui::ScrollArea::vertical()
+                    .max_height(110.0)
+                    .show(ui, |ui| {
+                        for i in 0..12 {
+                            flat_button(ui, &format!("Action {i}"), 120.0);
+                        }
+                    })
+                    .state
+                    .offset;
+            })
+            .textures_delta
+            .clear();
+            assert_eq!(offset.y, 0.0);
+        }
+    }
 }

@@ -1825,11 +1825,47 @@ fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
             app.run("file.open", json!({})).ok();
         }
     });
-    if !app.ui.status.is_empty() {
-        ui.add_space(12.0);
-        ui.label(egui::RichText::new(&app.ui.status).size(12.0).color(t.text_dim));
-    }
+    home_notice(app, ui);
     recent(app, ui);
+}
+
+fn home_notice(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let Some(notice) = app.ui.home_notice.clone() else { return };
+    if notice.message != app.ui.status || notice.expires.is_some_and(|until| crate::now_ms() >= until) {
+        app.ui.home_notice = None;
+        return;
+    }
+    if let Some(until) = notice.expires {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis((until - crate::now_ms()).max(1.0) as u64));
+    }
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(12.0);
+    let mut retry = false;
+    let mut close = false;
+    ui.horizontal_top(|ui| {
+        let controls = if notice.retry_path.is_some() { 56.0 } else { 28.0 };
+        ui.allocate_ui(egui::vec2((ui.available_width() - controls).max(40.0), 24.0), |ui| {
+            let detail = crate::i18n::msg(&notice.message);
+            let (message, tip) = if let Some(path) = &notice.retry_path {
+                let name = vectorcraft_engine::cmd::fileio::file_name(path);
+                (crate::i18n::fmt(tl!("Could not open {name}"), &[("name", &name)]), format!("{path}\n{detail}"))
+            } else {
+                (detail.clone(), detail)
+            };
+            ui.add(egui::Label::new(egui::RichText::new(&message).size(12.0).color(if notice.error { t.error } else { t.text_dim })).truncate())
+                .on_hover_text(tip);
+        });
+        if notice.retry_path.is_some() {
+            retry = widgets::icon_button(ui, "rotate-cw", tl!("Retry Open"), false, 24.0).clicked();
+        }
+        close = widgets::icon_button(ui, "x", tl!("Dismiss Message"), false, 24.0).clicked();
+    });
+    if close {
+        app.ui.home_notice = None;
+    } else if retry && let Some(path) = notice.retry_path {
+        // open_path reports a new failure in the same notice.
+        let _ = crate::io::open_path(app, &path);
+    }
 }
 
 /// Recent files use fitted previews; only the tooltip exposes a full path.
@@ -1852,7 +1888,7 @@ fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
             let (rect, response) = ui.allocate_exact_size(vec2(width, 148.0), Sense::click());
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
             if response.gained_focus() {
-                response.scroll_to_me(Some(egui::Align::Center));
+                response.scroll_to_me(None);
             }
             let stroke = Stroke::new(1.0, if response.hovered() || response.has_focus() { t.accent } else { t.border });
             ui.painter().rect(rect, 6.0, t.panel, stroke, StrokeKind::Inside);
@@ -1879,9 +1915,8 @@ fn recent(app: &mut VectorcraftApp, ui: &mut Ui) {
             job.wrap.overflow_character = Some('\u{2026}');
             ui.painter().galley(label_rect.min, ui.painter().layout_job(job), t.text);
             if response.on_hover_text(&path).clicked() {
-                if let Err(e) = crate::io::open_path(app, &path) {
-                    app.status(e);
-                }
+                // open_path keeps failures visible with a retry action.
+                let _ = crate::io::open_path(app, &path);
                 break;
             }
         }

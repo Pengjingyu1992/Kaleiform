@@ -3755,3 +3755,8 @@ axis	Both	Ambos
 @msg	Image Trace: worker stopped	La tarea de calco se detuvo
 @msg	Image Trace: working memory limit reached; reduce image size	El calco superó el límite de memoria; reduzca el tamaño de la imagen
 @msg	Image Trace: complete	Calco de imagen completado
+	Document Categories	Categorías de documento
+	Ready to trace	Listo para calcar
+	Retry Open	Volver a abrir
+	Dismiss Message	Cerrar mensaje
+	Could not open {name}	No se pudo abrir {name}

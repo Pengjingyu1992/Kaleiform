@@ -3757,3 +3757,8 @@ axis	Both	Оба
 @msg	Image Trace: worker stopped	Задача трассировки остановлена
 @msg	Image Trace: working memory limit reached; reduce image size	Превышен лимит памяти; уменьшите размер изображения
 @msg	Image Trace: complete	Трассировка завершена
+	Document Categories	Категории документов
+	Ready to trace	Готово к трассировке
+	Retry Open	Повторить открытие
+	Dismiss Message	Закрыть сообщение
+	Could not open {name}	Не удалось открыть {name}

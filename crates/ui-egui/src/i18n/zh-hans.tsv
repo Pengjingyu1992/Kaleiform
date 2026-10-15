@@ -3469,3 +3469,9 @@ axis	Both	两者
 @msg	Computing Image Trace…	正在计算图像描摹…
 @msg	Image Trace: image data is missing	图像描摹缺少源图数据
 @msg	Image Trace: worker stopped	图像描摹后台任务已停止
+	Document Categories	文档分类
+	Ready to trace	可以开始描摹
+	Retry Open	重新打开
+	Dismiss Message	关闭提示
+	Social Portrait Post 1080×1350	社交竖版帖子 1080×1350
+	Could not open {name}	无法打开：{name}

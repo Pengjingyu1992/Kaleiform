@@ -7,6 +7,12 @@ use vectorcraft_trace::{Stage, TraceControl};
 
 use crate::VectorcraftApp;
 
+#[derive(Clone)]
+pub(crate) struct Feedback {
+    pub message: String,
+    pub error: bool,
+}
+
 struct Active {
     task: TraceTask,
     control: TraceControl,
@@ -19,9 +25,23 @@ pub(crate) struct TraceJob {
     active: Option<Active>,
     queued: Option<TraceTask>,
     serial: u64,
+    feedback: Option<(u64, u64, vectorcraft_doc::NodeId, Feedback)>,
 }
 
 impl TraceJob {
+    pub fn feedback(&self, session: &vectorcraft_engine::Session) -> Option<&Feedback> {
+        let (uid, revision, target, feedback) = self.feedback.as_ref()?;
+        session.active().filter(|s| s.uid == *uid && s.revision == *revision && s.selection.objects.as_slice() == [*target]).map(|_| feedback)
+    }
+    pub fn clear_feedback(&mut self) {
+        self.feedback = None;
+    }
+    pub fn report(&mut self, session: &vectorcraft_engine::Session, message: String, error: bool) {
+        self.feedback = session.active().and_then(|s| {
+            let [target] = s.selection.objects.as_slice() else { return None };
+            Some((s.uid, s.revision, *target, Feedback { message, error }))
+        });
+    }
     pub fn running(&self) -> bool {
         self.active.is_some()
     }
@@ -72,6 +92,7 @@ impl Drop for TraceJob {
 
 pub fn start(app: &mut VectorcraftApp, p: &Value, expand: bool) -> Result<Value, String> {
     let task = TraceTask::prepare(&app.session, p, expand).map_err(|e| e.to_string())?;
+    app.trace_job.clear_feedback();
     if app.trace_job.running() {
         app.trace_job.cancel();
         app.trace_job.queued = Some(task);
@@ -97,9 +118,11 @@ pub fn poll(app: &mut VectorcraftApp) {
         Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("Image Trace: worker stopped".into()),
     };
     let cancelled = active.cancelled;
+    let current = active.task.is_current(&app.session);
     app.trace_job.active = None;
     if let Some(task) = app.trace_job.queued.take().filter(|t| t.is_current(&app.session)) {
         if let Err(e) = app.trace_job.launch(task) {
+            app.trace_job.report(&app.session, e.clone(), true);
             app.status(e);
         }
         return;
@@ -109,10 +132,15 @@ pub fn poll(app: &mut VectorcraftApp) {
     } else {
         result.and_then(|r| app.session.finish_trace(r).map_err(|e| e.to_string()))
     };
-    app.status(match result {
+    let error = result.is_err() && !cancelled;
+    let message = match result {
         Ok(_) => "Image Trace: complete".into(),
         Err(e) => e,
-    });
+    };
+    if current {
+        app.trace_job.report(&app.session, message.clone(), error);
+    }
+    app.status(message);
     app.sync_views();
 }
 
@@ -160,8 +188,11 @@ mod tests {
         assert_eq!(app.session.doc().unwrap().doc, before);
         assert!(app.run("imageTrace.expand", json!({})).is_err());
         finish(&mut app);
+        assert_eq!(app.trace_job.feedback(&app.session).unwrap().message, "Image Trace: complete");
+        assert!(!app.trace_job.feedback(&app.session).unwrap().error);
         assert_eq!(app.session.doc().unwrap().history.undo.len(), steps + 1);
         app.run("edit.undo", json!({})).unwrap();
+        assert!(app.trace_job.feedback(&app.session).is_none());
         assert_eq!(app.session.doc().unwrap().doc, before);
     }
 
@@ -178,6 +209,12 @@ mod tests {
             let before = app.session.doc().unwrap().doc.clone();
             let journals = app.session.journal.len();
             finish(&mut app);
+            if edit {
+                assert!(app.trace_job.feedback(&app.session).is_none(), "a stale request must not put its feedback on the new selection");
+            } else {
+                let feedback = app.trace_job.feedback(&app.session).unwrap();
+                assert!(feedback.message.contains("cancelled") && !feedback.error);
+            }
             assert_eq!(app.session.doc().unwrap().doc, before);
             assert_eq!(app.session.journal.len(), journals);
         }

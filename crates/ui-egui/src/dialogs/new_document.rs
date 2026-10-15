@@ -66,7 +66,8 @@ const WIDTH: f32 = 880.0;
 pub fn open(app: &mut VectorcraftApp) {
     let category = if app.session.prefs.recent_new_docs.is_empty() { "Print" } else { "Recent" };
     let first = newdoc::category(&app.session, category).and_then(|v| v.into_iter().next()).unwrap_or_default();
-    let mut d = Dialog::new(KIND, json!({ "category": category, "name": app.session.peek_untitled(), "advanced": false }));
+    let name = app.session.peek_untitled().replacen("Untitled", tl!("Untitled"), 1);
+    let mut d = Dialog::new(KIND, json!({ "category": category, "name": name, "advanced": false }));
     apply(&mut d, &first);
     app.ui.dialog = Some(d);
 }
@@ -163,7 +164,8 @@ struct Buttons {
 impl Buttons {
     /// Act on the buttons (Enter also creates) once the window is drawn.
     fn finish(self, app: &mut VectorcraftApp, ctx: &egui::Context, d: Dialog) {
-        let create = self.create || ctx.input(|i| i.key_pressed(egui::Key::Enter)) && !ctx.memory(|m| m.focused().is_some());
+        let create =
+            self.create || ctx.input(|i| i.key_pressed(egui::Key::Enter)) && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx);
         app.ui.dialog = Some(d);
         if self.close {
             app.ui.dialog = None;
@@ -194,18 +196,19 @@ fn show(app: &mut VectorcraftApp, ctx: &egui::Context) {
     };
     let width = room.min(preferred);
     let height = (ctx.content_rect().height() - 48.0).clamp(200.0, HEIGHT + 36.0);
-    let stacked = room < 700.0;
+    let stacked = room < 600.0 || room < 700.0 && height >= 440.0;
     window(ctx, KIND, 0, |ui| {
         super::modal::drag_band(ui, ui.max_rect().top() + 44.0);
         ui.spacing_mut().item_spacing.x = 0.0;
         if stacked {
+            let preset_height = if height >= 440.0 { 190.0 } else { (height - 180.0).clamp(70.0, 150.0) };
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(18, 12)).show(ui, |ui| {
                 ui.set_width(width - 36.0);
-                ui.set_height(190.0);
+                ui.set_height(preset_height);
                 b.create |= presets(app, ui, &mut d, true);
             });
             egui::Frame::NONE.fill(t.panel_darker).inner_margin(egui::Margin::same(18)).show(ui, |ui| {
-                detail_pane(app, ui, &mut d, &mut b, width - 36.0, (height - 254.0).max(110.0));
+                detail_pane(app, ui, &mut d, &mut b, width - 36.0, (height - preset_height - 60.0).max(72.0));
             });
         } else {
             ui.horizontal_top(|ui| {
@@ -248,7 +251,47 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, strip: bool)
     let t = Tokens::get(ui.ctx());
     let names: Vec<&str> = newdoc::category_names().collect();
     let cat = names.iter().position(|n| n.eq_ignore_ascii_case(&d.str("category"))).unwrap_or(0);
-    let tab = egui::ScrollArea::horizontal().id_salt("newdoc-tabs").show(ui, |ui| widgets::tab_bar(ui, &names, cat)).inner;
+    // A very short stacked layout uses two menus so page thumbnails cannot push out the fields.
+    if strip && ui.available_height() < 170.0 {
+        if let Some(name) =
+            widgets::dropdown(ui, "newdoc-compact-category", names.get(cat).copied().unwrap_or("Recent"), &names, ui.available_width())
+                .and_then(|i| names.get(i))
+        {
+            d.fields.insert("category".into(), json!(name));
+        }
+        let list = newdoc::category(&app.session, &d.str("category")).unwrap_or_default();
+        let labels: Vec<String> = list.iter().map(|s| format!("{} · {}", preset_name(&s.name), s.size_label())).collect();
+        let current = list.iter().position(|s| s.name == d.str("preset")).unwrap_or(0);
+        let shown = labels.get(current).map_or("", String::as_str);
+        if let Some(s) =
+            widgets::dropdown_names(ui, "newdoc-compact-preset", shown, &labels.iter().map(String::as_str).collect::<Vec<_>>(), ui.available_width())
+                .and_then(|i| list.get(i))
+        {
+            apply(d, s);
+        }
+        return false;
+    }
+    let mut tab = None;
+    ui.horizontal(|ui| {
+        let width = (ui.available_width() - 30.0).max(40.0);
+        ui.allocate_ui(egui::vec2(width, 24.0), |ui| {
+            tab = egui::ScrollArea::horizontal().id_salt("newdoc-tabs").show(ui, |ui| widgets::tab_bar(ui, &names, cat)).inner;
+        });
+        let more = widgets::icon_button(ui, "chevron-down", tl!("Document Categories"), false, 24.0);
+        if let Some(chosen) = egui::Popup::menu(&more)
+            .show(|ui| {
+                names.iter().enumerate().find_map(|(i, name)| {
+                    ui.selectable_label(i == cat, tl!(name)).clicked().then(|| {
+                        ui.close();
+                        i
+                    })
+                })
+            })
+            .and_then(|r| r.inner)
+        {
+            tab = Some(chosen);
+        }
+    });
     if let Some(i) = tab {
         d.fields.insert("category".into(), json!(names[i]));
     }
@@ -314,7 +357,7 @@ fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, label: &str, selected: b
     p.rect_filled(r, egui::CornerRadius::same(6), if resp.hovered() || selected { t.hover } else { t.panel_darker });
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, resp.enabled(), selected, format!("{label}, {}", s.size_label())));
     if resp.gained_focus() {
-        resp.scroll_to_me(Some(egui::Align::Center));
+        resp.scroll_to_me(None);
     }
     if selected || resp.has_focus() {
         p.rect_stroke(r, egui::CornerRadius::same(6), egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
@@ -352,13 +395,15 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
     ui.label(egui::RichText::new(tl!("PRESET DETAILS")).font(theme::semibold(11.0)).color(t.text_dim));
     ui.add_space(8.0);
+    let name = ui.label(egui::RichText::new(tl!("File Name:")).size(11.0).color(t.text_dim));
     ui.horizontal(|ui| {
-        form::text_edit(ui, d, "name", width - 50.0).on_hover_text(tl!("File Name:"));
-        if widgets::icon_button(ui, "save", tl!("Save Preset"), d.bool(SAVING), 26.0).clicked() {
+        form::text_edit(ui, d, "name", width - 50.0).labelled_by(name.id);
+        if widgets::icon_toggle(ui, "save", tl!("Save Preset"), d.bool(SAVING), 26.0).clicked() {
             let saving = !d.bool(SAVING);
             d.fields.insert(SAVING.into(), json!(saving));
             if saving && d.str("presetName").is_empty() {
-                d.fields.insert("presetName".into(), json!(format!("Preset {}", app.session.prefs.new_doc_presets.len() + 1)));
+                d.fields
+                    .insert("presetName".into(), json!(tl!("Preset {}").replace("{}", &(app.session.prefs.new_doc_presets.len() + 1).to_string())));
             }
         }
     });
@@ -414,9 +459,9 @@ fn footer(ui: &mut egui::Ui, b: &mut Buttons, create: &str) {
 fn save_row(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     let width = ui.available_width();
     ui.add_space(4.0);
-    form::caption(ui, tl!("Preset Name"));
+    let name = ui.label(egui::RichText::new(tl!("Preset Name")).size(11.0).color(Tokens::get(ui.ctx()).text_dim));
     ui.horizontal(|ui| {
-        let enter = form::text_edit(ui, d, "presetName", width - 140.0).lost_focus()
+        let enter = form::text_edit(ui, d, "presetName", width - 140.0).labelled_by(name.id).lost_focus()
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         if widgets::flat_button(ui, tl!("Save"), 54.0).clicked() || enter {
             let mut p: Map<String, Value> = PARAMS.iter().filter_map(|k| Some((k.to_string(), d.fields.get(*k)?.clone()))).collect();
@@ -541,7 +586,7 @@ fn arrangement(ui: &mut egui::Ui, d: &mut Dialog) {
                 }
             }
             ui.add_space(6.0);
-            if widgets::icon_button(ui, "chevrons-left", tl!("Change to Right-to-Left Layout"), rtl, 26.0).clicked() {
+            if widgets::icon_toggle(ui, "chevrons-left", tl!("Change to Right-to-Left Layout"), rtl, 26.0).clicked() {
                 set_layout(d, "rightToLeft", json!(!rtl));
             }
         });
@@ -571,7 +616,7 @@ mod tests {
     fn narrow_and_short_dialogs_keep_the_footer_and_fields_inside_the_window() {
         for brightness in crate::theme::Brightness::ALL {
             for scale in [1.0, 2.0] {
-                for width in [400.0, 640.0, 800.0] {
+                for (width, height) in [(400.0, 500.0), (640.0, 500.0), (800.0, 500.0), (400.0, 360.0), (640.0, 360.0), (800.0, 360.0)] {
                     let ctx = egui::Context::default();
                     crate::theme::install_fonts(&ctx);
                     crate::theme::apply(&ctx, brightness);
@@ -579,7 +624,7 @@ mod tests {
                     app.run("file.newDialog", json!({})).unwrap();
                     set(&mut app, "advanced", json!(true));
                     set(&mut app, super::SAVING, json!(true));
-                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 500.0));
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
                     let mut out = egui::FullOutput::default();
                     for _ in 0..4 {
                         let mut raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
@@ -588,7 +633,7 @@ mod tests {
                         out.textures_delta.clear();
                     }
                     let rect = ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", super::KIND)))).unwrap();
-                    assert!(screen.contains_rect(rect), "{brightness:?}/{scale}/{width}: {rect:?}");
+                    assert!(screen.contains_rect(rect), "{brightness:?}/{scale}/{width}x{height}: {rect:?}");
                     for label in ["Create", "Close"] {
                         let (clip, text) = out
                             .shapes
@@ -627,6 +672,97 @@ mod tests {
         assert_eq!(field(&app, "name"), "Keyboard drawing");
         assert_eq!(field(&app, super::SAVING), true);
         assert!(app.session.documents().is_empty());
+    }
+
+    #[test]
+    fn escape_closes_only_the_top_layer_and_dialog_close_restores_focus() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let invoker = egui::Id::new("new-document-invoker");
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        let draw = |app: &mut VectorcraftApp, events| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                ui.interact(egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(100.0, 28.0)), invoker, egui::Sense::click());
+                crate::shortcuts::handle(app, ui.ctx());
+                crate::dialogs::show(app, ui.ctx());
+            })
+            .textures_delta
+            .clear();
+        };
+        draw(&mut app, vec![]);
+        ctx.memory_mut(|m| m.request_focus(invoker));
+        app.run("file.newDialog", json!({})).unwrap();
+        for _ in 0..3 {
+            draw(&mut app, vec![]);
+        }
+        assert_ne!(ctx.memory(|m| m.focused()), Some(invoker));
+        egui::Popup::open_id(&ctx, egui::Id::new("nested-preset-menu"));
+        let escape =
+            || vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }];
+        draw(&mut app, escape());
+        assert!(app.ui.dialog.is_some());
+        egui::Popup::close_all(&ctx);
+        draw(&mut app, vec![]);
+        draw(&mut app, escape());
+        assert!(app.ui.dialog.is_none());
+        draw(&mut app, vec![]);
+        assert_eq!(ctx.memory(|m| m.focused()), Some(invoker));
+        assert!(app.session.documents().is_empty());
+    }
+
+    #[test]
+    fn choosing_a_hidden_category_closes_its_menu_without_creating_a_document() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install_fonts(&ctx);
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.newDialog", json!({})).unwrap();
+        let draw = |app: &mut VectorcraftApp, events| {
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 500.0))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::dialogs::show(app, ui.ctx()),
+            );
+            out.textures_delta.clear();
+            out
+        };
+        for _ in 0..3 {
+            draw(&mut app, vec![]);
+        }
+        let out = draw(&mut app, vec![]);
+        let update = out.platform_output.accesskit_update.unwrap();
+        let button = update.nodes.iter().find(|(_, node)| node.label() == Some("Document Categories")).and_then(|(_, node)| node.bounds()).unwrap();
+        let click = |app: &mut VectorcraftApp, at: egui::Pos2| {
+            for pressed in [true, false] {
+                draw(
+                    app,
+                    vec![
+                        egui::Event::PointerMoved(at),
+                        egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
+                    ],
+                );
+            }
+        };
+        click(&mut app, egui::pos2(((button.x0 + button.x1) / 2.0) as f32, ((button.y0 + button.y1) / 2.0) as f32));
+        assert!(egui::Popup::is_any_open(&ctx));
+        let out = draw(&mut app, vec![]);
+        let at = out
+            .shapes
+            .iter()
+            .rev()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == "Social" => Some(t.visual_bounding_rect().center()),
+                _ => None,
+            })
+            .unwrap();
+        click(&mut app, at);
+        draw(&mut app, vec![]);
+        assert_eq!(field(&app, "category"), "Social");
+        assert!(!egui::Popup::is_any_open(&ctx));
+        assert!(app.ui.dialog.is_some() && app.session.documents().is_empty());
     }
 
     #[test]

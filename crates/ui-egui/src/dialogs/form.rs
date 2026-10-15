@@ -40,7 +40,16 @@ pub(super) fn length_field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: 
 /// changed.
 pub(super) fn length(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32) -> bool {
     let value = d.fields.contains_key(key).then(|| d.f64(key, 0.0));
-    let Some(v) = crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width) else { return false };
+    let changed = crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width);
+    let label = match key {
+        "width" => Some(tl!("Width")),
+        "height" => Some(tl!("Height")),
+        _ => None,
+    };
+    if let Some(label) = label {
+        ui.ctx().accesskit_node_builder(ui.id().with(("dlg-len", key)), |node| node.set_label(label));
+    }
+    let Some(v) = changed else { return false };
     d.fields.insert(key.into(), json!(v));
     true
 }

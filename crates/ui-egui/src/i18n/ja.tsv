@@ -3183,3 +3183,8 @@ theme	Appearance	外観
 @msg	Image Trace: worker stopped	画像トレースの処理が停止しました
 @msg	Image Trace: working memory limit reached; reduce image size	メモリの上限です。画像サイズを下げてください
 @msg	Image Trace: complete	画像トレースが完了しました
+	Document Categories	ドキュメントのカテゴリー
+	Ready to trace	トレースできます
+	Retry Open	もう一度開く
+	Dismiss Message	メッセージを閉じる
+	Could not open {name}	{name} を開けませんでした

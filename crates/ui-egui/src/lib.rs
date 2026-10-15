@@ -537,11 +537,18 @@ impl VectorcraftApp {
     /// Run a UI or engine command by id. The single entry point for every frontend path.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
         // A file dialog it shows off the UI thread runs it again with the path picked.
-        if self.picks.is_entry_free() {
+        let result = if self.picks.is_entry_free() {
             let entry = picks::Entry::Command(id.to_string(), params.clone());
-            return picks::as_entry(self, move || entry, |app| app.run_now(id, params));
+            picks::as_entry(self, move || entry, |app| app.run_now(id, params))
+        } else {
+            self.run_now(id, params)
+        };
+        if let Err(error) = &result
+            && error != "cancelled"
+        {
+            self.error(error);
         }
-        self.run_now(id, params)
+        result
     }
 
     /// [`Self::run`] it, inside what asks for file dialogs.
@@ -562,6 +569,7 @@ impl VectorcraftApp {
         if self.services.background_trace && !cfg!(target_arch = "wasm32") && matches!(id, "imageTrace.make" | "imageTrace.makeAndExpand") {
             let result = trace_job::start(self, &params, id == "imageTrace.makeAndExpand");
             if let Err(e) = &result {
+                self.trace_job.report(&self.session, e.clone(), true);
                 self.status(e);
             }
             return result;
@@ -609,6 +617,7 @@ impl VectorcraftApp {
             Ok(v) => {
                 if id == "file.new" {
                     self.ui.status.clear();
+                    self.ui.home_notice = None;
                     // New Document's Pixel preview mode (Overprint Preview is the engine's).
                     if v["previewMode"] == "pixel" {
                         self.ui.view.pixel_preview = true;
@@ -746,6 +755,19 @@ impl VectorcraftApp {
     /// Show a transient status message.
     pub fn status(&mut self, s: impl Into<String>) {
         self.ui.status = s.into();
+        self.ui.home_notice = (menus::home_showing(self) && !self.ui.status.is_empty() && self.ui.status != "cancelled").then(|| state::HomeNotice {
+            message: self.ui.status.clone(),
+            error: false,
+            retry_path: None,
+            expires: Some(now_ms() + 6000.0),
+        });
+    }
+
+    pub(crate) fn error(&mut self, s: impl Into<String>) {
+        let message = s.into();
+        let retry_path = self.ui.home_notice.as_ref().filter(|n| n.message == message).and_then(|n| n.retry_path.clone());
+        self.ui.status = message.clone();
+        self.ui.home_notice = menus::home_showing(self).then_some(state::HomeNotice { message, error: true, retry_path, expires: None });
     }
 
     fn drain_inbox(&mut self) {
@@ -753,7 +775,7 @@ impl VectorcraftApp {
             self.services.inbox.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
         for (name, bytes) in arrived {
             if let Err(e) = io::open_bytes(self, &name, &bytes, None) {
-                self.status(format!("Couldn't open {name}: {e}"));
+                self.error(format!("Couldn't open {name}: {e}"));
             }
         }
         place::drain(self);

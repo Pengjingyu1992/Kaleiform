@@ -174,7 +174,7 @@ pub(crate) const TRACE_BUTTON_W: f32 = 104.0;
 /// The Image Trace button for a selected image (Control bar, Properties): a click traces it with
 /// the Default preset, its arrow lists the presets to trace it with.
 pub(crate) fn trace_button(app: &mut VectorcraftApp, ui: &mut Ui, width: f32) {
-    let (main, arrow) = widgets::split_button(ui, tl!("Image Trace"), width);
+    let (main, arrow) = widgets::split_button(ui, tl!("Image Trace"), tl!("Tracing Presets"), width);
     if main.on_hover_text(tl!("Trace the image with the Default preset")).clicked() {
         trace_with(app, "Default");
     }
@@ -231,7 +231,10 @@ fn trace(app: &mut VectorcraftApp, st: &mut TraceUi) {
             st.preset = st.synced["preset"].as_str().unwrap_or("Custom").into();
             st.params = st.synced["params"].clone();
         }
-        Err(e) => app.ui.status = e,
+        Err(e) => {
+            app.trace_job.report(&app.session, e.clone(), true);
+            app.ui.status = e;
+        }
     }
 }
 
@@ -328,10 +331,11 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
     sync(app, &mut st, stored);
     let before_params = st.params.clone();
     let mut retrace = false;
-    egui::ScrollArea::vertical().id_salt("image-trace-settings").max_height((height - 144.0).max(40.0)).auto_shrink([false, true]).show(ui, |ui| {
-        if !is_trace && !is_image {
-            widgets::dim_label(ui, tl!("Select an image to trace"));
-        }
+    let row = ui.spacing().interact_size.y.max(24.0);
+    // Four fixed rows keep results, progress and errors from moving the actions.
+    let footer_height = row * 4.0 + ui.spacing().item_spacing.y * 3.0 + 13.0;
+    let settings_height = (height - footer_height - ui.spacing().item_spacing.y).max(40.0);
+    egui::ScrollArea::vertical().id_salt("image-trace-settings").max_height(settings_height).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_enabled_ui(is_trace || is_image, |ui| {
             widgets::label_row(ui, tl!("Preset:"), 62.0, |ui| {
                 let names: Vec<&str> = all.iter().map(|p| p.0.as_str()).collect();
@@ -477,41 +481,64 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
     if st.params != before_params && app.trace_job.running() {
         app.trace_job.cancel();
     }
+    if st.params != before_params {
+        app.trace_job.clear_feedback();
+    }
     widgets::divider(ui);
-    if let Some((p, a, c)) = st.info {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        let width = ((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0).max(1.0);
+        let counts = st.info.map(|(p, a, c)| [p, a, c]);
+        let values = [0, 1, 2].map(|i| counts.map_or_else(|| "—".into(), |counts| counts[i].to_string()));
         let summary = crate::i18n::fmt(
             tl!("Paths: {paths}    Anchors: {anchors}    Colors: {colors}"),
-            &[("paths", &p.to_string()), ("anchors", &a.to_string()), ("colors", &c.to_string())],
+            &[("paths", &values[0]), ("anchors", &values[1]), ("colors", &values[2])],
         );
-        ui.horizontal_wrapped(|ui| {
-            for (label, count) in [(tl!("Paths:"), p), (tl!("Anchors:"), a), (tl!("Colors:"), c)] {
-                widgets::dim_label(ui, &format!("{label} {count}")).on_hover_text(&summary);
-            }
-        });
-    }
-    if st.dirty {
-        widgets::dim_label(ui, tl!("Unapplied settings"));
-    }
-    if widgets::check(ui, tl!("Preview"), st.preview, is_trace || is_image) {
-        st.preview = !st.preview;
-        if !st.preview {
-            app.trace_job.cancel();
+        for (i, label) in [tl!("Paths:"), tl!("Anchors:"), tl!("Colors:")].into_iter().enumerate() {
+            let text = format!("{label} {}", values[i]);
+            ui.add_sized(egui::vec2(width, row), egui::Label::new(egui::RichText::new(&text).size(12.0).color(t.text_dim)).truncate())
+                .on_hover_text(&summary);
         }
-        retrace = st.preview && st.dirty;
-    }
-    let mut apply = false;
-    if app.trace_job.running() {
-        ui.horizontal(|ui| {
+    });
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        if app.trace_job.running() {
             ui.spinner();
-            let stage = tl!(crate::trace_job::stage_label(app.trace_job.stage()));
+            let stage =
+                if app.trace_job.cancelled() { tl!("Cancelling Image Trace…") } else { tl!(crate::trace_job::stage_label(app.trace_job.stage())) };
             let width = (ui.available_width() - 22.0 - ui.spacing().item_spacing.x).max(1.0);
             ui.add_sized(egui::vec2(width, 22.0), egui::Label::new(stage).truncate()).on_hover_text(stage);
             if widgets::icon_button_enabled(ui, "x", tl!("Cancel Image Trace"), false, !app.trace_job.cancelled(), 22.0).clicked() {
                 app.run("imageTrace.cancel", json!({})).ok();
             }
-        });
-    }
-    ui.horizontal(|ui| {
+        } else {
+            let feedback = app.trace_job.feedback(&app.session);
+            let (message, error) = if let Some(feedback) = feedback {
+                (crate::i18n::msg(&feedback.message), feedback.error)
+            } else if st.dirty {
+                (tl!("Unapplied settings").to_string(), false)
+            } else if is_trace {
+                (crate::i18n::msg("Image Trace: complete"), false)
+            } else {
+                (if is_image { tl!("Ready to trace") } else { tl!("Select an image to trace") }.to_string(), false)
+            };
+            ui.add_sized(
+                egui::vec2(ui.available_width(), row),
+                egui::Label::new(egui::RichText::new(&message).size(12.0).color(if error { t.error } else { t.text_dim })).truncate(),
+            )
+            .on_hover_text(message);
+        }
+    });
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        if widgets::check(ui, tl!("Preview"), st.preview, is_trace || is_image) {
+            st.preview = !st.preview;
+            if !st.preview {
+                app.trace_job.cancel();
+            }
+            retrace = st.preview && st.dirty;
+        }
+    });
+    let mut apply = false;
+    ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
         let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).max(40.0);
         let r = ui
             .add_enabled_ui(is_trace || is_image, |ui| widgets::flat_button(ui, if is_trace { tl!("Update Trace") } else { tl!("Trace") }, width))
@@ -647,6 +674,40 @@ mod tests {
                 }
                 assert!(app.trace_job.cancelled());
             }
+        }
+    }
+
+    #[test]
+    fn result_counts_pending_settings_and_errors_do_not_move_trace_actions() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut app = traced_app();
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(320.0, 340.0));
+        let draw = |app: &mut VectorcraftApp| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| show_bounded(app, ui, 320.0));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if matches!(t.galley.text(), "Update Trace" | "Expand") => {
+                        let rect = t.galley.rect.translate(t.pos.to_vec2());
+                        assert!(screen.contains_rect(rect) && s.clip_rect.contains_rect(rect));
+                        Some((t.galley.text().to_string(), rect))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        draw(&mut app);
+        let expected = draw(&mut app);
+        assert_eq!(expected.len(), 2);
+        for info in [None, Some((u64::MAX, u64::MAX, u64::MAX))] {
+            let mut state: TraceUi = pstate(&ctx, "image-trace");
+            state.info = info;
+            state.dirty = true;
+            set_pstate(&ctx, "image-trace", state);
+            app.trace_job.report(&app.session, "A long synthetic trace failure ".repeat(30), true);
+            assert_eq!(draw(&mut app), expected);
         }
     }
 

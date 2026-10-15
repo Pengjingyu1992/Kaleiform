@@ -6,6 +6,15 @@ use vectorcraft_geom::Point;
 
 use crate::theme::Brightness;
 
+/// Ephemeral Home feedback; excluded from persisted preferences and the control-state snapshot.
+#[derive(Clone, Debug)]
+pub struct HomeNotice {
+    pub message: String,
+    pub error: bool,
+    pub retry_path: Option<String>,
+    pub expires: Option<f64>,
+}
+
 /// Per-document view (camera).
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct View {
@@ -287,6 +296,8 @@ pub struct UiState {
     /// Last tool shown for each toolbar group (flyout selection sticks).
     pub group_tool: Vec<String>,
     pub status: String,
+    #[serde(skip)]
+    pub home_notice: Option<HomeNotice>,
     pub palette_open: bool,
     pub palette_query: String,
     /// Screen mode: 0 normal, 1 full screen with menu, 2 full screen, 3 presentation. Not saved:
@@ -501,6 +512,7 @@ impl Default for UiState {
             flyout: None,
             group_tool: vectorcraft_tools::TOOL_GROUPS.iter().map(|g| g[0].id.to_string()).collect(),
             status: String::new(),
+            home_notice: None,
             palette_open: false,
             palette_query: String::new(),
             screen_mode: 0,

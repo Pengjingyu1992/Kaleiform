@@ -105,7 +105,7 @@ pub(crate) fn in_dialog(
             let r = if d.kind == kind { again(app, &mut d) } else { Ok(()) };
             app.ui.dialog = Some(d);
             if let Err(e) = r {
-                app.status(e);
+                app.error(e);
             }
         }))
     };
@@ -231,7 +231,9 @@ fn rerun(app: &mut VectorcraftApp, entry: Entry) {
             Ok(())
         }
     };
-    if let Err(e) = r {
-        app.status(e);
+    if let Err(e) = r
+        && e != "cancelled"
+    {
+        app.error(e);
     }
 }

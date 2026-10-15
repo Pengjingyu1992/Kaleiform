@@ -3759,3 +3759,8 @@ axis	Both	Entrambi
 @msg	Image Trace: worker stopped	La procedura di ricalco si è interrotta
 @msg	Image Trace: working memory limit reached; reduce image size	Limite di memoria raggiunto; riduci le dimensioni dell’immagine
 @msg	Image Trace: complete	Ricalco immagine completato
+	Document Categories	Categorie di documento
+	Ready to trace	Pronto per il ricalco
+	Retry Open	Riprova ad aprire
+	Dismiss Message	Chiudi messaggio
+	Could not open {name}	Impossibile aprire {name}
