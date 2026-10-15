@@ -437,6 +437,7 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     section_header(ui, tl!("Transform"));
     let fw = super::field_width(ui);
     let compact = ui.available_width() < 247.0;
+    let mut fields_left = None;
     if compact {
         ui.horizontal(|ui| {
             if let Some(i) = widgets::reference_point(ui, refi) {
@@ -447,14 +448,17 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         if !compact {
-            if let Some(i) = widgets::reference_point(ui, refi) {
-                ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
-            }
-            ui.add_space(6.0);
+            ui.allocate_ui_with_layout(egui::vec2(23.0, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_min_height(62.0);
+                ui.add_space(19.5);
+                if let Some(i) = widgets::reference_point(ui, refi) {
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
+                }
+            });
         }
         let link = app.session.prefs.constrain_proportions;
         for values in [[("X:", "x", "tx", rp.x), ("Y:", "y", "ty", rp.y)], [("W:", "width", "tw", b.width()), ("H:", "height", "th", b.height())]] {
-            widgets::field_group(ui, |ui| {
+            let group = widgets::input_frame(ui, false).inner_margin(egui::Margin::symmetric(3, 2)).show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     for (label, key, id, value) in values {
@@ -474,15 +478,25 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
                     }
                 });
             });
+            fields_left.get_or_insert(group.response.rect.left());
         }
         if !compact {
-            super::transform::constrain_link(app, ui);
+            ui.allocate_ui_with_layout(egui::vec2(24.0, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_min_height(62.0);
+                ui.add_space(20.0);
+                super::transform::constrain_link(app, ui);
+            });
         }
     });
     let fw = super::field_width(ui);
     ui.horizontal(|ui| {
-        let icon = icons::icon(ui, "rotate-ccw", 16.0, Tokens::get(ui.ctx()).icon);
-        crate::scrub::note_label(ui, icon.rect);
+        let gutter =
+            if compact { 16.0 } else { (fields_left.unwrap_or(ui.cursor().left()) - ui.cursor().left() - ui.spacing().item_spacing.x).max(16.0) };
+        ui.allocate_ui_with_layout(egui::vec2(gutter, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_min_width(gutter);
+            let icon = icons::icon(ui, "rotate-ccw", 16.0, Tokens::get(ui.ctx()).icon);
+            crate::scrub::note_label(ui, icon.rect);
+        });
         // The bounding box's angle: a new value turns the selection to it.
         if let Some(a) = widgets::plain_field(ui, "rot", bx.angle, "°", 2, fw) {
             app.run("object.rotate", json!({"angle": a, "absolute": true})).ok();
@@ -643,6 +657,59 @@ mod tests {
         };
         let widths = [field("35 pt"), field("0°"), field("0 pt"), field("100%")];
         assert!(widths.iter().all(|w| (w - widths[0]).abs() < 1.0), "X, rotation, corner radius, opacity: {widths:?}");
+    }
+
+    #[test]
+    fn transform_groups_have_insets_and_align_with_rotation() {
+        for width in [230.0, 300.0, 440.0] {
+            let mut app = VectorcraftApp::new(Session::new(), Default::default());
+            app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+            app.run("shape.rectangle", json!({"x": 10, "y": 10, "width": 50, "height": 40})).unwrap();
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            crate::theme::apply(&ctx, Default::default());
+            for _ in 0..3 {
+                let mut out = ctx
+                    .run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 700.0))), ..Default::default() }, |ui| {
+                        transform_section(&mut app, ui)
+                    });
+                out.textures_delta.clear();
+                let text_at = |label: &str| {
+                    out.shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == label => Some(Rect::from_min_size(t.pos, t.galley.size())),
+                            _ => None,
+                        })
+                        .unwrap()
+                };
+                let surfaces: Vec<_> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Rect(r) if r.fill == Tokens::get(&ctx).input => Some(r.rect),
+                        _ => None,
+                    })
+                    .collect();
+                let x = text_at("X:");
+                let xy = surfaces.iter().find(|r| r.contains_rect(x) && r.height() > 50.0).unwrap();
+                assert!(x.left() - xy.left() >= 3.0, "{width}: label touches group edge");
+                assert!(surfaces.iter().all(|r| r.right() <= width + 1.0), "{width}: {surfaces:?}");
+                if width >= 300.0 {
+                    let rotation = surfaces.iter().find(|r| r.contains_rect(text_at("0°")) && r.height() < 40.0).unwrap();
+                    assert!((rotation.left() - xy.left()).abs() < 1.0, "{width}: rotation {rotation:?}, group {xy:?}");
+                    let reference = out
+                        .shapes
+                        .iter()
+                        .filter_map(|s| match &s.shape {
+                            egui::Shape::Rect(r) if r.rect.size() == vec2(5.0, 5.0) => Some(r.rect),
+                            _ => None,
+                        })
+                        .fold(Rect::NOTHING, |a, b| a.union(b));
+                    assert!((reference.center().y - xy.center().y).abs() <= 1.0, "{width}: reference {reference:?}, group {xy:?}");
+                }
+            }
+        }
     }
 
     /// #530: Edit Artboards shows the active artboard, with New Artboard, Delete Artboard and Exit.

@@ -247,6 +247,14 @@ fn slider(ui: &mut Ui, label: &str, v: &mut f64, range: std::ops::RangeInclusive
             .push_id(("trace-slider", label), |ui| {
                 ui.spacing_mut().slider_width = width;
                 ui.spacing_mut().slider_rail_height = 3.0;
+                // Shrink only the painted handle, keeping the standard slider's full hit area.
+                let visuals = &mut ui.visuals_mut().widgets;
+                for state in [&mut visuals.inactive, &mut visuals.noninteractive] {
+                    state.expansion = -4.0;
+                }
+                for state in [&mut visuals.hovered, &mut visuals.active] {
+                    state.expansion = -3.0;
+                }
                 ui.add(egui::Slider::new(v, range).integer().show_value(false).trailing_fill(true).handle_shape(egui::style::HandleShape::Circle))
             })
             .inner;
@@ -801,6 +809,34 @@ mod tests {
             draw(vec![Event::Key { key: egui::Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }]);
         assert_eq!(changed, (true, true));
         assert!(value > 50.0);
+    }
+
+    #[test]
+    fn small_slider_handles_keep_the_full_height_hit_area() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, Default::default());
+        let mut value = 50.0;
+        for events in
+            [vec![], vec![Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }]]
+        {
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                slider(ui, "Paths", &mut value, 0.0..=100.0, "%");
+            });
+            out.textures_delta.clear();
+            let circles: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Circle(c) => Some(c),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(circles.len(), 1);
+            assert!(circles[0].radius <= 7.0, "painted handle is too large: {}", circles[0].radius);
+        }
+        let focused = ctx.memory(|m| m.focused()).unwrap();
+        assert!(ctx.read_response(focused).unwrap().rect.height() >= 24.0, "small paint must not shrink the pointer target");
     }
 
     #[test]
