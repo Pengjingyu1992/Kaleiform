@@ -17,8 +17,8 @@
 它不是从零编写的全新绘图引擎，也不是 VectorCraft / ArtCraft 的官方发行版。
 上游代码、作者和第三方资产的版权及许可声明均予以保留。
 
-**当前 macOS 修正版为 `0.7.0-kaleiform.6-hotfix.1`，Linux 下载仍为预览 6。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
-开发源码 `0.7.0-kaleiform.11` 在第二轮界面轻量化基础上推进大选区响应优化：选区对象、图层颜色与混合脊线按变化缓存，右键菜单批量查询对象，仅改变选区不再重算整张图稿。见 [性能第三轮](docs/performance-round3.md)、[界面质感第二轮](docs/polish-round2.md) 和 [稳定性第一轮](docs/stability-round1.md)。下面的公开下载仍为已发布版本。
+**当前 macOS 预览版为 [`0.7.0-kaleiform.11`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.11)，Linux 下载仍为预览 6。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
+预览 11 汇总后台描摹与首帧渲染、第二轮界面轻量化和第三轮大选区响应优化：选区对象、图层颜色与混合脊线按变化缓存，右键菜单批量查询对象，仅改变选区不再重算整张图稿。见 [性能第三轮](docs/performance-round3.md)、[界面质感第二轮](docs/polish-round2.md) 和 [稳定性第一轮](docs/stability-round1.md)。
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
 当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 和 **Linux x86_64** 预览安装包。
@@ -44,7 +44,7 @@ Linux 的 deb、rpm、AppImage 和便携压缩包见 [预览 6 下载](https://g
 ## 下载与安装
 
 1. 打开 [Releases](https://github.com/Pengjingyu1992/Kaleiform/releases)，选择最新的虹构预览版。
-2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.6-hotfix.1-macos-arm64.dmg`。
+2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.11-macos-arm64.dmg`。
 3. 打开 DMG，将 **虹构.app** 拖入 **Applications / 应用程序**，从应用程序文件夹启动。
 4. 本版只有 ad-hoc 本地签名，**没有 Apple Developer ID 签名或公证**。如果 macOS 拦截，
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。
