@@ -413,6 +413,7 @@ pub(super) fn encode_ai(cmd: &str, f: &Format, doc: &Document, params: &Value) -
 /// Snapshot the active document for `plan` (stamping File Info's dates when the file becomes the
 /// document's own). Bad options fail here, before anything is encoded.
 pub fn save_job(s: &mut Session, plan: SavePlan) -> Result<SaveJob> {
+    s.materialize_deferred_move()?;
     // The web build, without a clock, leaves the dates unless given one.
     if plan.path.is_some()
         && plan.retargets()

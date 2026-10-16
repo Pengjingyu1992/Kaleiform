@@ -1,4 +1,6 @@
 # Ukrainian (uk) catalog. Same format as zh-hant.tsv: context <TAB> source <TAB> translation.
+@msg	Rendering failed: {e}	Помилка відтворення: {e}
+@msg	move preview exceeds its display memory budget	попередній перегляд переміщення перевищує ліміт пам'яті
 # Empty context = a plain UI string; @plural = one|few|many; @msg = a status/error template.
 #
 # Clean-room: translations of Kaleiform's labels, reviewed against their English meaning.

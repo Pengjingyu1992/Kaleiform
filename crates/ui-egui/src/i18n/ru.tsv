@@ -1,4 +1,6 @@
 # Russian (ru) catalog. Same format as zh-hant.tsv:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	Ошибка отрисовки: {e}
+@msg	move preview exceeds its display memory budget	предпросмотр перемещения превышает лимит памяти
 # (empty context = a plain UI string; `@id` = a command id; `@plural` = "one|other" forms).
 #
 # Clean-room: written from the meaning of Kaleiform's English labels in neutral, international

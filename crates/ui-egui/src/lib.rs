@@ -35,6 +35,7 @@ pub mod icon_data;
 pub mod icons;
 pub mod io;
 pub mod menus;
+mod move_preview;
 pub mod native_menu;
 pub mod palette;
 pub mod panels;
@@ -50,6 +51,8 @@ pub mod shortcut_editor;
 pub mod shortcuts;
 pub mod state;
 pub mod sysclip;
+#[cfg(test)]
+mod tests_drag_preview;
 pub mod theme;
 pub mod titlebar;
 pub mod toolbar;
@@ -257,6 +260,7 @@ pub struct Services {
 
 /// Cached canvas raster.
 pub struct CanvasCache {
+    pub(crate) move_preview: Option<move_preview::Cache>,
     pub renderer: vectorcraft_render::Renderer,
     pub texture: Option<egui::TextureHandle>,
     pub glass: glass::BackdropCache,
@@ -301,6 +305,8 @@ pub struct CacheKey {
     pub trim: bool,
     pub ppp: f32,
     pub hidden: Vec<u64>,
+    /// Selection revision used by an ordered move-preview scene; None for a full raster.
+    pub move_preview: Option<u64>,
     pub rot: f64,
     /// General › Anti-aliased Artwork.
     pub anti_alias: bool,
@@ -427,6 +433,7 @@ impl VectorcraftApp {
             views,
             services,
             canvas: CanvasCache {
+                move_preview: None,
                 renderer: vectorcraft_render::Renderer::new(),
                 texture: None,
                 glass: Default::default(),
@@ -543,6 +550,7 @@ impl VectorcraftApp {
 
     /// Run a UI or engine command by id. The single entry point for every frontend path.
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.session.materialize_deferred_move().map_err(|e| e.to_string())?;
         // A file dialog it shows off the UI thread runs it again with the path picked.
         let result = if self.picks.is_entry_free() {
             let entry = picks::Entry::Command(id.to_string(), params.clone());
@@ -820,11 +828,11 @@ impl VectorcraftApp {
         if let Some((k, b)) = self.canvas.selection_box
             && k == key
         {
-            return b;
+            return move_selection_box(b, self.session.deferred_move());
         }
         let b = self.session.transform_box(&st.selection.objects);
         self.canvas.selection_box = Some((key, b));
-        b
+        move_selection_box(b, self.session.deferred_move())
     }
 
     /// The selection's visual bounds (stroke and effects included), square to the page: measured
@@ -836,12 +844,25 @@ impl VectorcraftApp {
         if let Some((k, b)) = self.canvas.selection_bounds
             && k == key
         {
-            return b;
+            return b.map(|b| b + self.session.deferred_move().map_or(vectorcraft_geom::Vec2::ZERO, |m| m.offset));
         }
         let b = st.doc.bounds_of(&st.selection.objects, true);
         self.canvas.selection_bounds = Some((key, b));
-        b
+        b.map(|b| b + self.session.deferred_move().map_or(vectorcraft_geom::Vec2::ZERO, |m| m.offset))
     }
+}
+
+fn move_selection_box(
+    b: Option<vectorcraft_doc::OrientedBox>,
+    movement: Option<vectorcraft_engine::DeferredMove>,
+) -> Option<vectorcraft_doc::OrientedBox> {
+    b.map(|mut b| {
+        if let Some(movement) = movement {
+            let local = b.to_doc().inverse() * movement.offset.to_point();
+            b.rect = b.rect + local.to_vec2();
+        }
+        b
+    })
 }
 
 /// eframe isn't a dependency of this crate (the host owns the event loop); these entry points are

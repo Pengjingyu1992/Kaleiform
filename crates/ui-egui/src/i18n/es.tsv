@@ -1,4 +1,6 @@
 # Spanish (es) catalog. Same format as zh-hant.tsv:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	Falló el renderizado: {e}
+@msg	move preview exceeds its display memory budget	la vista previa de movimiento supera su presupuesto de memoria
 # (empty context = a plain UI string; `@id` = a command id; `@plural` = "one|other" forms).
 #
 # Clean-room: written from the meaning of Kaleiform's English labels in neutral, international

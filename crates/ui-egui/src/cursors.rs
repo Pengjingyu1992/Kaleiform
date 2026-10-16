@@ -569,6 +569,14 @@ mod tests {
         for _ in 0..3 {
             idle = frame(&mut app, &ctx, vec![]);
         }
+        let started = std::time::Instant::now();
+        while app.canvas.worker.as_ref().is_some_and(|w| w.pending.is_some())
+            || idle.viewport_output.get(&egui::ViewportId::ROOT).is_some_and(|v| v.repaint_delay <= std::time::Duration::from_millis(100))
+        {
+            assert!(started.elapsed() < std::time::Duration::from_secs(5), "window never idled: {:?}", ctx.repaint_causes());
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            idle = frame(&mut app, &ctx, vec![]);
+        }
         let delay = idle.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay).unwrap();
         assert!(delay > std::time::Duration::from_millis(100), "{delay:?} {:?}", ctx.repaint_causes());
         // Off the canvas, the panels' cursors.

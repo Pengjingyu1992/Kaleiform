@@ -616,6 +616,7 @@ fn fresh_name(area: &str, stem: &str, taken: &[String]) -> String {
 /// when it has none and a copy is needed) → (jobs, skipped: `[{title, reason}]` for modified
 /// documents that get none).
 pub fn jobs(s: &mut Session, store: &Arc<dyn RecoveryStore>) -> Result<(Vec<RecoveryJob>, Vec<Value>)> {
+    s.materialize_deferred_move()?;
     // Copies another app removed are written again.
     repair(s);
     let skipped: Vec<Value> = s

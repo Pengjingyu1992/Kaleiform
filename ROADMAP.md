@@ -105,7 +105,8 @@ Ordered by how much each gap blocks someone from switching. Sizes are one-agent 
    Desktop Image Trace also runs off-thread with cancellation, bounded latest requests and stale-result checks;
    first canvas frames/document switches render off-thread. Round 3 caches selection overlay metadata, removes
    repeated per-object context-menu lookups and avoids rasterizing selection-only revisions. Broader latency
-   profiling and incremental redraw remain open.
+   profiling and incremental redraw remain open. M14.151 adds bounded cached display surfaces for
+   eligible dense RGB moves; other transforms and unsupported compositing retain full previews.
    including dialog previews. Cancelled/stale results keep the original art; exact reproduction
    and algorithmic optimization of the earlier random slow case remain open. Dense Ungroup's selection
    sanity/pruning and the following frame's bounds, stroke, recolor, blend and path-type overlay
@@ -129,6 +130,14 @@ When a task lands, update this section, the parity table and "Shipped so far" in
 grade by behaviour against `plan/illustrator/`, not by whether a menu item exists.
 
 ## Shipped so far
+
+- **Dense artwork moves (2026-10-16, M14.151, local .12):** eligible RGB Selection-tool
+  translations use bounded ordered transparent display surfaces, with an engine-owned deferred
+  command materialized on release/save/recovery. Single-root copy, cancellation and one-step
+  undo preserve editable geometry. Bulk root mutation and move-guide collection remove repeated
+  tree searches. Other transforms and backdrop-dependent/unsupported views retain the existing
+  path; first preview construction and final exact rendering remain costs. See
+  [dense-drag scope](docs/dense-drag.md). No cross-platform maturity/parity-score increase.
 
 - **Visible save formats (2026-10-13, M4.148):** macOS Save/Save As document panels add an
   explicit format dropdown; switching it updates the filename and allowed extension before
@@ -342,7 +351,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M11 | Artboards & views (artboard panel/tool, Trim View, middle-button pan, print tiling and the status bar's artboard navigator done; multiple windows, presentation polish) | 🟡 | 15–25 |
 | M12 | Advanced color & art (CMYK/ICC, separations, Gradient Mesh, Live Paint, Image Trace, Graphs) | 🟡 Gradient Mesh, Live Paint, Image Trace (13 presets, 18 ms/1k² image; the Flat Logo mode places edges to a fraction of a pixel, restores sharp corners, snaps lines and circles, and refuses gradients), Recolor Artwork, colour management (ICC, soft proofing, separations preview), Graphs (all 9 tools, Graph Data/Type, regenerate in place) done; graph Design/Column/Marker designs pending | 6–10 |
 | M13 | Automation (Actions ✅ record/playback, persisted; variables, scripting, batch) | 🟡 | 18–27 |
-| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149), privacy-gated additive Linux publishing (M14.150); accessibility, Windows packaging and broader Linux hardware QA pending | 18–28 |
+| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149), privacy-gated additive Linux publishing (M14.150); cached dense RGB moves added (M14.151); accessibility, Windows packaging and broader Linux hardware QA pending | 18–28 |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |
@@ -381,7 +390,7 @@ about 1–1.5 agent-hours each, so the other rows (estimated on the older scale)
 | Export for Screens, Asset Export, slices, Save for Web | 3 | 85% | polish only (all four are done) | 2–4 |
 | Print, colour management, separations, flattener | 3 | 80% | print preview fidelity (flattener presets in PDF and print, overprint in PDF and composite print, Print dialog, presets, PostScript, marks, separations, Print Tiling, print overprint/flattener/bitmap options and printer profile are done) | 1–2 |
 | Automation | 3 | 60% | Variables (data merge), scripting surface, batch | 8–12 |
-| UI chrome (panels, contextual Properties, workspaces, prefs) | 6 | 78% | macOS native menu dismissal fixed (M14.8), Home recent thumbnails added (M14.146); remaining: Variables, SVG Interactivity, Properties per context, Consolidate All Windows, floating panels outside the app window and docked into any group, context menus beyond the canvas (Links, Asset Export, CSS Properties, Attributes and the canvas context menu are done), about 20 Preferences options stored but not yet acted on (#394: Spacing Guides, Show Font Names in English, Highlight Alternate Glyphs, Display Print Size, Open Documents As Tabs, Real-time Drawing, hyphenation, Appearance of Black, devices…) | 14–22 |
+| UI chrome (panels, contextual Properties, workspaces, prefs) | 6 | 78% | macOS native menu dismissal fixed (M14.8), Home recent thumbnails added (M14.146); cached dense RGB moves added (M14.151); remaining: Variables, SVG Interactivity, Properties per context, Consolidate All Windows, floating panels outside the app window and docked into any group, context menus beyond the canvas (Links, Asset Export, CSS Properties, Attributes and the canvas context menu are done), about 20 Preferences options stored but not yet acted on (#394: Spacing Guides, Show Font Names in English, Highlight Alternate Glyphs, Display Print Size, Open Documents As Tabs, Real-time Drawing, hyphenation, Appearance of Black, devices…) | 14–22 |
 | Libraries, Links, Package | 2 | 80% | the Libraries panel is local only (no cloud by design: libraries are files on this machine) and has no shared libraries, linked graphics or gradients and patterns as items yet; its graphics, colours and text styles are done (#745); Links and Package are done; placed VectorCraft documents are done (linked by default, vectors in every output, previews, Break Link, Expand, Edit Original, refresh on save) | 2–3 |
 | **Feature parity** | **103** | **~75%** | | **~210–330** |
 | Interaction-fidelity pass (side by side with Illustrator: every tool modifier, cursor, dialog, Properties context) | | | | 60–90 |

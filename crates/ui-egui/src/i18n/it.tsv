@@ -1,4 +1,6 @@
 # Italian (it) catalog. Same format as zh-hant.tsv:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	Rendering non riuscito: {e}
+@msg	move preview exceeds its display memory budget	l'anteprima dello spostamento supera il limite di memoria
 # (empty context = a plain UI string; `@id` = a command id; `@plural` = "one|other" forms).
 #
 # Clean-room: written from the meaning of Kaleiform's English labels in standard Italian, using the

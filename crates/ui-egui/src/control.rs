@@ -100,6 +100,7 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
             "generation": app.canvas.key.as_ref().map(|k| k.revision),
             "pending": app.canvas.worker.as_ref().and_then(|w| w.pending.as_ref()).is_some(),
         },
+        "movePreview": crate::move_preview::inspect(app),
         "graphicsAdapter": app.graphics_adapter,
         // The menus are in the macOS menu bar rather than the window.
         "nativeMenuBar": app.services.native_menu.is_some(),
@@ -183,7 +184,9 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context, req: &ControlReques
                 }
             }
             ctx.request_repaint();
-            wrap(app.run("document.inspect", json!({})).map(|d| json!({"selection": d["selection"], "tool": app.session.tool_id()})))
+            ok(
+                json!({"selection": app.session.active().map(|st| st.selection.objects.iter().map(|id| id.0).collect::<Vec<_>>()).unwrap_or_default(), "tool": app.session.tool_id()}),
+            )
         }
         "ui.key" => {
             let Some(k) = s("key").and_then(key_from) else { return err("unknown or missing `key`") };

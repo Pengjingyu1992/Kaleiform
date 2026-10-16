@@ -819,6 +819,46 @@ impl Document {
         Some(Arc::make_mut(cur))
     }
 
+    /// Mutate selected roots in one tree pass, cloning only changed nodes and their ancestors.
+    /// A listed ancestor suppresses listed descendants, as Selection-tool transforms do.
+    pub fn for_each_root_mut(&mut self, roots: &[NodeId], mut change: impl FnMut(&mut Node)) {
+        let selected: std::collections::HashSet<_> = roots.iter().copied().collect();
+        let mut branches = std::collections::HashSet::new();
+        fn gather(n: &Node, selected: &std::collections::HashSet<NodeId>, branches: &mut std::collections::HashSet<NodeId>) -> bool {
+            if selected.contains(&n.id) {
+                branches.insert(n.id);
+                return true;
+            }
+            let mut found = false;
+            for child in n.children().into_iter().flatten() {
+                found |= gather(child, selected, branches);
+            }
+            if found {
+                branches.insert(n.id);
+            }
+            found
+        }
+        for n in &self.layers {
+            gather(n, &selected, &mut branches);
+        }
+        fn apply(
+            nodes: &mut [Arc<Node>],
+            selected: &std::collections::HashSet<NodeId>,
+            branches: &std::collections::HashSet<NodeId>,
+            change: &mut impl FnMut(&mut Node),
+        ) {
+            for node in nodes.iter_mut().filter(|n| branches.contains(&n.id)) {
+                let n = Arc::make_mut(node);
+                if selected.contains(&n.id) {
+                    change(n);
+                } else if let Some(children) = n.children_mut() {
+                    apply(children, selected, branches, change);
+                }
+            }
+        }
+        apply(&mut self.layers, &selected, &branches, &mut change);
+    }
+
     /// Children list of a container (or the top-level layer list for `None`).
     pub fn children_mut(&mut self, parent: Option<NodeId>) -> Result<&mut Vec<Arc<Node>>, DocError> {
         match parent {
@@ -1303,6 +1343,8 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod tests_root_mut;
 #[cfg(test)]
 mod tests_slices;
 #[cfg(test)]

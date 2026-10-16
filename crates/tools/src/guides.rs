@@ -81,7 +81,7 @@ pub struct Targets {
     rulers: Vec<Ruler>,
     /// The bounds of the objects a moved selection spaces itself evenly with (Spacing Guides):
     /// gathered only for moves ([`Self::for_move`]).
-    boxes: Vec<Rect>,
+    boxes: [Vec<Rect>; 2],
     /// How the guides these targets produce look.
     style: GuideStyle,
 }
@@ -168,9 +168,26 @@ fn object_boxes(doc: &Document, moving: &[NodeId]) -> Vec<Rect> {
             }
         }
     }
-    let holders: HashSet<NodeId> = moving.iter().filter_map(|id| doc.ancestry(*id)).flatten().collect();
+    fn gather(n: &Node, moving: &HashSet<NodeId>, holders: &mut HashSet<NodeId>) -> bool {
+        if moving.contains(&n.id) {
+            return true;
+        }
+        let mut found = false;
+        for child in n.children().into_iter().flatten() {
+            found |= gather(child, moving, holders);
+        }
+        if found {
+            holders.insert(n.id);
+        }
+        found
+    }
+    let moving: HashSet<_> = moving.iter().copied().collect();
+    let mut holders = HashSet::new();
+    for node in &doc.layers {
+        gather(node, &moving, &mut holders);
+    }
     let mut out = vec![];
-    push(&doc.layers, &moving.iter().copied().collect(), &holders, &mut out);
+    push(&doc.layers, &moving, &holders, &mut out);
     out
 }
 
@@ -184,7 +201,11 @@ impl Targets {
     pub fn for_move(cx: &ToolContext) -> Self {
         let mut t = Self::collect(cx.doc, &cx.selection.objects, None).styled(cx);
         if cx.spacing_guides {
-            t.boxes = object_boxes(cx.doc, &cx.selection.objects);
+            let boxes = object_boxes(cx.doc, &cx.selection.objects);
+            t.boxes = [boxes.clone(), boxes];
+            for (axis, boxes) in t.boxes.iter_mut().enumerate() {
+                boxes.sort_by(|a, b| span(a, axis == 0).0.total_cmp(&span(b, axis == 0).0));
+            }
         }
         t
     }
@@ -565,7 +586,7 @@ impl Targets {
     pub fn snap_rects(&self, rects: &[Rect], tol: f64) -> (Vec2, Vec<Overlay>) {
         let (mut d, mut ov, aligned) = self.align_rects(rects, tol);
         if let [r] = rects
-            && !self.boxes.is_empty()
+            && !self.boxes[0].is_empty()
         {
             let moved = *r + d;
             let mut spaced = false;
@@ -596,13 +617,14 @@ impl Targets {
         let len = r1 - r0;
         let (c0, c1) = span(&r, !x);
         // The objects beside it, before or after, overlapping it across, by where they start.
-        let mut row: Vec<(Rect, f64, f64)> = self
+        let row: Vec<(Rect, f64, f64)> = self
             .boxes
-            .iter()
+            .get(usize::from(!x))
+            .into_iter()
+            .flatten()
             .map(|b| (*b, span(b, x).0, span(b, x).1))
             .filter(|(b, a0, a1)| span(b, !x).0 < c1 && span(b, !x).1 > c0 && (*a1 <= r0 + tol || *a0 >= r1 - tol))
             .collect();
-        row.sort_by(|a, b| a.1.total_cmp(&b.1));
         // Where two boxes overlap across: the middle of that (or of the space between them).
         let mid = |a: &Rect, b: &Rect| (span(a, !x).0.max(span(b, !x).0) + span(a, !x).1.min(span(b, !x).1)) / 2.0;
         // Each object and the nearest one after it, unless the moved rectangle sits between them.

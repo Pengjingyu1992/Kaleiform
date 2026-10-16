@@ -1,4 +1,6 @@
 # French (fr) catalog. Same format as zh-hant.tsv:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	Échec du rendu : {e}
+@msg	move preview exceeds its display memory budget	l'aperçu du déplacement dépasse son budget mémoire
 # (empty context = a plain UI string; `@id` = a command id; `@plural` = "one|other" forms).
 #
 # Clean-room: written from the meaning of Kaleiform's English labels in standard French, using the

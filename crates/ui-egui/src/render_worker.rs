@@ -26,6 +26,21 @@ pub struct Done {
     pub ms: f64,
 }
 
+pub struct SceneDone {
+    pub key: CacheKey,
+    pub images: Result<Vec<crate::move_preview::PartImage>, String>,
+}
+
+struct Request {
+    job: Job,
+    scene: Option<Arc<crate::move_preview::Scene>>,
+}
+
+enum Output {
+    Raster(Rendered),
+    Scene(Result<Vec<crate::move_preview::PartImage>, String>),
+}
+
 pub struct Worker {
     wake: SyncSender<()>,
     mailbox: Arc<Mutex<Mailbox>>,
@@ -35,8 +50,9 @@ pub struct Worker {
 
 #[derive(Default)]
 struct Mailbox {
-    job: Option<(u64, Job)>,
+    job: Option<(u64, Request)>,
     done: Option<Done>,
+    scene: Option<SceneDone>,
     failed: Option<(CacheKey, String)>,
 }
 
@@ -56,16 +72,25 @@ impl Worker {
             .spawn(move || {
                 let mut r = Renderer::new();
                 while rx.recv().is_ok() {
-                    let Some((serial, job)) = shared.lock().ok().and_then(|mut m| m.job.take()) else { continue };
+                    let Some((serial, Request { job, scene })) = shared.lock().ok().and_then(|mut m| m.job.take()) else { continue };
                     let t0 = crate::now_ms();
-                    let image = vectorcraft_engine::guard::catch_panic(|| r.render(&job.doc, job.w, job.h, job.view, &job.opts));
+                    let is_scene = scene.is_some();
+                    let image = vectorcraft_engine::guard::catch_panic(|| match scene {
+                        Some(scene) => Output::Scene(scene.render(&mut r, job.w, job.h, job.view, &job.opts)),
+                        None => Output::Raster(r.render(&job.doc, job.w, job.h, job.view, &job.opts)),
+                    });
                     if let Ok(mut m) = shared.lock()
                         && latest.load(Ordering::Acquire) == serial
                     {
                         match image {
-                            Ok(img) => m.done = Some(Done { key: job.key, img, ms: crate::now_ms() - t0 }),
+                            Ok(Output::Raster(img)) => m.done = Some(Done { key: job.key, img, ms: crate::now_ms() - t0 }),
+                            Ok(Output::Scene(images)) => m.scene = Some(SceneDone { key: job.key, images }),
                             Err(e) => {
-                                m.failed = Some((job.key, format!("Rendering failed: {e}")));
+                                if is_scene {
+                                    m.scene = Some(SceneDone { key: job.key, images: Err(format!("Rendering failed: {e}")) });
+                                } else {
+                                    m.failed = Some((job.key, format!("Rendering failed: {e}")));
+                                }
                                 r = Renderer::new();
                             }
                         }
@@ -78,14 +103,23 @@ impl Worker {
     }
 
     pub fn submit(&mut self, job: Job) {
+        self.submit_request(job, None);
+    }
+
+    pub fn submit_scene(&mut self, job: Job, scene: Arc<crate::move_preview::Scene>) {
+        self.submit_request(job, Some(scene));
+    }
+
+    fn submit_request(&mut self, job: Job, scene: Option<Arc<crate::move_preview::Scene>>) {
         if self.pending.as_ref() == Some(&job.key) {
             return;
         }
         if let Ok(mut m) = self.mailbox.lock() {
             let serial = self.generation.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
             self.pending = Some(job.key.clone());
-            m.job = Some((serial, job));
+            m.job = Some((serial, Request { job, scene }));
             m.done = None;
+            m.scene = None;
             m.failed = None;
             // One queued wake already covers the newest request.
             let _ = self.wake.try_send(());
@@ -108,6 +142,27 @@ impl Worker {
         self.pending = None;
         Some(error)
     }
+
+    pub fn poll_scene(&mut self) -> Option<SceneDone> {
+        let done = self.mailbox.lock().ok()?.scene.take()?;
+        if self.pending.as_ref() != Some(&done.key) {
+            return None;
+        }
+        self.pending = None;
+        Some(done)
+    }
+
+    pub fn cancel_scene(&mut self) {
+        if self.pending.as_ref().is_some_and(|key| key.move_preview.is_some()) {
+            self.generation.fetch_add(1, Ordering::AcqRel);
+            self.pending = None;
+            if let Ok(mut mailbox) = self.mailbox.lock() {
+                mailbox.job = None;
+                mailbox.scene = None;
+                mailbox.done = None;
+            }
+        }
+    }
 }
 
 impl Drop for Worker {
@@ -116,6 +171,7 @@ impl Drop for Worker {
         if let Ok(mut m) = self.mailbox.lock() {
             m.job = None;
             m.done = None;
+            m.scene = None;
         }
     }
 }
@@ -139,6 +195,7 @@ mod tests {
                 trim: false,
                 ppp: 1.0,
                 hidden: vec![],
+                move_preview: None,
                 rot: 0.0,
                 anti_alias: true,
                 placed: 0,

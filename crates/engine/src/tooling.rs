@@ -479,7 +479,7 @@ impl Session {
         for a in acts {
             match a {
                 Action::Begin(label) => self.begin_interaction(&label)?,
-                Action::Preview(cmd, p) => match self.preview(&cmd, &p) {
+                Action::Preview(cmd, p) => match self.preview_tool_action(&cmd, &p) {
                     Ok(v) => {
                         if let Some(w) = v.get("warning").and_then(Value::as_str)
                             && !ui.iter().any(|r| matches!(r, UiRequest::Status(s) if s == w))

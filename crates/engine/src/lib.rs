@@ -9,6 +9,7 @@
 pub mod cmd;
 pub mod guard;
 pub mod inspect;
+mod move_preview;
 mod tooling;
 pub mod units;
 
@@ -27,6 +28,7 @@ pub use cmd::pathops::{OffsetResult, OffsetTask};
 pub use cmd::rasterfx::{export_pdf, flatten_raster_effects};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
 pub use cmd::{TraceResult, TraceTask};
+pub use move_preview::DeferredMove;
 pub use tooling::{UiRequest, ViewInfo};
 pub use vectorcraft_doc as doc;
 pub use vectorcraft_tools as tools;
@@ -89,6 +91,8 @@ pub struct Interaction {
     /// The perspective transform the previews make (`perspective.transform` params): Transform
     /// Again repeats it once the drag is committed.
     pub perspective_again: Option<Value>,
+    /// A host-rendered translation whose geometry is applied once when materialized.
+    pub deferred_move: Option<DeferredMove>,
 }
 
 /// An open undo group ([`Session::begin_undo_group`]): the edits made in it are one undo step.
@@ -258,6 +262,7 @@ impl DocState {
     /// Unsaved changes: the document differs from the saved one (selection changes don't count).
     pub fn is_dirty(&self) -> bool {
         !Arc::ptr_eq(&self.doc, &self.saved_doc)
+            || self.interaction.as_ref().and_then(|i| i.deferred_move).is_some_and(|m| m.copy || m.offset != vectorcraft_geom::Vec2::ZERO)
     }
     /// Record the current document as saved.
     pub fn mark_saved(&mut self) {
@@ -779,6 +784,7 @@ impl Default for Prefs {
 }
 
 pub struct Session {
+    move_preview: Option<move_preview::PreparedMove>,
     pending_offset: Option<OffsetResult>,
     pending_trace: Option<TraceResult>,
     docs: Vec<DocState>,
@@ -879,6 +885,7 @@ impl Session {
         vectorcraft_doc::placed_document::set_loader(cmd::place::document::read_document);
         vectorcraft_doc::placed_document::set_file_reader(cmd::place::document::read_file_again);
         Self {
+            move_preview: None,
             docs: vec![],
             pending_offset: None,
             pending_trace: None,
@@ -947,6 +954,7 @@ impl Session {
     /// Finish the tool's pending work in the current document and give it fresh state, so nothing
     /// (e.g. uncommitted typing) leaks into the document we are switching to.
     fn reset_tool_for_doc_switch(&mut self) {
+        self.clear_move_preview();
         if self.active.is_none() {
             return;
         }
@@ -1060,6 +1068,9 @@ impl Session {
 
     /// Execute a command by id. This is THE entry point for every frontend.
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
+        if self.depth == 0 && !self.in_tool_actions {
+            self.materialize_deferred_move()?;
+        }
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
         if let Err(why) = (spec.enabled)(self) {
             return Err(EngineError::Disabled(id.to_string(), why));
@@ -1267,6 +1278,7 @@ impl Session {
             layer_rows: st.layer_rows.clone(),
             isolation: st.isolation,
             perspective_again: None,
+            deferred_move: None,
         });
         Ok(())
     }
@@ -1275,6 +1287,9 @@ impl Session {
     pub fn preview(&mut self, cmd: &str, params: &Value) -> Result<Value> {
         {
             let st = self.doc_mut()?;
+            if let Some(it) = &mut st.interaction {
+                it.deferred_move = None;
+            }
             let Some(it) = &st.interaction else { return Err(EngineError::Other("no interaction in progress".into())) };
             st.doc = it.doc.clone();
             st.selection = it.selection.clone();
@@ -1291,6 +1306,7 @@ impl Session {
     }
 
     pub fn commit_interaction(&mut self) -> Result<()> {
+        self.materialize_deferred_move()?;
         self.remember_pending_paint();
         let st = self.doc_mut()?;
         let Some(mut it) = st.interaction.take() else { return Ok(()) };

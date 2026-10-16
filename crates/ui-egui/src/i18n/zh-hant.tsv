@@ -1,4 +1,6 @@
 # Traditional Chinese (zh-hant) catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	算繪失敗：{e}
+@msg	move preview exceeds its display memory budget	拖動預覽超出顯示記憶體限制
 #
 	Computing Offset Path…	正在計算路徑偏移…
 	Cancelling Offset Path…	正在取消路徑偏移…

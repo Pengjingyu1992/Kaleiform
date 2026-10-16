@@ -234,7 +234,7 @@ pub(crate) fn transform_patterns(s: &mut Session, p: &Value, ids: &[NodeId]) -> 
     let on = bool_or(p, "patterns", s.prefs.transform_pattern_tiles);
     let d = &s.doc()?.doc;
     let mut uses = false;
-    for n in ids.iter().filter_map(|id| d.node(*id)) {
+    for n in d.nodes(ids) {
         n.walk(&mut |c| uses |= vectorcraft_doc::pattern::uses_pattern(c, None));
     }
     if uses {
@@ -253,11 +253,18 @@ pub(crate) fn apply_transform(s: &mut Session, label: &str, ids: Vec<NodeId>, xf
     sc.patterns = transform_patterns(s, p, &ids)?;
     let ids = s.edit(label, |d, sel| {
         let targets = if copy { duplicate_in(d, sel, &ids, Affine::IDENTITY)? } else { ids.clone() };
-        for id in &targets {
-            if let Some(n) = d.node_mut(*id)
-                && !(areas && resize_type_area(n, xf))
-            {
+        let change = |n: &mut Node| {
+            if !(areas && resize_type_area(n, xf)) {
                 n.transform(xf, sc);
+            }
+        };
+        if !copy && p.get("ids").is_none() {
+            d.for_each_root_mut(&targets, change);
+        } else {
+            for id in &targets {
+                if let Some(n) = d.node_mut(*id) {
+                    change(n);
+                }
             }
         }
         Ok(targets)

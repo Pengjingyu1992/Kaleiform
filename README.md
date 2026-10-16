@@ -19,6 +19,7 @@
 
 **当前 macOS 预览版为 [`0.7.0-kaleiform.11`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.11)，Linux 下载仍为预览 6。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 预览 11 汇总后台描摹与首帧渲染、第二轮界面轻量化和第三轮大选区响应优化：选区对象、图层颜色与混合脊线按变化缓存，右键菜单批量查询对象，仅改变选区不再重算整张图稿。见 [性能第三轮](docs/performance-round3.md)、[界面质感第二轮](docs/polish-round2.md) 和 [稳定性第一轮](docs/stability-round1.md)。
+本地源码 `0.7.0-kaleiform.12` 增加[复杂图案平移预览](docs/dense-drag.md)：拖动时复用透明纹理，松手后精确更新节点，保留完整矢量和一次撤销。安装包发布状态以上方 Release 链接为准。
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
 当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）** 和 **Linux x86_64** 预览安装包。

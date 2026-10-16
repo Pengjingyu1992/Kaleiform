@@ -1,4 +1,6 @@
 # Simplified Chinese (zh-hans) catalog. Same format as zh-hant.tsv:  context <TAB> source <TAB> translation
+@msg	Rendering failed: {e}	渲染失败：{e}
+@msg	move preview exceeds its display memory budget	拖动预览超出显示内存限制
 # (empty context = a plain UI string; `@id` = a command id; `@plural` = "one|other" forms, Chinese
 # has one). `{name}` placeholders must appear in both columns; the trailing "…" is kept.
 #

@@ -203,6 +203,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     if app.session.active().is_none() {
         app.canvas.raster_stamp = None;
         app.canvas.overlay_query = None;
+        app.canvas.move_preview = None;
+        app.session.clear_move_preview();
     } else if app.canvas.overlay_query.as_ref().is_some_and(|q| app.session.active().is_none_or(|st| st.uid != q.uid)) {
         app.canvas.overlay_query = None;
     }
@@ -241,6 +243,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     panel_drop(app, ui, &resp, &xf);
     context_menu(app, &resp, &xf);
+    crate::move_preview::begin_frame(app, ui.ctx());
     let painter = ui.painter_at(rect);
     let epoch = raster_epoch(app);
     let Some(st) = app.session.active() else { return };
@@ -300,6 +303,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         trim: app.ui.view.trim_view,
         ppp,
         hidden: vec![],
+        move_preview: None,
         rot: v.rotation,
         anti_alias: app.session.prefs.anti_aliased_artwork,
         placed: vectorcraft_render::placed_document::generation(),
@@ -332,38 +336,40 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         app.canvas.key = Some(done.key);
         app.perf.render_ms = done.ms;
         app.canvas.last_ms = done.ms;
+        crate::move_preview::raster_ready(app);
     }
-    if (app.canvas.key.as_ref() != Some(&key) || app.canvas.texture.is_none()) && app.canvas.failed.as_ref() != Some(&key) {
-        let (w, h, view) = match pixel {
-            Some([x0, y0, x1, y1]) => ((x1 - x0) as u32, (y1 - y0) as u32, Affine::translate((-x0 as f64, -y0 as f64))),
-            None => (
-                w,
-                h,
-                Affine::translate((w as f64 / 2.0, h as f64 / 2.0))
-                    * Affine::rotate(v.rotation.to_radians())
-                    * Affine::scale(v.zoom * ppp as f64)
-                    * Affine::translate(-v.center.to_vec2()),
-            ),
-        };
-        let opts = vectorcraft_render::RenderOptions { outline: app.ui.view.outline, background: None, artboards: false, ..Default::default() };
-        let opts = vectorcraft_render::RenderOptions {
-            proof: vectorcraft_render::proof::active_proof(),
-            overprint_preview: vectorcraft_render::proof::overprint_preview_on(),
-            trim: app.ui.view.trim_view,
-            tile_edge: vectorcraft_color::Color::from_hex(&app.session.prefs.pattern_tile_edge_color).map_or(opts.tile_edge, |c| {
-                let [r, g, b, _] = c.to_rgba8(1.0);
-                [r, g, b]
-            }),
-            mask_view,
-            highlight_substitutions: true,
-            // General › Anti-aliased Artwork: off, edges are hard on screen (raster effects and
-            // pattern tiles stay smooth), as in Illustrator.
-            anti_alias: if app.session.prefs.anti_aliased_artwork { vectorcraft_render::AntiAlias::Art } else { vectorcraft_render::AntiAlias::None },
-            progressive_placed: true,
-            trace_views: true,
-            smooth_images,
-            ..opts
-        };
+    let (w, h, view) = match pixel {
+        Some([x0, y0, x1, y1]) => ((x1 - x0) as u32, (y1 - y0) as u32, Affine::translate((-x0 as f64, -y0 as f64))),
+        None => (
+            w,
+            h,
+            Affine::translate((w as f64 / 2.0, h as f64 / 2.0))
+                * Affine::rotate(v.rotation.to_radians())
+                * Affine::scale(v.zoom * ppp as f64)
+                * Affine::translate(-v.center.to_vec2()),
+        ),
+    };
+    let opts = vectorcraft_render::RenderOptions { outline: app.ui.view.outline, background: None, artboards: false, ..Default::default() };
+    let opts = vectorcraft_render::RenderOptions {
+        proof: vectorcraft_render::proof::active_proof(),
+        overprint_preview: vectorcraft_render::proof::overprint_preview_on(),
+        trim: app.ui.view.trim_view,
+        tile_edge: vectorcraft_color::Color::from_hex(&app.session.prefs.pattern_tile_edge_color).map_or(opts.tile_edge, |c| {
+            let [r, g, b, _] = c.to_rgba8(1.0);
+            [r, g, b]
+        }),
+        mask_view,
+        highlight_substitutions: true,
+        // General › Anti-aliased Artwork: off, edges are hard on screen (raster effects and
+        // pattern tiles stay smooth), as in Illustrator.
+        anti_alias: if app.session.prefs.anti_aliased_artwork { vectorcraft_render::AntiAlias::Art } else { vectorcraft_render::AntiAlias::None },
+        progressive_placed: true,
+        trace_views: true,
+        smooth_images,
+        ..opts
+    };
+    let previewing = crate::move_preview::submit(app, &key, w, h, view, &opts);
+    if !previewing && (app.canvas.key.as_ref() != Some(&key) || app.canvas.texture.is_none()) && app.canvas.failed.as_ref() != Some(&key) {
         // First frames/switches use paper as a placeholder; never block on an unknown document.
         // Light interaction previews stay synchronous so overlays do not get ahead of the artwork.
         let same_doc = app.canvas.key.as_ref().is_some_and(|k| k.doc == key.doc);
@@ -378,10 +384,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
                 app.canvas.key = Some(key.clone());
                 app.perf.render_ms = now_ms() - t0;
                 app.canvas.last_ms = app.perf.render_ms;
+                crate::move_preview::raster_ready(app);
             }
         }
     }
-    if let (Some(tex), Some(k)) = (&app.canvas.texture, &app.canvas.key)
+    if !crate::move_preview::paint(app, &painter, &xf)
+        && let (Some(tex), Some(k)) = (&app.canvas.texture, &app.canvas.key)
         && k.doc == key.doc
     {
         match k.pixel {
@@ -930,6 +938,10 @@ fn drag_art_out(app: &mut VectorcraftApp, ui: &Ui, resp: &egui::Response, p: Pos
 /// Send a pointer event to the active tool and act on UI requests (dialogs, tool switches).
 pub fn dispatch(app: &mut VectorcraftApp, ev: &PointerEvent, view: vectorcraft_engine::ViewInfo) {
     let r = app.session.pointer(ev, view);
+    if ev.kind == PointerKind::Down {
+        crate::move_preview::prepare(app);
+    }
+    crate::move_preview::track(app);
     // The artboard the Artboard tool makes active is the active one (the navigator's, the
     // Artboards panel's).
     if app.session.tool_id() == "artboard"
@@ -1685,6 +1697,13 @@ fn print_tiling_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
 const PRINT_TILING: Color32 = Color32::from_gray(96);
 
 fn selection_overlay(app: &mut VectorcraftApp, p: &egui::Painter, xf: &Xf) {
+    if let Some(movement) = app.session.deferred_move()
+        && let Some(cache) = &app.canvas.move_preview
+    {
+        let color = c32(cache.color);
+        stroke_path(p, &vectorcraft_geom::shapes::rectangle(cache.scene.bounds + movement.offset).to_bezpath(), xf, Stroke::new(1.0, color));
+        return;
+    }
     // The Selection tool's bounding box (rotated with the objects after a rotation). It hides while
     // a drag moves or resizes the selection, so only the art is seen going with the pointer (#712).
     let show_box = app.session.tool_id() == "selection"
