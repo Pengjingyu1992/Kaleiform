@@ -1,6 +1,6 @@
 # 性能第三轮
 
-发布版本：`0.7.0-kaleiform.11`，提供 macOS Apple Silicon 预览安装包。以下记录本轮实现与验收边界。
+发布版本：`0.7.0-kaleiform.12`，提供 macOS Apple Silicon 预览安装包。以下记录本轮实现与验收边界；密集图稿拖动的新增缓存见 [复杂图案拖动说明](dense-drag.md)。
 
 ## 解决的问题
 

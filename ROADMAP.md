@@ -28,7 +28,7 @@ macOS 安装包改用 APFS DMG，避免 HFS 附加 FinderInfo 破坏复制后 Ap
 
 2026-10-16 第二轮局部修正 `0.7.0-kaleiform.10-hotfix.1`：修正属性变换区的对齐与组合输入内边距，缩小描摹滑块的圆形手柄而不缩小点击区域。
 
-2026-10-16 性能第三轮 `0.7.0-kaleiform.11`：大选区对象、图层颜色及混合脊线一次遍历并缓存，右键菜单改用批量查询；画布以图稿快照和显示设置识别变化，仅改变选区不再重新栅格化。保留第二轮外观及图稿精度，见 [第三轮说明](docs/performance-round3.md)。这是源码与本地应用更新，不表示已公开发布，不调整跨平台性能成熟度评分。
+2026-10-16 性能第三轮 `0.7.0-kaleiform.12`：大选区对象、图层颜色及混合脊线一次遍历并缓存，右键菜单改用批量查询；画布以图稿快照和显示设置识别变化，仅改变选区不再重新栅格化；密集 RGB 图稿平移增加有界缓存预览并在松手时精确提交。保留第二轮外观及图稿精度，见 [第三轮说明](docs/performance-round3.md) 和 [复杂图案拖动说明](docs/dense-drag.md)。这是本轮公开的 macOS 预览更新，不调整跨平台性能成熟度评分。
 
 This file tracks **how far we are and what's left**. Time estimates are wall-clock hours of continuous Claude Opus 5.5 agent work (including builds and the CI gate), given both for **one agent** and for **4–6 parallel agents** on disjoint crates. They are counted from the remaining work (see [Parity estimate](#parity-estimate)), calibrated against measured throughput, and updated as work lands.
 
