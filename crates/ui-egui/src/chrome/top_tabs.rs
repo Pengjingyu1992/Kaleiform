@@ -26,7 +26,7 @@ fn id(part: &str, index: usize) -> Id {
     Id::new(("top-document-tabs", part, index))
 }
 
-pub(super) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
+pub(crate) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
     if rect.width() < HEIGHT {
         return;
     }
@@ -196,6 +196,7 @@ mod tests {
         ctx: egui::Context,
         width: f32,
         scale: f32,
+        zoom_component: bool,
     }
 
     impl Window {
@@ -206,7 +207,7 @@ mod tests {
             let mut app = VectorcraftApp::new(Session::new(), Default::default());
             app.integrated_titlebar = true;
             app.services.native_menu = Some(crate::native_menu::NativeMenu::new(Box::new(MenuBackend)));
-            Self { app, ctx, width, scale: 1.0 }
+            Self { app, ctx, width, scale: 1.0, zoom_component: false }
         }
 
         fn document(&mut self, name: &str) {
@@ -220,6 +221,11 @@ mod tests {
             input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().native_pixels_per_point = Some(self.scale);
             let mut out = self.ctx.run_ui(input, |ui| {
                 super::super::app_bar(&mut self.app, ui);
+                if self.zoom_component {
+                    egui::Panel::top("zoom-component").show(ui, |ui| {
+                        ui.horizontal(|ui| super::zoom_controls(&mut self.app, ui));
+                    });
+                }
                 egui::CentralPanel::default().show(ui, |ui| {
                     let start = ui.cursor().top();
                     super::super::doc_tabs(&mut self.app, ui);
@@ -264,21 +270,20 @@ mod tests {
                     let (strip, out) = w.frame(vec![]);
                     assert_eq!(strip, 0.0, "no duplicate document strip");
                     let tab = w.rect("tab", 0);
-                    assert!((tab.center().y - 16.0).abs() <= 1.0 / scale);
+                    assert!((tab.center().y - crate::workspace::BAR_HEIGHT / 2.0).abs() <= 1.0 / scale);
                     assert_eq!(tab.height(), HEIGHT);
                     let new = w.rect("new", 0);
                     assert_eq!(new.size(), vec2(26.0, 26.0), "keep the click target");
                     let visible = surface(new);
                     assert_eq!(visible.size(), vec2(20.0, 20.0));
-                    assert!(visible.top() >= 5.0 && visible.bottom() <= 28.0, "space above and below the visible well: {visible:?}");
+                    assert!(
+                        visible.top() >= 6.0 && visible.bottom() <= crate::workspace::BAR_HEIGHT - 6.0,
+                        "space above and below the visible well: {visible:?}"
+                    );
                     assert!(tab.width() >= 64.0 && tab.width() <= 240.0);
                     assert!(tab.contains_rect(w.rect("close", 0)));
                     assert!(w.rect("new", 0).right() < tab.left());
-                    if width >= 560.0 {
-                        let fit = w.rect("fit", 0);
-                        assert!(tab.right() < fit.left());
-                        assert!(w.rect("out", 0).right() < width);
-                    }
+                    assert!(tab.right() < width && w.ctx.read_response(id("fit", 0)).is_none(), "zoom moved to the status row");
                     for shape in out.shapes {
                         if let egui::Shape::Rect(r) = &shape.shape
                             && r.fill != egui::Color32::TRANSPARENT
@@ -287,7 +292,7 @@ mod tests {
                             && r.rect.width() < 300.0
                             && r.rect.top() < 32.0
                         {
-                            assert!(r.rect.top() >= 5.0 && r.rect.bottom() <= 28.0, "oversized titlebar well: {r:?}");
+                            assert!(r.rect.top() >= 5.0 && r.rect.bottom() <= crate::workspace::BAR_HEIGHT - 5.0, "oversized titlebar well: {r:?}");
                         }
                         if let egui::Shape::Text(text) = shape.shape {
                             assert_ne!(text.galley.text(), "Kaleiform", "no centered brand label");
@@ -339,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn new_and_zoom_buttons_use_the_existing_commands() {
+    fn new_and_zoom_component_buttons_use_the_existing_commands() {
         for icon in ["plus", "x", "chevrons-right", "zoom-in", "zoom-out", "maximize-2"] {
             assert!(icons::exists(icon), "missing {icon}");
         }
@@ -351,6 +356,7 @@ mod tests {
         assert_eq!(w.app.ui.dialog.as_ref().unwrap().kind, "newDocument");
         w.app.ui.dialog = None;
         w.document("Zoom");
+        w.zoom_component = true;
         w.app.canvas_rect = Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(460.0, 260.0)));
         w.frame(vec![]);
         w.click("in", 0);

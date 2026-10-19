@@ -34,6 +34,7 @@ pub mod i18n;
 pub mod icon_data;
 pub mod icons;
 pub mod io;
+pub mod mcp_panel;
 pub mod menus;
 mod move_preview;
 pub mod native_menu;
@@ -61,6 +62,7 @@ mod trace_job;
 mod ui_fonts;
 pub mod unsaved;
 pub mod widgets;
+pub mod workspace;
 pub mod workspaces;
 
 #[cfg(test)]
@@ -198,6 +200,9 @@ pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Platform services injected by the host app (desktop or web).
 #[derive(Default)]
 pub struct Services {
+    pub start_control: Option<mcp_panel::StartControl>,
+    pub control_status: Option<Arc<mcp_panel::ControlStatus>>,
+    pub mcp_cli: Option<String>,
     /// The desktop host enables asynchronous Image Trace; headless/wasm clients keep synchronous commands.
     pub background_trace: bool,
     /// Show an open dialog; returns a path.
@@ -327,6 +332,7 @@ pub struct Perf {
 }
 
 pub struct VectorcraftApp {
+    pub(crate) mcp: mcp_panel::State,
     pub session: Session,
     pub ui: UiState,
     pub views: Vec<View>,
@@ -459,6 +465,7 @@ impl VectorcraftApp {
             clipboard_in: None,
             pending_url: None,
             control_rx: None,
+            mcp: Default::default(),
             pending_screenshots: vec![],
             queued_screenshots: vec![],
             screenshot_token: 0,
@@ -688,15 +695,19 @@ impl VectorcraftApp {
     fn drain_control(&mut self, ctx: &egui::Context) {
         let Some(rx) = self.control_rx.take() else { return };
         while let Ok(req) = rx.try_recv() {
+            ctx.request_repaint();
             let reply = req.reply.clone();
+            let started = now_ms();
             // Guarded per request: a panic must not drop the channel (taken out of `self` above).
             let outcome = vectorcraft_engine::guard::catch_panic(|| control::handle(self, ctx, &req))
                 .unwrap_or_else(|msg| control::err(format!("internal error: {msg} (please report this bug)")));
             match outcome {
                 control::Outcome::Done(v) => {
+                    self.mcp.record(&req.method, now_ms() - started, Some(v["ok"] == true));
                     let _ = reply.send(v);
                 }
                 control::Outcome::Screenshot { path } => {
+                    self.mcp.record(&req.method, now_ms() - started, None);
                     self.screenshot_token += 1;
                     let token = self.screenshot_token;
                     let settle = ctx.global_style().animation_time as f64 * 2000.0 + 80.0;
@@ -892,6 +903,30 @@ impl VectorcraftApp {
             self.session.ui_language = Some(lang.code().to_string());
         }
         self.adopt_context(ctx);
+        if self.frame == 0 {
+            let mut seen = std::collections::HashSet::new();
+            self.ui.pinned_panels.retain(|id| crate::state::all_panels().any(|(p, _)| p == id) && seen.insert(id.clone()));
+            self.ui.pinned_panels.truncate(7);
+        }
+        if let Some(port) = self.mcp.requested_port.take() {
+            let result = self
+                .services
+                .start_control
+                .as_ref()
+                .ok_or_else(|| "Local bridge is unavailable".to_string())
+                .and_then(|start| start(port, ctx.clone()));
+            match result {
+                Ok((rx, monitor)) => {
+                    self.control_rx = Some(rx);
+                    self.services.control_status = Some(monitor);
+                    self.mcp.error = None;
+                }
+                Err(e) => {
+                    self.mcp.error = Some(e.clone());
+                    self.error(e);
+                }
+            }
+        }
         if !self.styled || self.font_language != Some(self.ui_language().code()) {
             theme::install_fonts(ctx);
             self.font_language = Some(self.ui_language().code());
@@ -1131,7 +1166,9 @@ impl VectorcraftApp {
         }
         if self.ui.status_bar && self.ui.screen_mode < 3 && !home {
             chrome::status_bar(self, ui);
-            chrome::hint_bar(self, ui);
+            if !workspace::enabled(self) {
+                chrome::hint_bar(self, ui);
+            }
         }
         if self.ui.toolbar && self.ui.screen_mode < 3 && !home {
             toolbar::show(self, ui);
@@ -1146,16 +1183,21 @@ impl VectorcraftApp {
             canvas::show(self, ui);
         });
         if !home {
+            workspace::overlays(self, &ctx);
             dock::floating_panel(self, &ctx);
             floating::show(self, &ctx);
             panels::library_panel::show_window(self, &ctx);
         }
         dialogs::show(self, &ctx);
+        mcp_panel::show(self, &ctx);
         palette::show(self, &ctx);
         if self.custom_titlebar {
             titlebar::resize_zones(ui);
         }
         self.ui_fonts.frame(&ctx);
+        if self.mcp.requested_port.is_some() {
+            ctx.request_repaint();
+        }
         scrub::end_frame(self, &ctx);
         native_menu::sync(self, &ctx);
         self.perf.frame_ms = now_ms() - t0;

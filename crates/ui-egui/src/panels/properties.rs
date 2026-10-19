@@ -28,8 +28,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         (Some(n), _) if crate::panels::image_trace::is_trace(n) => tl!("Image Tracing").to_string(),
         (Some(n), _) => tl!(n.kind_label()).to_string(),
     };
-    ui.label(egui::RichText::new(label).size(11.5).color(t.text_dim));
-    ui.add_space(4.0);
+    ui.label(egui::RichText::new(label).font(crate::theme::emphasis(ui.ctx(), t.font_size)).color(t.text_strong));
+    ui.add_space(8.0);
     if editing_artboards {
         artboard_sections(app, ui);
         return;

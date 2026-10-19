@@ -60,8 +60,13 @@ struct App {
 #[cfg(target_os = "macos")]
 impl App {
     fn sync_material(&mut self, ctx: &egui::Context) {
+        let host = mac_material::appearance();
+        vectorcraft_ui_egui::theme::set_host_appearance(ctx, host, self.app.ui.brightness, self.app.ui.glass);
         let dark = vectorcraft_ui_egui::theme::Tokens::for_brightness(self.app.ui.brightness).dark;
-        let want = (self.app.ui.glass, dark);
+        let want = (self.app.ui.glass && !host.reduce_transparency, dark);
+        if let Some(window) = &self.window {
+            mac_material::align_buttons(window, ctx.zoom_factor());
+        }
         if self.material == Some(want) {
             return;
         }
@@ -585,9 +590,20 @@ fn main() -> std::process::ExitCode {
                 }
                 app.integrated_titlebar = cfg!(target_os = "macos");
                 app.custom_titlebar = CUSTOM_TITLEBAR;
+                app.services.start_control = Some(Box::new(control_server::start));
+                app.services.mcp_cli = std::env::current_exe()
+                    .ok()
+                    .map(|p| p.with_file_name("vectorcraft-cli"))
+                    .filter(|p| p.is_file())
+                    .map(|p| p.to_string_lossy().into_owned());
                 if let Some(port) = control_port {
-                    let rx = control_server::start(port, cc.egui_ctx.clone());
-                    app = app.with_control(rx);
+                    match control_server::start(port, cc.egui_ctx.clone()) {
+                        Ok((rx, monitor)) => {
+                            app.services.control_status = Some(monitor);
+                            app = app.with_control(rx);
+                        }
+                        Err(e) => app.status(e),
+                    }
                 }
                 #[cfg(target_os = "macos")]
                 {

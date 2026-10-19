@@ -376,7 +376,7 @@
 	CMYK	CMYK
 	CMYK Color	Колір CMYK
 	CMYK colours print with their own values; off, they go through the colour settings too.	Кольори CMYK друкуються зі своїми значеннями; якщо вимкнено, вони також проходять через налаштування кольору.
-	Collapse Panels to Icons	Згорнути панелі до піктограм
+	Collapse Panels	Згорнути панелі
 	Collapse to Icons	Згорнути до піктограм
 	Collate	Розібрати за копіями
 	Collect for Export	Зібрати для експорту
@@ -3749,3 +3749,38 @@ axis	Both	Обидві
 	Retry Open	Повторити відкриття
 	Dismiss Message	Закрити повідомлення
 	Could not open {name}	Не вдалося відкрити {name}
+	All Panels	Усі панелі
+	Pin Panel	Закріпити панель
+	Hide Panels	Приховати панелі
+	Performance Diagnostics	Діагностика продуктивності
+	Move Preview	Попередній перегляд переміщення
+	Processing time, not display latency	Час обробки, а не затримка відображення
+	Unsaved changes	Незбережені зміни
+	MCP Connections	З’єднання MCP
+	MCP · Paused	MCP · Призупинено
+	MCP · Local	MCP · Локальний
+	Connections	З’єднання
+	Activity	Дії
+	Local bridge running	Локальний міст запущено
+	Local bridge stopped	Локальний міст зупинено
+	Local connections	Локальні з’єднання
+	Pause Requests	Призупинити запити
+	Resume Requests	Відновити запити
+	Stop Bridge	Зупинити міст
+	Start Local Bridge	Запустити локальний міст
+	Client Configuration	Налаштування клієнта
+	Copy Configuration	Скопіювати налаштування
+	No requests yet	Запитів ще немає
+	Succeeded	Успішно
+	Failed	Помилка
+	Accepted	Прийнято
+	Client identity is not verified by this bridge.	Цей міст не перевіряє особу клієнта.
+	Connected clients can read and edit documents. Their model service may receive returned content.	Підключені клієнти можуть читати й редагувати документи. Повернений вміст може передаватися їхньому сервісу моделей.
+	Other Request	Інший запит
+	Port	Порт
+@msg	At most seven panels can be pinned	Можна закріпити щонайбільше сім панелей
+@msg	Local bridge is unavailable	Локальний міст недоступний
+@msg	Local bridge is already running	Локальний міст уже запущено
+@msg	Invalid local bridge port	Неприпустимий порт локального мосту
+@msg	Local bridge requests are paused or stopped	Запити до локального мосту призупинено або зупинено
+@msg	Could not start local bridge on port {port}: {error}	Не вдалося запустити локальний міст на порту {port}: {error}

@@ -3259,7 +3259,6 @@
 	Serif / Mincho	衬线 / 宋体
 	Show Layers Only	仅显示图层
 	Thumbnails:	缩略图：
-	Collapse Panels to Icons	将面板折叠为图标
 	Duplicate Selection	复制所选项
 	Expand Layers Panel Rows	展开图层面板行
 	Flatten Artwork	拼合图稿
@@ -3477,3 +3476,39 @@ axis	Both	两者
 	Dismiss Message	关闭提示
 	Social Portrait Post 1080×1350	社交竖版帖子 1080×1350
 	Could not open {name}	无法打开：{name}
+	All Panels	全部面板
+	Pin Panel	固定面板
+	Hide Panels	收起检查器
+	Performance Diagnostics	性能诊断
+	Move Preview	移动预览
+	Processing time, not display latency	处理耗时，不代表显示延迟
+	Unsaved changes	未保存的更改
+@msg	At most seven panels can be pinned	最多固定七个面板
+	MCP Connections	MCP 连接
+	MCP · Paused	MCP · 已暂停
+	MCP · Local	MCP · 本地
+	Connections	连接
+	Activity	活动
+	Local bridge running	本地接口已启动
+	Local bridge stopped	本地接口未启动
+	Local connections	本地连接
+	Pause Requests	暂停请求
+	Resume Requests	恢复请求
+	Stop Bridge	停止接口
+	Start Local Bridge	启动本地接口
+	Client Configuration	客户端配置
+	Copy Configuration	复制配置
+	No requests yet	暂无请求
+	Succeeded	成功
+	Failed	失败
+	Accepted	已接收
+	Client identity is not verified by this bridge.	此接口尚未验证客户端身份。
+	Connected clients can read and edit documents. Their model service may receive returned content.	连接的客户端可读取和编辑文档，返回的内容可能发送给其模型服务。
+@msg	Local bridge is unavailable	本地接口不可用
+@msg	Local bridge is already running	本地接口已在运行
+@msg	Invalid local bridge port	本地接口端口无效
+@msg	Local bridge requests are paused or stopped	本地接口请求已暂停或停止
+	Other Request	其他请求
+	Collapse Panels	收起面板
+	Port	端口
+@msg	Could not start local bridge on port {port}: {error}	无法在端口 {port} 启动本地接口：{error}

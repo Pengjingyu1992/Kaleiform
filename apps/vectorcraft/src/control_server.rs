@@ -10,12 +10,14 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use vectorcraft_ui_egui::ControlRequest;
+use vectorcraft_ui_egui::mcp_panel::ControlStatus;
 
 /// Longest accepted request line (bytes, without the newline). Requests are small JSON objects;
 /// anything longer is refused and the connection closed.
@@ -23,42 +25,88 @@ pub const MAX_LINE: usize = 4 * 1024 * 1024;
 /// Connections served at once; further ones get an error line and are closed.
 pub const MAX_CONNECTIONS: usize = 16;
 
-pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
+pub fn start(port: u16, ctx: egui::Context) -> Result<(Receiver<ControlRequest>, Arc<ControlStatus>), String> {
     let (tx, rx) = channel::<ControlRequest>();
     let listener = match TcpListener::bind(("127.0.0.1", port)) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("vectorcraft: control server failed to bind 127.0.0.1:{port}: {e}");
-            return rx;
+            return Err(format!("Could not start local bridge on port {port}: {e}"));
         }
     };
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let status = ControlStatus::new(listener.local_addr().map_err(|e| e.to_string())?.port());
+    let monitor = status.clone();
     eprintln!("vectorcraft: control server listening on 127.0.0.1:{port}");
-    std::thread::spawn(move || accept_loop(listener, tx, ctx));
-    rx
+    std::thread::spawn(move || accept_loop(listener, tx, ctx, monitor));
+    Ok((rx, status))
 }
 
-fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context) {
-    let open = Arc::new(AtomicUsize::new(0));
-    for mut stream in listener.incoming().flatten() {
-        if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
-            open.fetch_sub(1, Ordering::SeqCst);
+fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context, status: Arc<ControlStatus>) {
+    let sockets = Arc::new(Mutex::new(std::collections::BTreeMap::<usize, TcpStream>::new()));
+    let shutdown = sockets.clone();
+    status.set_shutdown(Box::new(move || {
+        for stream in shutdown.lock().unwrap_or_else(|e| e.into_inner()).values() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+    }));
+    let next = AtomicUsize::new(0);
+    while status.running.load(Ordering::Relaxed) {
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::park_timeout(Duration::from_millis(100));
+                continue;
+            }
+            Err(_) => {
+                status.running.store(false, Ordering::Relaxed);
+                break;
+            }
+        };
+        if stream.set_nonblocking(false).is_err() {
+            continue;
+        }
+        if status.connections.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            status.connections.fetch_sub(1, Ordering::SeqCst);
             // Best effort: the connection is dropped either way, and a peer that can't read the reason loses nothing.
             let _ = writeln!(stream, "{}", json!({"ok": false, "error": "too many control connections"}));
             continue;
         }
         let tx = tx.clone();
         let ctx = ctx.clone();
-        let open = Arc::clone(&open);
+        let monitor = Arc::clone(&status);
+        let socket_id = next.fetch_add(1, Ordering::Relaxed);
+        let copy = match stream.try_clone() {
+            Ok(copy) => copy,
+            Err(_) => {
+                status.connections.fetch_sub(1, Ordering::SeqCst);
+                continue;
+            }
+        };
+        sockets.lock().unwrap_or_else(|e| e.into_inner()).insert(socket_id, copy);
+        if !status.running.load(Ordering::Relaxed) {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+        let sockets = sockets.clone();
+        ctx.request_repaint();
         std::thread::spawn(move || {
-            serve(stream, &tx, &ctx);
-            open.fetch_sub(1, Ordering::SeqCst);
+            serve(stream, &tx, &ctx, &monitor);
+            sockets.lock().unwrap_or_else(|e| e.into_inner()).remove(&socket_id);
+            monitor.connections.fetch_sub(1, Ordering::SeqCst);
+            ctx.request_repaint();
         });
     }
 }
 
-fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context) {
+fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context, status: &ControlStatus) {
     let Ok(read) = stream.try_clone() else { return };
     serve_lines(read, stream, |method, params| {
+        if !status.running.load(Ordering::Relaxed) {
+            return None;
+        }
+        if !status.accepting() {
+            return Some(json!({"ok": false, "error": "Local bridge requests are paused or stopped"}));
+        }
         let (req, rrx) = ControlRequest::new(method, params);
         tx.send(req).ok()?;
         ctx.request_repaint();
@@ -161,6 +209,33 @@ fn serve_lines<R: Read, W: Write>(read: R, mut out: W, mut handle: impl FnMut(St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopping_bridge_closes_registered_connections_and_releases_the_listener() {
+        let ctx = egui::Context::default();
+        let (rx, status) = start(0, ctx).unwrap();
+        let mut client = TcpStream::connect(&status.address).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        writeln!(client, "{}", json!({"method": "ui.inspect"})).unwrap();
+        let req = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        req.reply.send(json!({"ok": true, "result": {}})).unwrap();
+        let mut reader = BufReader::new(client);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.contains("true"));
+        assert_eq!(status.connections.load(Ordering::SeqCst), 1);
+        status.stop();
+        line.clear();
+        assert!(reader.read_line(&mut line).map_or(true, |n| n == 0));
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            if TcpListener::bind(&status.address).is_ok() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "listener was not released");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     fn run(input: &[u8]) -> (Vec<Value>, Vec<String>) {
         let mut out = Vec::new();
@@ -267,8 +342,11 @@ mod tests {
     fn extra_connections_are_refused() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
         let (tx, _rx) = channel::<ControlRequest>();
-        std::thread::spawn(move || accept_loop(listener, tx, egui::Context::default()));
+        let status = ControlStatus::new(addr.port());
+        let monitor = status.clone();
+        let server = std::thread::spawn(move || accept_loop(listener, tx, egui::Context::default(), monitor));
         // Idle connections are accepted in order and held open.
         let held: Vec<TcpStream> = (0..16).map(|_| TcpStream::connect(addr).unwrap()).collect();
         let mut extra = TcpStream::connect(addr).unwrap();
@@ -277,5 +355,7 @@ mod tests {
         BufReader::new(&mut extra).read_line(&mut line).unwrap();
         assert!(line.contains("too many control connections"), "{line}");
         drop(held);
+        status.stop();
+        server.join().unwrap();
     }
 }

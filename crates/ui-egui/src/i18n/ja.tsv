@@ -617,7 +617,7 @@
 	Make Compound Path	複合パスを作成
 	Release Compound Path	複合パスを解除
 	Select All	すべてを選択
-	Collapse Panels to Icons	パネルをアイコンに折りたたむ
+	Collapse Panels	パネルを折りたたむ
 	Collapse to Icons	アイコンに折りたたむ
 	Expand Panels	パネルを展開
 
@@ -3188,3 +3188,38 @@ theme	Appearance	外観
 	Retry Open	もう一度開く
 	Dismiss Message	メッセージを閉じる
 	Could not open {name}	{name} を開けませんでした
+	All Panels	すべてのパネル
+	Pin Panel	パネルを固定
+	Hide Panels	パネルを隠す
+	Performance Diagnostics	パフォーマンス診断
+	Move Preview	移動プレビュー
+	Processing time, not display latency	処理時間です。表示遅延ではありません
+	Unsaved changes	未保存の変更
+	MCP Connections	MCP 接続
+	MCP · Paused	MCP · 一時停止中
+	MCP · Local	MCP · ローカル
+	Connections	接続
+	Activity	アクティビティ
+	Local bridge running	ローカルブリッジ実行中
+	Local bridge stopped	ローカルブリッジ停止中
+	Local connections	ローカル接続
+	Pause Requests	リクエストを一時停止
+	Resume Requests	リクエストを再開
+	Stop Bridge	ブリッジを停止
+	Start Local Bridge	ローカルブリッジを起動
+	Client Configuration	クライアント設定
+	Copy Configuration	設定をコピー
+	No requests yet	リクエストはまだありません
+	Succeeded	成功
+	Failed	失敗
+	Accepted	受け付け済み
+	Client identity is not verified by this bridge.	このブリッジはクライアントの身元を検証していません。
+	Connected clients can read and edit documents. Their model service may receive returned content.	接続したクライアントは文書の読み取りと編集ができます。返された内容がモデルサービスに送られる場合があります。
+	Other Request	その他のリクエスト
+	Port	ポート
+@msg	At most seven panels can be pinned	固定できるパネルは最大 7 個です
+@msg	Local bridge is unavailable	ローカルブリッジを利用できません
+@msg	Local bridge is already running	ローカルブリッジはすでに実行中です
+@msg	Invalid local bridge port	ローカルブリッジのポートが無効です
+@msg	Local bridge requests are paused or stopped	ローカルブリッジへのリクエストは一時停止または停止されています
+@msg	Could not start local bridge on port {port}: {error}	ポート {port} でローカルブリッジを起動できません：{error}

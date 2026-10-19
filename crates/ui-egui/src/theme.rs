@@ -5,6 +5,22 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Visuals};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostAppearance {
+    pub accent: [u8; 3],
+    pub reduce_transparency: bool,
+    pub reduce_motion: bool,
+}
+
+pub fn set_host_appearance(ctx: &egui::Context, appearance: HostAppearance, brightness: Brightness, glass: bool) {
+    let id = egui::Id::new("host-appearance");
+    if ctx.data(|d| d.get_temp::<HostAppearance>(id)) == Some(appearance) {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(id, appearance));
+    apply_material(ctx, brightness, glass);
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Brightness {
     Dark,
@@ -61,6 +77,7 @@ pub struct Tokens {
     pub tool_active: Color32,
     pub accent: Color32,
     pub accent_strong: Color32,
+    pub accent_text: Color32,
     pub row_selected: Color32,
     pub pasteboard: Color32,
     pub ruler: Color32,
@@ -120,6 +137,7 @@ impl Tokens {
             tool_active: hex(0x1d1d1d),
             accent: hex(0x378ef0),
             accent_strong: hex(0x1473e6),
+            accent_text: Color32::WHITE,
             row_selected: hex(0x484b50),
             pasteboard: hex(0x1e1e1e),
             ruler: hex(0x2f2f2f),
@@ -311,6 +329,10 @@ pub const FONT_MONO: &str = "mono";
 pub fn semibold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FONT_UI_SEMIBOLD.into()))
 }
+
+pub fn emphasis(ctx: &egui::Context, size: f32) -> FontId {
+    if ctx.data(|d| d.get_temp::<bool>(egui::Id::new("ui-fonts-installed"))).unwrap_or(false) { semibold(size) } else { FontId::proportional(size) }
+}
 pub fn mono(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FONT_MONO.into()))
 }
@@ -337,7 +359,60 @@ pub fn install_fonts(ctx: &egui::Context) {
     mono.extend(fallback);
     fonts.families.insert(FontFamily::Name(FONT_MONO.into()), mono);
     add_craft_fonts(&mut fonts);
+    #[cfg(target_os = "macos")]
+    if ctx.data(|d| d.get_temp::<HostAppearance>(egui::Id::new("host-appearance"))).is_some() {
+        add_system_ui_fonts(&mut fonts);
+    }
     ctx.set_fonts(fonts);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("ui-fonts-installed"), true));
+}
+
+#[cfg(target_os = "macos")]
+fn add_system_ui_fonts(fonts: &mut FontDefinitions) {
+    static SYSTEM: std::sync::OnceLock<FontDefinitions> = std::sync::OnceLock::new();
+    let native = SYSTEM.get_or_init(|| {
+        let mut native = FontDefinitions::empty();
+        // One bounded process-lifetime cache, shared by weights and language changes.
+        if let Ok(bytes) = std::fs::read("/System/Library/Fonts/SFNS.ttf") {
+            let bytes: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+            for (name, weight, families) in [
+                ("macOS UI", 400.0, vec![FontFamily::Proportional, FontFamily::Name(FONT_UI.into())]),
+                ("macOS UI Semibold", 600.0, vec![FontFamily::Name(FONT_UI_SEMIBOLD.into())]),
+            ] {
+                let mut data = FontData::from_static(bytes);
+                data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", weight), (b"opsz", 13.0)]);
+                native.font_data.insert(name.into(), Arc::new(data));
+                for family in families {
+                    native.families.entry(family).or_default().push(name.into());
+                }
+            }
+        }
+        for (style, families) in [
+            ("Regular", vec![FontFamily::Proportional, FontFamily::Name(FONT_UI.into())]),
+            ("Semibold", vec![FontFamily::Name(FONT_UI_SEMIBOLD.into())]),
+        ] {
+            if let Some(face) = vectorcraft_text::FontDb::global().face("PingFang SC", style) {
+                // The font database already shares this installed collection's bytes.
+                let face: &'static vectorcraft_text::FontFace = Box::leak(Box::new(face));
+                let name = format!("macOS CJK {style}");
+                native.font_data.insert(name.clone(), Arc::new(FontData { index: face.face_index(), ..FontData::from_static(face.file_data()) }));
+                for family in families {
+                    native.families.entry(family).or_default().push(name.clone());
+                }
+            }
+        }
+        native
+    });
+    fonts.font_data.extend(native.font_data.iter().map(|(name, data)| (name.clone(), data.clone())));
+    for (family, preferred) in &native.families {
+        let stack = fonts.families.entry(family.clone()).or_default();
+        for name in preferred.iter().rev() {
+            if name.starts_with("macOS CJK") && crate::i18n::current().code() != "zh-hans" {
+                continue;
+            }
+            stack.insert(0, name.clone());
+        }
+    }
 }
 
 /// The egui name of a craft-fonts face.
@@ -372,14 +447,57 @@ pub fn apply(ctx: &egui::Context, b: Brightness) {
 }
 
 pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
+    let host = ctx.data(|d| d.get_temp::<HostAppearance>(egui::Id::new("host-appearance")));
     let mut t = Tokens::for_brightness(b);
     t.surface = t.panel;
-    if glass {
+    if glass && !host.is_some_and(|h| h.reduce_transparency) {
         t = t.with_glass(b);
         if !crate::glass::native_material(ctx) {
             t.app_bar = t.panel_darker;
             t.surface = t.panel;
         }
+    }
+    if let Some(host) = host {
+        let rgb = |value| Color32::from_gray(value);
+        let (surface, panel, input, ink, secondary) = if t.dark { (38, 40, 30, 242, 190) } else { (244, 246, 255, 26, 85) };
+        t.panel = rgb(panel);
+        t.panel_darker = rgb(if t.dark { 30 } else { 235 });
+        t.input = rgb(input);
+        t.app_bar = rgb(if t.dark { 30 } else { 246 });
+        t.surface = rgb(surface);
+        if t.glass && crate::glass::native_material(ctx) {
+            t.app_bar = Color32::from_rgba_unmultiplied(surface, surface, surface, 220);
+            t.surface = Color32::from_rgba_unmultiplied(panel, panel, panel, 230);
+        }
+        t.glass_tint = rgb(panel);
+        t.tab_strip = rgb(panel);
+        t.pasteboard = rgb(if t.dark { 28 } else { 210 });
+        t.ruler = rgb(if t.dark { 35 } else { 239 });
+        t.ruler_tick = rgb(if t.dark { 155 } else { 100 });
+        t.text = rgb(ink);
+        t.text_strong = rgb(ink);
+        t.text_dim = rgb(secondary);
+        t.text_disabled = rgb(if t.dark { 125 } else { 145 });
+        t.icon = rgb(if t.dark { 210 } else { 75 });
+        t.hover = rgb(if t.dark { 63 } else { 225 });
+        t.input_border = rgb(if t.dark { 75 } else { 180 });
+        t.divider = rgb(if t.dark { 54 } else { 215 });
+        t.border = t.divider;
+        t.accent = Color32::from_rgb(host.accent[0], host.accent[1], host.accent[2]);
+        t.accent_strong = t.accent;
+        // Native accent colours can be yellow or graphite as well as blue.
+        let linear = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        let luminance = 0.2126 * linear(host.accent[0]) + 0.7152 * linear(host.accent[1]) + 0.0722 * linear(host.accent[2]);
+        t.accent_text = if luminance > 0.179 { Color32::BLACK } else { Color32::WHITE };
+        t.row_selected = t.panel.lerp_to_gamma(t.accent, 0.24);
+        t.tool_active = t.row_selected;
+        t.flyout_active = t.text_strong;
+        t.button = t.hover;
+        t.button_border = t.input_border;
+        t.radius = 6;
     }
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
     let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
@@ -422,19 +540,46 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
         s.spacing.slider_width = 120.0;
         s.text_styles = [
             (TextStyle::Small, FontId::proportional(11.0)),
-            (TextStyle::Body, FontId::proportional(13.0)),
-            (TextStyle::Button, FontId::proportional(13.0)),
-            (TextStyle::Heading, FontId::new(15.0, FontFamily::Name(FONT_UI_SEMIBOLD.into()))),
-            (TextStyle::Monospace, FontId::new(11.5, FontFamily::Name(FONT_MONO.into()))),
+            (TextStyle::Body, FontId::proportional(t.font_size)),
+            (TextStyle::Button, FontId::proportional(t.font_size)),
+            (TextStyle::Heading, FontId::new(if host.is_some() { 17.0 } else { 15.0 }, FontFamily::Name(FONT_UI_SEMIBOLD.into()))),
+            (TextStyle::Monospace, FontId::new(11.0, FontFamily::Name(FONT_MONO.into()))),
         ]
         .into();
-        s.animation_time = 0.08;
+        s.animation_time = match host {
+            Some(h) if h.reduce_motion => 0.0,
+            Some(_) => 0.16,
+            None => 0.08,
+        };
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_accessibility_and_accent_keep_controls_legible_and_canvas_opaque() {
+        let ctx = egui::Context::default();
+        crate::glass::set_native_material(&ctx, true);
+        let host = HostAppearance { accent: [255, 210, 30], reduce_transparency: true, reduce_motion: true };
+        set_host_appearance(&ctx, host, Brightness::Dark, true);
+        let t = Tokens::get(&ctx);
+        assert!(!t.glass);
+        assert_eq!(t.surface.a(), 255);
+        assert_eq!(t.pasteboard.a(), 255);
+        assert_eq!(t.accent_text, Color32::BLACK);
+        assert_eq!(ctx.global_style().animation_time, 0.0);
+        let host = HostAppearance { accent: [0, 60, 180], reduce_transparency: false, reduce_motion: false };
+        set_host_appearance(&ctx, host, Brightness::Light, true);
+        let t = Tokens::get(&ctx);
+        assert!(t.glass);
+        assert!(t.surface.a() < 255);
+        assert_eq!(t.input.a(), 255);
+        assert_eq!(t.pasteboard.a(), 255);
+        assert_eq!(t.accent_text, Color32::WHITE);
+        assert!(ctx.global_style().animation_time > 0.0);
+    }
 
     #[test]
     fn brightness_roundtrip() {

@@ -85,6 +85,7 @@ struct Applied {
     brightness: Brightness,
     glass: bool,
     native_material: bool,
+    host_appearance: Option<theme::HostAppearance>,
     /// User Interface › Canvas Color, unless it matches the interface brightness.
     canvas: Option<egui::Color32>,
     threads: i32,
@@ -117,6 +118,7 @@ pub fn apply_runtime(app: &mut VectorcraftApp, ctx: &egui::Context) {
         brightness: app.ui.brightness,
         glass: app.ui.glass,
         native_material: crate::glass::native_material(ctx),
+        host_appearance: ctx.data(|d| d.get_temp(egui::Id::new("host-appearance"))),
         canvas: canvas_color(&p.canvas_color),
         threads: p.render_threads,
         tool_tips: p.show_tool_tips,
@@ -408,6 +410,24 @@ mod tests {
             assert_eq!(Tokens::get(&ctx).pasteboard, want, "{key}");
         }
         assert!(app.run("prefs.set", serde_json::json!({"key": "canvasColor", "value": "pink"})).is_err());
+    }
+
+    #[test]
+    fn changing_host_appearance_preserves_the_users_canvas_colour() {
+        let mut app = app();
+        let ctx = egui::Context::default();
+        app.run("prefs.set", serde_json::json!({"key": "canvasColor", "value": "white"})).unwrap();
+        for accent in [[10, 132, 255], [255, 210, 30]] {
+            theme::set_host_appearance(
+                &ctx,
+                theme::HostAppearance { accent, reduce_transparency: false, reduce_motion: false },
+                app.ui.brightness,
+                app.ui.glass,
+            );
+            apply_runtime(&mut app, &ctx);
+            assert_eq!(Tokens::get(&ctx).pasteboard, egui::Color32::WHITE);
+            assert_eq!(Tokens::get(&ctx).accent, egui::Color32::from_rgb(accent[0], accent[1], accent[2]));
+        }
     }
 
     fn app() -> VectorcraftApp {

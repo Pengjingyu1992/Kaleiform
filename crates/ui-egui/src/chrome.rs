@@ -12,12 +12,16 @@ use crate::theme::{self, Tokens};
 use crate::widgets;
 use crate::{VectorcraftApp, icons, menus, titlebar};
 
-mod top_tabs;
+pub(crate) mod top_tabs;
 
 /// The application bar: Home, menus, search and the workspace switcher
 /// at the right. With [`VectorcraftApp::custom_titlebar`] it is also the window's title bar
 /// ([`titlebar`]): the caption buttons take the right end and the rest of the bar drags the window.
 pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
+    if crate::workspace::enabled(app) {
+        crate::workspace::app_bar(app, ui);
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let custom = app.custom_titlebar;
     let left = if app.integrated_titlebar { 78 } else { 8 };
@@ -496,8 +500,9 @@ fn isolation_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
 
 pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    let modern = crate::workspace::enabled(app);
     egui::Panel::bottom("status_bar")
-        .exact_size(24.0)
+        .exact_size(if modern { 28.0 } else { 24.0 })
         .frame(egui::Frame::NONE.fill(t.surface).inner_margin(egui::Margin::symmetric(8, 0)).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
@@ -563,19 +568,26 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     .unwrap_or("");
                 ui.label(egui::RichText::new(tool).size(11.5).color(t.text_dim));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "render {:.1} ms · ui {:.1} ms · {:.0} fps",
-                            app.perf.render_ms, app.perf.frame_ms, app.perf.fps
-                        ))
-                        .size(10.5)
-                        .color(t.text_disabled),
-                    );
-                    if let Some(p) = app.hover_doc {
-                        let u = app.session.general_unit();
+                    if modern {
+                        crate::mcp_panel::status(app, ui);
+                    }
+                    if !modern {
                         ui.label(
-                            egui::RichText::new(format!("X: {}  Y: {}", u.readout(p.x), u.readout(p.y))).font(theme::mono(10.5)).color(t.text_dim),
+                            egui::RichText::new(format!(
+                                "render {:.1} ms · ui {:.1} ms · {:.0} fps",
+                                app.perf.render_ms, app.perf.frame_ms, app.perf.fps
+                            ))
+                            .size(10.5)
+                            .color(t.text_disabled),
                         );
+                        if let Some(p) = app.hover_doc {
+                            let u = app.session.general_unit();
+                            ui.label(
+                                egui::RichText::new(format!("X: {}  Y: {}", u.readout(p.x), u.readout(p.y)))
+                                    .font(theme::mono(10.5))
+                                    .color(t.text_dim),
+                            );
+                        }
                     }
                     // Background saves and exports in progress, else the last message.
                     if app.trace_job.running() {
@@ -606,7 +618,11 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                         ui.add(egui::Spinner::new().size(12.0).color(t.accent));
                     } else if !app.ui.status.is_empty() {
                         // The message stays English in `ui.status` (agents and tests read it).
-                        ui.label(egui::RichText::new(crate::i18n::msg(&app.ui.status)).size(11.0).color(t.text));
+                        ui.add(egui::Label::new(egui::RichText::new(crate::i18n::msg(&app.ui.status)).size(11.0).color(t.text)).truncate())
+                            .on_hover_text(crate::i18n::msg(&app.ui.status));
+                    } else if modern {
+                        let dirty = app.session.active().is_some_and(|d| d.is_dirty());
+                        ui.label(egui::RichText::new(if dirty { tl!("Unsaved changes") } else { tl!("Saved") }).size(11.0).color(t.text_dim));
                     }
                 });
             });
@@ -796,7 +812,7 @@ pub fn hint_strings() -> Vec<&'static str> {
     v
 }
 
-fn hint_segments(tool: &str) -> Vec<(Cow<'static, str>, bool)> {
+pub(crate) fn hint_segments(tool: &str) -> Vec<(Cow<'static, str>, bool)> {
     let search;
     let segments = match hint_for(tool) {
         Some(s) => s,
@@ -897,8 +913,10 @@ mod tests {
                         let mut out = ctx.run_ui(input, |ui| super::app_bar(&mut app, ui));
                         out.textures_delta.clear();
                     }
-                    let home = ctx
-                        .viewport(|vp| {
+                    let home = if integrated {
+                        ctx.read_response(egui::Id::new("workspace-home")).map(|r| r.rect)
+                    } else {
+                        ctx.viewport(|vp| {
                             vp.prev_pass
                                 .widgets
                                 .layers()
@@ -907,10 +925,11 @@ mod tests {
                                 .min_by(|a, b| a.rect.left().total_cmp(&b.rect.left()))
                                 .map(|w| w.rect)
                         })
-                        .expect("Home button");
-                    let center = if integrated { 16.0 } else { 22.0 };
+                    }
+                    .expect("Home button");
+                    let center = if integrated { crate::workspace::BAR_HEIGHT / 2.0 } else { 22.0 };
                     assert!((home.center().y - center).abs() <= 1.0 / scale, "{integrated}, {width}, {scale}: {home:?}");
-                    assert!((home.left() - if integrated { 79.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
+                    assert!((home.left() - if integrated { 110.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
                 }
             }
         }

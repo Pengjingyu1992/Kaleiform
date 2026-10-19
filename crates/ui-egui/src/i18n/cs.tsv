@@ -573,7 +573,7 @@
 	Make Compound Path	Vytvořit složenou cestu
 	Release Compound Path	Uvolnit složenou cestu
 	Select All	Vybrat vše
-	Collapse Panels to Icons	Sbalit panely na ikony
+	Collapse Panels	Sbalit panely
 	Collapse to Icons	Sbalit na ikony
 	Expand Panels	Rozbalit panely
 
@@ -653,3 +653,5 @@
 	Retry Open	Zkusit znovu otevřít
 	Dismiss Message	Zavřít zprávu
 	Could not open {name}	Nelze otevřít {name}
+	Performance Diagnostics	Diagnostika výkonu
+	MCP Connections	Připojení MCP

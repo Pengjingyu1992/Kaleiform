@@ -91,7 +91,13 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // The user's choice alone: a window too short for the tools scrolls them.
     let cols = if app.ui.toolbar_double { 2 } else { 1 };
-    let w = if cols == 2 { 76.0 } else { WIDTH };
+    let w = if cols == 2 {
+        76.0
+    } else if crate::workspace::enabled(app) {
+        56.0
+    } else {
+        WIDTH
+    };
     // Where the panel docks: along the window's left edge, under the bars.
     let edge = ui.available_rect_before_wrap();
     ui.ctx().data_mut(|d| d.insert_temp(crate::floating::tools_zone_id(), egui::Rect::from_min_size(edge.min, vec2(WIDTH, edge.height()))));
@@ -127,6 +133,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
 /// The Tools panel's contents, docked or floating at `floating`.
 fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egui::Pos2>) {
     let t = Tokens::get(ui.ctx());
+    let modern = crate::workspace::enabled(app);
     let all = slots(app);
     let bounds = ui.max_rect();
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -169,7 +176,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egu
         let mut raise: Option<&'static str> = None;
         let mut i = 0;
         while i < all.len() {
-            if all[i].0.is_some() && !app.session.prefs.tool_group_labels {
+            if all[i].0.is_some() && (modern || !app.session.prefs.tool_group_labels) {
                 // User Interface › Show Tool Group Labels off: a faint dash between the groups.
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
                 ui.painter().line_segment([r.center() - vec2(6.0, 0.0), r.center() + vec2(6.0, 0.0)], egui::Stroke::new(1.0, t.divider));
@@ -189,7 +196,7 @@ fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egu
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 if cols == 1 {
-                    ui.add_space((WIDTH - 36.0) / 2.0);
+                    ui.add_space((if modern { 56.0 } else { WIDTH } - 36.0) / 2.0);
                 } else {
                     ui.add_space(2.0);
                 }
@@ -205,9 +212,9 @@ fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egu
                     let (rect, resp) = ui.allocate_exact_size(vec2(36.0, PITCH - 1.0), Sense::click_and_drag());
                     let well = egui::Rect::from_center_size(rect.center(), vec2(35.5, 27.5));
                     if is_active {
-                        ui.painter().rect_filled(well, CornerRadius::same(1), t.tool_active);
+                        ui.painter().rect_filled(well, CornerRadius::same(if modern { 6 } else { 1 }), t.tool_active);
                     } else if resp.hovered() {
-                        ui.painter().rect_filled(well, CornerRadius::same(1), t.hover);
+                        ui.painter().rect_filled(well, CornerRadius::same(if modern { 6 } else { 1 }), t.hover);
                     }
                     let ir = egui::Rect::from_center_size(rect.center(), vec2(18.0, 18.0));
                     icons::paint(ui, icons::tool_icon(shown.icon), ir, if is_active { t.text_strong } else { t.icon });

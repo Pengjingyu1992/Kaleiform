@@ -1,5 +1,13 @@
 # Control protocol
 
+macOS development preview 13 also exposes this bridge through Window → MCP Connections.
+It is off until explicitly started (or launched with `--control`); the manager can pause new/queued
+requests and stop the listener and registered connections. Pause is enforced before control
+dispatch and cannot be resumed by a request on that same paused bridge. It does not undo work
+already completed, or cancel background jobs and deferred screenshots already accepted.
+The transport remains unauthenticated: connection counts do not establish
+client identity or per-document authorization. See [workspace and MCP scope](macos-workspace.md).
+
 `vectorcraft --control <port>` listens on `127.0.0.1:<port>` (loopback only). One JSON request per line:
 `{"id": 1, "method": "ui.inspect", "params": {}}` → `{"id": 1, "ok": true, "result": {...}}` or `{"id":1,"ok":false,"error":"..."}`.
 

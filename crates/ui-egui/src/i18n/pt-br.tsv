@@ -387,7 +387,7 @@
 	Close Library	Fechar Biblioteca
 	Close Path	Fechar Caminho
 	Close paths when ends are within:	Fechar caminhos quando as extremidades estiverem a menos de:
-	Collapse Panels to Icons	Recolher Painéis em Ícones
+	Collapse Panels	Recolher painéis
 	Collapse to Icons	Recolher em Ícones
 	Collate	Agrupar
 	Collect for Export	Coletar para Exportação
@@ -2678,3 +2678,5 @@
 	Retry Open	Tentar abrir novamente
 	Dismiss Message	Fechar mensagem
 	Could not open {name}	Não foi possível abrir {name}
+	Performance Diagnostics	Diagnóstico de desempenho
+	MCP Connections	Conexões MCP

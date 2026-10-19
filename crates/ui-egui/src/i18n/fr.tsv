@@ -383,7 +383,7 @@
 	CMYK	CMJN
 	CMYK Color	Couleur CMJN
 	CMYK colours print with their own values; off, they go through the colour settings too.	Les couleurs CMJN s’impriment avec leurs propres valeurs ; si l’option est désactivée, elles passent aussi par les paramètres de couleur.
-	Collapse Panels to Icons	Réduire les panneaux en icônes
+	Collapse Panels	Réduire les panneaux
 	Collapse to Icons	Réduire en icônes
 	Collate	Assembler
 	Collect for Export	Rassembler pour l’exportation
@@ -3777,3 +3777,38 @@ axis	Both	Les deux
 	Retry Open	Réessayer l’ouverture
 	Dismiss Message	Fermer le message
 	Could not open {name}	Impossible d’ouvrir {name}
+	All Panels	Tous les panneaux
+	Pin Panel	Épingler le panneau
+	Hide Panels	Masquer les panneaux
+	Performance Diagnostics	Diagnostic des performances
+	Move Preview	Aperçu du déplacement
+	Processing time, not display latency	Temps de traitement, pas latence d’affichage
+	Unsaved changes	Modifications non enregistrées
+	MCP Connections	Connexions MCP
+	MCP · Paused	MCP · En pause
+	MCP · Local	MCP · Local
+	Connections	Connexions
+	Activity	Activité
+	Local bridge running	Passerelle locale en cours d’exécution
+	Local bridge stopped	Passerelle locale arrêtée
+	Local connections	Connexions locales
+	Pause Requests	Suspendre les requêtes
+	Resume Requests	Reprendre les requêtes
+	Stop Bridge	Arrêter la passerelle
+	Start Local Bridge	Démarrer la passerelle locale
+	Client Configuration	Configuration du client
+	Copy Configuration	Copier la configuration
+	No requests yet	Aucune requête pour le moment
+	Succeeded	Réussi
+	Failed	Échec
+	Accepted	Accepté
+	Client identity is not verified by this bridge.	Cette passerelle ne vérifie pas l’identité du client.
+	Connected clients can read and edit documents. Their model service may receive returned content.	Les clients connectés peuvent lire et modifier les documents. Leur service de modèles peut recevoir le contenu renvoyé.
+	Other Request	Autre requête
+	Port	Port
+@msg	At most seven panels can be pinned	Sept panneaux au maximum peuvent être épinglés
+@msg	Local bridge is unavailable	La passerelle locale n’est pas disponible
+@msg	Local bridge is already running	La passerelle locale est déjà en cours d’exécution
+@msg	Invalid local bridge port	Port de passerelle locale non valide
+@msg	Local bridge requests are paused or stopped	Les requêtes de la passerelle locale sont suspendues ou arrêtées
+@msg	Could not start local bridge on port {port}: {error}	Impossible de démarrer la passerelle locale sur le port {port} : {error}

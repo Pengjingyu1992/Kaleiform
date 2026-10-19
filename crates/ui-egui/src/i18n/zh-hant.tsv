@@ -392,7 +392,7 @@
 	CMYK	CMYK
 	CMYK Color	CMYK 色彩
 	CMYK colours print with their own values; off, they go through the colour settings too.	CMYK 顏色以其本身的數值列印；關閉時，也會經過色彩設定處理。
-	Collapse Panels to Icons	將面板收合為圖示
+	Collapse Panels	收起面板
 	Collapse to Icons	收合為圖示
 	Collate	逐份列印
 	Collect for Export	收集以供匯出
@@ -3248,3 +3248,38 @@ axis	Both	兩者
 	Dismiss Message	關閉提示
 	Social Portrait Post 1080×1350	社群直式貼文 1080×1350
 	Could not open {name}	無法開啟：{name}
+	All Panels	所有面板
+	Pin Panel	固定面板
+	Hide Panels	收起檢查器
+	Performance Diagnostics	效能診斷
+	Move Preview	移動預覽
+	Processing time, not display latency	處理耗時，不代表顯示延遲
+	Unsaved changes	未儲存的變更
+	MCP Connections	MCP 連線
+	MCP · Paused	MCP · 已暫停
+	MCP · Local	MCP · 本機
+	Connections	連線
+	Activity	活動
+	Local bridge running	本機介面已啟動
+	Local bridge stopped	本機介面未啟動
+	Local connections	本機連線
+	Pause Requests	暫停請求
+	Resume Requests	恢復請求
+	Stop Bridge	停止介面
+	Start Local Bridge	啟動本機介面
+	Client Configuration	用戶端設定
+	Copy Configuration	複製設定
+	No requests yet	尚無請求
+	Succeeded	成功
+	Failed	失敗
+	Accepted	已接收
+	Client identity is not verified by this bridge.	此介面尚未驗證用戶端身分。
+	Connected clients can read and edit documents. Their model service may receive returned content.	連線的用戶端可讀取及編輯文件，傳回的內容可能傳送給其模型服務。
+	Other Request	其他請求
+	Port	連接埠
+@msg	At most seven panels can be pinned	最多可固定七個面板
+@msg	Local bridge is unavailable	本機介面無法使用
+@msg	Local bridge is already running	本機介面已在執行
+@msg	Invalid local bridge port	本機介面連接埠無效
+@msg	Local bridge requests are paused or stopped	本機介面請求已暫停或停止
+@msg	Could not start local bridge on port {port}: {error}	無法在連接埠 {port} 啟動本機介面：{error}

@@ -93,7 +93,7 @@ pub fn command_button(ui: &mut Ui, icon: &str, text: &str, size: Vec2, primary: 
     let color = if !enabled {
         t.text_disabled
     } else if primary {
-        Color32::WHITE
+        t.accent_text
     } else {
         t.text_strong
     };
@@ -209,7 +209,7 @@ pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
 pub fn section_header(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(2.0);
-    ui.label(egui::RichText::new(tl!(text)).size(13.0).color(t.text));
+    ui.label(egui::RichText::new(tl!(text)).font(theme::emphasis(ui.ctx(), t.font_size)).color(t.text_strong));
     ui.add_space(2.0);
 }
 
@@ -223,7 +223,7 @@ pub fn section_toggle(ui: &mut Ui, text: &str, open: bool) -> bool {
     }
     let chevron = Rect::from_center_size(pos2(rect.left() + 8.0, rect.center().y), vec2(12.0, 12.0));
     icons::paint(ui, if open { "chevron-down" } else { "chevron-right" }, chevron, if resp.hovered() { t.text_strong } else { t.icon });
-    ui.painter().text(pos2(rect.left() + 18.0, rect.center().y), egui::Align2::LEFT_CENTER, tl!(text), theme::semibold(12.5), t.text);
+    ui.painter().text(pos2(rect.left() + 18.0, rect.center().y), egui::Align2::LEFT_CENTER, tl!(text), theme::semibold(t.font_size), t.text);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, resp.enabled(), tl!(text)));
     ui.ctx().accesskit_node_builder(resp.id, |node| node.set_expanded(open));
     focus_ring(ui, &resp, 3);

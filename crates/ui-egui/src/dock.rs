@@ -73,6 +73,10 @@ fn panel_icon(app: &mut VectorcraftApp, ui: &mut Ui, id: &'static str, label: &s
 }
 
 pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
+    if crate::workspace::enabled(app) {
+        crate::workspace::inspector(app, ui);
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let shown = floating::shown_tab(&app.ui);
     // Main tabbed group, unless it is collapsed to icons or all its panels float.
@@ -208,6 +212,9 @@ fn tab_strip(app: &mut VectorcraftApp, ui: &mut Ui, active: DockTab) -> bool {
 /// A panel popped out next to the icon column: an icon panel, or one of the tabbed group's panels
 /// while the dock is collapsed. Dragging its title floats it.
 pub fn floating_panel(app: &mut VectorcraftApp, ctx: &egui::Context) {
+    if crate::workspace::enabled(app) {
+        return;
+    }
     let Some((id, label)) = app.ui.open_panel.as_deref().and_then(|p| crate::state::all_panels().find(|(q, _)| *q == p)) else { return };
     let tab = DockTab::from_id(id);
     // Expanded, the group shows its panels in the dock itself; a floating panel shows in its group.

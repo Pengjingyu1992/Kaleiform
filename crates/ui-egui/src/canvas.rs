@@ -1945,6 +1945,11 @@ fn home(app: &mut VectorcraftApp, ui: &mut Ui, rect: egui::Rect) {
 
 fn home_content(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    if crate::workspace::enabled(app) {
+        let (logo, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
+        crate::brand::paint_logo(ui, logo);
+        ui.add_space(16.0);
+    }
     ui.label(egui::RichText::new(tl!("Welcome to Kaleiform")).font(theme::semibold(26.0)).color(t.text));
     ui.add_space(4.0);
     ui.label(egui::RichText::new(tl!("Vector illustration — fast, open, scriptable.")).size(14.0).color(t.text_dim));
@@ -2143,7 +2148,17 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
     let under = pos2(anchor.x - est_w / 2.0, anchor.y + 28.0);
     let id = task_bar_id();
     let size = egui::AreaState::load(ui.ctx(), id).and_then(|s| s.size).unwrap_or(vec2(est_w, 44.0));
-    let bounds = xf.rect.shrink(8.0);
+    let mut bounds = xf.rect.shrink(8.0);
+    let modern = crate::workspace::enabled(app);
+    let compact = modern && xf.rect.width() < 960.0;
+    if modern
+        && app.ui.dock
+        && app.ui.inspector_overlay
+        && !app.ui.dock_collapsed
+        && ui.ctx().content_rect().width() < crate::workspace::OVERLAY_BREAKPOINT
+    {
+        bounds.max.x = (bounds.right() - 300.0).max(bounds.left());
+    }
     let keep_in = |p: Pos2| p.clamp(bounds.min, (bounds.max - size).max(bounds.min));
     let place = &mut app.ui.task_bar_place;
     // Just unpinned: follow the selection from the pinned spot.
@@ -2167,8 +2182,8 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
     egui::Area::new(id).order(egui::Order::Middle).fixed_pos(pos).show(ui.ctx(), |ui| {
         egui::Frame::NONE
             .fill(t.panel)
-            .stroke(Stroke::new(1.0, t.tool_active))
-            .corner_radius(CornerRadius::same(10))
+            .stroke(Stroke::new(1.0, if modern { t.divider } else { t.tool_active }))
+            .corner_radius(CornerRadius::same(if modern { 16 } else { 10 }))
             .inner_margin(egui::Margin::symmetric(8, 6))
             .shadow(egui::epaint::Shadow { offset: [0, 3], blur: 10, spread: 0, color: Color32::from_black_alpha(70) })
             .show(ui, |ui| {
@@ -2185,7 +2200,11 @@ fn task_bar(app: &mut VectorcraftApp, ui: &mut Ui, xf: &Xf) {
                     }
                     for (label, icon, cmd) in &items {
                         let galley = ui.painter().layout_no_wrap(label.to_string(), egui::FontId::proportional(13.0), t.text_strong);
-                        let resp = widgets::command_button(ui, icon, label, vec2(galley.size().x + 38.0, 30.0), false);
+                        let resp = if compact {
+                            widgets::icon_button(ui, icon, label, false, 30.0)
+                        } else {
+                            widgets::command_button(ui, icon, label, vec2(galley.size().x + 38.0, 30.0), false)
+                        };
                         if resp.clicked() {
                             run = Some((*cmd, json!({})));
                         }

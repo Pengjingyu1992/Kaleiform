@@ -104,6 +104,18 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "graphicsAdapter": app.graphics_adapter,
         // The menus are in the macOS menu bar rather than the window.
         "nativeMenuBar": app.services.native_menu.is_some(),
+        "workspace": {
+            "enabled": crate::workspace::enabled(app),
+            "inspectorOverlay": app.ui.inspector_overlay,
+            "performanceHud": app.ui.performance_hud,
+        },
+        "mcp": {
+            "open": app.mcp.open,
+            "running": app.services.control_status.as_ref().is_some_and(|s| s.running.load(std::sync::atomic::Ordering::Relaxed)),
+            "paused": app.services.control_status.as_ref().is_some_and(|s| s.paused.load(std::sync::atomic::Ordering::Relaxed)),
+            "connections": app.services.control_status.as_ref().map_or(0, |s| s.connections.load(std::sync::atomic::Ordering::Relaxed)),
+            "activityCount": app.mcp.activity.len(),
+        },
         // Saves and exports still being written in the background (Background Save / Export).
         "background": app.background.jobs.iter().map(|j| j.label.as_str()).collect::<Vec<_>>(),
         "geometryJob": { "running": app.geometry_job.running(), "cancelled": app.geometry_job.cancelled() },
@@ -135,6 +147,9 @@ fn modifiers(p: &Value) -> egui::Modifiers {
 }
 
 pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
+    if app.services.control_status.as_ref().is_some_and(|s| !s.accepting()) {
+        return err("Local bridge requests are paused or stopped");
+    }
     let p = &req.params;
     let s = |k: &str| p.get(k).and_then(Value::as_str);
     match req.method.as_str() {

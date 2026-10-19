@@ -383,7 +383,7 @@
 	CMYK	CMYK
 	CMYK Color	Color CMYK
 	CMYK colours print with their own values; off, they go through the colour settings too.	Los colores CMYK se imprimen con sus propios valores; si se desactiva, también pasan por los ajustes de color.
-	Collapse Panels to Icons	Contraer paneles a iconos
+	Collapse Panels	Contraer paneles
 	Collapse to Icons	Contraer a iconos
 	Collate	Intercalar
 	Collect for Export	Reunir para exportar
@@ -3762,3 +3762,38 @@ axis	Both	Ambos
 	Retry Open	Volver a abrir
 	Dismiss Message	Cerrar mensaje
 	Could not open {name}	No se pudo abrir {name}
+	All Panels	Todos los paneles
+	Pin Panel	Fijar panel
+	Hide Panels	Ocultar paneles
+	Performance Diagnostics	Diagnóstico de rendimiento
+	Move Preview	Vista previa del movimiento
+	Processing time, not display latency	Tiempo de procesamiento, no latencia de pantalla
+	Unsaved changes	Cambios sin guardar
+	MCP Connections	Conexiones MCP
+	MCP · Paused	MCP · En pausa
+	MCP · Local	MCP · Local
+	Connections	Conexiones
+	Activity	Actividad
+	Local bridge running	Puente local en ejecución
+	Local bridge stopped	Puente local detenido
+	Local connections	Conexiones locales
+	Pause Requests	Pausar solicitudes
+	Resume Requests	Reanudar solicitudes
+	Stop Bridge	Detener puente
+	Start Local Bridge	Iniciar puente local
+	Client Configuration	Configuración del cliente
+	Copy Configuration	Copiar configuración
+	No requests yet	Todavía no hay solicitudes
+	Succeeded	Correcto
+	Failed	Error
+	Accepted	Aceptado
+	Client identity is not verified by this bridge.	Este puente no verifica la identidad del cliente.
+	Connected clients can read and edit documents. Their model service may receive returned content.	Los clientes conectados pueden leer y editar documentos. Su servicio de modelos puede recibir el contenido devuelto.
+	Other Request	Otra solicitud
+	Port	Puerto
+@msg	At most seven panels can be pinned	Se pueden fijar como máximo siete paneles
+@msg	Local bridge is unavailable	El puente local no está disponible
+@msg	Local bridge is already running	El puente local ya está en ejecución
+@msg	Invalid local bridge port	Puerto del puente local no válido
+@msg	Local bridge requests are paused or stopped	Las solicitudes del puente local están en pausa o detenidas
+@msg	Could not start local bridge on port {port}: {error}	No se pudo iniciar el puente local en el puerto {port}: {error}

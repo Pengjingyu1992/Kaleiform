@@ -239,6 +239,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("window.taskBar.reset", "Reset Bar Position", "", "{} unpin the Contextual Task Bar and put it back under the selection"),
     ("window.dock", "Panels", "Tab", "{} show/hide all panels"),
+    ("window.performanceHud", "Performance Diagnostics", "Cmd+Ctrl+Alt+P", "{enabled?: bool} show measured raster and UI processing times"),
+    ("window.mcp", "MCP Connections", "", "{} show local bridge connections and in-memory activity"),
+    ("window.mcp.start", "Start Local Bridge", "", "{port?: 1..65535} start a loopback control bridge (default 7979)"),
+    ("window.mcp.pause", "Pause Requests", "", "{paused?: bool} refuse new and queued control requests until resumed"),
+    ("window.mcp.stop", "Stop Bridge", "", "{} stop accepting local control requests"),
+    ("window.panel.pin", "Pin Panel", "", "{panel: id, pinned?: bool} pin or unpin a panel in the macOS inspector; at most seven panels"),
     ("window.panel", "Show Panel", "", "{panel: id} e.g. layers, swatches, stroke (case-insensitive; display labels like \"Layers\" work too)"),
     (
         "window.panel.float",
@@ -254,7 +260,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     (
         "window.collapseDock",
-        "Collapse Panels to Icons",
+        "Collapse Panels",
         "",
         "{collapsed?: bool} collapse the dock's Properties | Layers | Libraries group to icons (true), expand it (false) or toggle (omitted), as the double arrow at the top of the dock does; returns the new state",
     ),
@@ -1056,6 +1062,66 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
             Ok(Value::Null)
         }
         "window.control" => flag(&mut app.ui.control_bar),
+        "window.performanceHud" => {
+            app.ui.performance_hud = p.get("enabled").and_then(Value::as_bool).unwrap_or(!app.ui.performance_hud);
+            Ok(json!(app.ui.performance_hud))
+        }
+        "window.mcp" => {
+            app.mcp.open = true;
+            Ok(Value::Null)
+        }
+        "window.mcp.start" => {
+            let port = p.get("port").map_or(Some(7979), Value::as_u64).and_then(|p| u16::try_from(p).ok()).filter(|p| *p > 0);
+            if app.services.start_control.is_none() {
+                Err("Local bridge is unavailable".into())
+            } else if app.services.control_status.as_ref().is_some_and(|s| s.running.load(std::sync::atomic::Ordering::Relaxed)) {
+                Err("Local bridge is already running".into())
+            } else if let Some(port) = port {
+                app.mcp.requested_port = Some(port);
+                Ok(json!({"pending": "start", "port": port}))
+            } else {
+                Err("Invalid local bridge port".into())
+            }
+        }
+        "window.mcp.pause" => {
+            if let Some(s) = &app.services.control_status {
+                let paused = p.get("paused").and_then(Value::as_bool).unwrap_or(!s.paused.load(std::sync::atomic::Ordering::Relaxed));
+                s.paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+                if paused {
+                    app.synthetic.clear();
+                }
+                Ok(json!({"paused": paused}))
+            } else {
+                Err("Local bridge is unavailable".into())
+            }
+        }
+        "window.mcp.stop" => {
+            if let Some(s) = &app.services.control_status {
+                s.stop();
+                app.synthetic.clear();
+                Ok(Value::Null)
+            } else {
+                Err("Local bridge is unavailable".into())
+            }
+        }
+        "window.panel.pin" => {
+            let raw = s("panel").unwrap_or_default();
+            if let Some(panel) = normalize_panel(&raw) {
+                let current = app.ui.pinned_panels.iter().any(|id| id == panel);
+                let pinned = p.get("pinned").and_then(Value::as_bool).unwrap_or(!current);
+                if pinned && !current && app.ui.pinned_panels.len() >= 7 {
+                    Err("At most seven panels can be pinned".into())
+                } else {
+                    app.ui.pinned_panels.retain(|id| id != panel);
+                    if pinned {
+                        app.ui.pinned_panels.push(panel.to_string());
+                    }
+                    Ok(json!(app.ui.pinned_panels))
+                }
+            } else {
+                Err(format!("unknown panel `{raw}`"))
+            }
+        }
         "window.toolbar" => flag(&mut app.ui.toolbar),
         "window.toolbarColumns" => opt_bool(p, "double").map(|on| {
             let on = on.unwrap_or(!app.ui.toolbar_double);
@@ -1116,6 +1182,20 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
                 return Some(Ok(out));
             }
             let tab = canonical.and_then(DockTab::from_id);
+            if crate::workspace::enabled(app)
+                && let Some(panel) = canonical
+            {
+                if let Some(tab) = tab {
+                    app.ui.dock_tab = tab;
+                    app.ui.open_panel = None;
+                } else {
+                    app.ui.open_panel = Some(panel.to_string());
+                }
+                app.ui.dock = true;
+                app.ui.dock_collapsed = false;
+                app.ui.inspector_overlay = true;
+                return Some(Ok(json!({"open": panel})));
+            }
             match (canonical, tab) {
                 // A collapsed dock pops the panel out of its icon, like the icon panels.
                 (Some(p), Some(tab)) if app.ui.dock_collapsed => {
@@ -1423,6 +1503,8 @@ pub fn checked(app: &VectorcraftApp, id: &str, p: &Value) -> Option<bool> {
         "view.snapToPoint" => v.snap_to_point,
         "view.rulers" => v.rulers,
         "window.control" => app.ui.control_bar,
+        "window.performanceHud" => app.ui.performance_hud,
+        "window.mcp" => app.mcp.open,
         "window.toolbar" => app.ui.toolbar,
         "window.toolbarAdvanced" => app.ui.toolbar_advanced,
         "window.toolbarColumns" => app.ui.toolbar_double,
@@ -1437,7 +1519,9 @@ pub fn checked(app: &VectorcraftApp, id: &str, p: &Value) -> Option<bool> {
             let canonical = normalize_panel(panel);
             match canonical.and_then(DockTab::from_id) {
                 _ if canonical.is_some_and(|id| crate::floating::group_of(&app.ui, id).is_some()) => true,
-                Some(tab) if !app.ui.dock_collapsed => crate::floating::shown_tab(&app.ui) == Some(tab),
+                Some(tab) if !app.ui.dock_collapsed => {
+                    crate::floating::shown_tab(&app.ui) == Some(tab) && (!crate::workspace::enabled(app) || app.ui.open_panel.is_none())
+                }
                 _ => canonical.is_some_and(|id| app.ui.open_panel.as_deref() == Some(id)),
             }
         }
@@ -2495,6 +2579,8 @@ pub fn menu_tree() -> Vec<(&'static str, Vec<Item>)> {
                 Sep,
                 c("Control", "window.control"),
                 c("Contextual Task Bar", "window.taskBar"),
+                c("Performance Diagnostics", "window.performanceHud"),
+                c("MCP Connections", "window.mcp"),
                 c("Tools", "window.toolbar"),
                 sub("Toolbars", vec![c("Advanced", "window.toolbarAdvanced"), c("Double Column", "window.toolbarColumns")]),
                 Sep,
