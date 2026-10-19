@@ -531,24 +531,37 @@ pub(super) fn bleed(ui: &mut egui::Ui, d: &mut Dialog, unit: vectorcraft_doc::Un
     let mut b = bleed_values(d);
     let linked = d.fields.get("bleedLinked").and_then(Value::as_bool).unwrap_or(true);
     let mut changed = None;
-    ui.horizontal(|ui| {
+    let mut field_ids = vec![];
+    let width = width.min(((ui.available_width() - 48.0) / 4.0).max(26.0));
+    ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        crate::widgets::field_group(ui, |ui| {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                for (i, side) in ["Top", "Bottom", "Left", "Right"].into_iter().enumerate() {
-                    ui.vertical(|ui| {
-                        ui.add_sized(egui::vec2(width, 14.0), egui::Label::new(egui::RichText::new(tl!(side)).size(11.0).color(t.text_dim)));
-                        if let Some(v) = crate::widgets::inline_num_field(ui, ("bleed", i), Some(b[i]), unit, width) {
-                            changed = Some((i, v.clamp(0.0, vectorcraft_doc::setup::MAX_BLEED)));
-                        }
-                        ui.ctx().accesskit_node_builder(ui.id().with(("bleed", i)), |node| node.set_label(tl!(side)));
-                    });
+                ui.add_space(4.0);
+                for side in ["Top", "Bottom", "Left", "Right"] {
+                    ui.add_sized(egui::vec2(width, 14.0), egui::Label::new(egui::RichText::new(tl!(side)).size(11.0).color(t.text_dim)));
                 }
+            });
+            crate::widgets::field_group(ui, |ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        for (i, side) in ["Top", "Bottom", "Left", "Right"].into_iter().enumerate() {
+                            let id = ui.id().with(("bleed", i));
+                            field_ids.push(id);
+                            if let Some(v) = crate::widgets::inline_num_field(ui, ("bleed", i), Some(b[i]), unit, width) {
+                                changed = Some((i, v.clamp(0.0, vectorcraft_doc::setup::MAX_BLEED)));
+                            }
+                            ui.ctx().accesskit_node_builder(id, |node| node.set_label(tl!(side)));
+                        }
+                    });
+                });
             });
         });
         ui.vertical(|ui| {
-            ui.add_space(15.0);
+            ui.add_space(22.0);
             let tip = if linked { tl!("Make the bleed values differ") } else { tl!("Make all bleed settings the same") };
             if crate::widgets::icon_button(ui, if linked { "link" } else { "link-2-off" }, tip, linked, 24.0).clicked() {
                 d.fields.insert("bleedLinked".into(), json!(!linked));
@@ -563,6 +576,12 @@ pub(super) fn bleed(ui: &mut egui::Ui, d: &mut Dialog, unit: vectorcraft_doc::Un
         // Linked (also just now): every side takes the value.
         if d.fields.get("bleedLinked").and_then(Value::as_bool).unwrap_or(true) {
             b = [v; 4];
+            // Tab may already have focused a sibling drawn with the old value this frame.
+            ui.data_mut(|data| {
+                for id in field_ids {
+                    data.insert_temp(id, unit.format(v));
+                }
+            });
         } else {
             b[i] = v;
         }

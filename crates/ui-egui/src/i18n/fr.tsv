@@ -3812,3 +3812,7 @@ axis	Both	Les deux
 @msg	Invalid local bridge port	Port de passerelle locale non valide
 @msg	Local bridge requests are paused or stopped	Les requêtes de la passerelle locale sont suspendues ou arrêtées
 @msg	Could not start local bridge on port {port}: {error}	Impossible de démarrer la passerelle locale sur le port {port} : {error}
+	Delete these recovery copies?	Supprimer ces copies de récupération ?
+	This cannot be undone.	Cette opération est irréversible.
+@msg	angle must be finite	L’angle doit être un nombre fini
+@msg	another dialog is open	Fermez d’abord la boîte de dialogue actuelle

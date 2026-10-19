@@ -155,6 +155,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("file.documentSetup", "Document Setup…", "Cmd+Alt+P", "{}"),
     ("file.newDialog", "New…", "Cmd+N", "{} opens the New Document dialog"),
+    ("file.recovery.manage", "Recover Documents", "", "{} manage orphaned recovery copies; selecting or opening never deletes data"),
     ("app.home", "Home", "", "{} shows the Home screen (new file presets, Open) over the open documents; choosing a document tab returns to it"),
     ("edit.preferences", "Preferences…", "Cmd+K", "{category?} open Preferences (engine: prefs.get / prefs.set / prefs.list)"),
     ("edit.keyboardShortcuts", "Keyboard Shortcuts…", "Cmd+Alt+Shift+K", "{}"),
@@ -215,6 +216,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("view.presentation", "Presentation Mode", "Shift+F", "{}"),
     ("view.screenMode", "Screen Mode", "F", "{mode?: 0..2} (no param cycles)"),
     ("view.rotateReset", "Reset Rotate View", "Cmd+Shift+1", "{}"),
+    ("view.rotate", "Rotation", "", "{angle: degrees} rotate the canvas view, without modifying artwork"),
     ("window.control", "Control", "", "{}"),
     ("window.toolbar", "Tools", "", "{}"),
     (
@@ -863,6 +865,7 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
         Ok(json!(*b))
     };
     let r = match id {
+        "file.recovery.manage" => crate::recovery::manage(app),
         "file.newDialog" => {
             crate::dialogs::open_new_document(app);
             Ok(Value::Null)
@@ -1060,6 +1063,17 @@ pub fn run_ui_command(app: &mut VectorcraftApp, id: &str, p: &Value) -> Option<R
                 v.rotation = 0.0;
             }
             Ok(Value::Null)
+        }
+        "view.rotate" => {
+            let angle = p.get("angle").and_then(Value::as_f64).filter(|v| v.is_finite());
+            if let Some(angle) = angle {
+                if let Some(v) = app.view_mut() {
+                    v.rotation = angle % 360.0;
+                }
+                Ok(Value::Null)
+            } else {
+                Err("angle must be finite".into())
+            }
         }
         "window.control" => flag(&mut app.ui.control_bar),
         "window.performanceHud" => {
@@ -1929,6 +1943,7 @@ pub fn enabled(app: &VectorcraftApp, id: &str) -> bool {
     }
     match id {
         // Save is off for a clean document that already has its own file.
+        "file.recovery.manage" => app.ui.dialog.is_none() && vectorcraft_engine::cmd::recovery::store(&app.session).is_some(),
         "file.save" => app.session.active().is_some_and(|d| d.path.is_none() || d.converted || d.is_dirty()),
         "type.bold" | "type.italic" => crate::panels::character::text_style(app).is_some(),
         "file.reveal" => app.services.reveal.is_some() && app.session.active().is_some_and(|d| d.path.is_some()),
@@ -2040,6 +2055,7 @@ pub fn menu_tree() -> Vec<(&'static str, Vec<Item>)> {
                     v
                 }),
                 c("Show in Folder", "file.reveal"),
+                c("Recover Documents", "file.recovery.manage"),
                 Sep,
                 c("Close", "file.close"),
                 c("Close All", "file.closeAll"),

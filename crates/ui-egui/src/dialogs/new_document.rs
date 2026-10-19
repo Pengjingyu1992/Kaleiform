@@ -74,18 +74,27 @@ pub fn open(app: &mut VectorcraftApp) {
 
 /// Fill the fields from a preset.
 fn apply(d: &mut Dialog, s: &DocSettings) {
-    let Value::Object(mut v) = s.to_json() else { return };
+    let v = settings_fields(s);
+    d.fields.insert("bleedLinked".into(), json!(s.bleed.iter().all(|b| *b == s.bleed[0])));
+    for (k, val) in &v {
+        d.fields.insert(k.clone(), val.clone());
+    }
+    d.fields.insert(APPLIED.into(), Value::Object(v));
+}
+
+fn settings_fields(s: &DocSettings) -> Map<String, Value> {
+    let Value::Object(mut v) = s.to_json() else { return Map::new() };
     for k in ["size", "orientation"] {
         v.remove(k);
     }
     if let Some(name) = v.remove("name") {
         v.insert("preset".into(), name);
     }
-    d.fields.insert("bleedLinked".into(), json!(s.bleed.iter().all(|b| *b == s.bleed[0])));
-    for (k, val) in &v {
-        d.fields.insert(k.clone(), val.clone());
-    }
-    d.fields.insert(APPLIED.into(), Value::Object(v));
+    v
+}
+
+fn selected_preset(d: &Dialog, s: &DocSettings) -> bool {
+    d.fields.get(APPLIED).and_then(Value::as_object).is_some_and(|applied| *applied == settings_fields(s))
 }
 
 /// Keep the fields and the chosen preset in step: a new `preset` (also from `ui.dialog.set`) fills
@@ -261,7 +270,7 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, strip: bool)
         }
         let list = newdoc::category(&app.session, &d.str("category")).unwrap_or_default();
         let labels: Vec<String> = list.iter().map(|s| format!("{} · {}", preset_name(&s.name), s.size_label())).collect();
-        let current = list.iter().position(|s| s.name == d.str("preset")).unwrap_or(0);
+        let current = list.iter().position(|s| selected_preset(d, s)).unwrap_or(0);
         let shown = labels.get(current).map_or("", String::as_str);
         if let Some(s) =
             widgets::dropdown_names(ui, "newdoc-compact-preset", shown, &labels.iter().map(String::as_str).collect::<Vec<_>>(), ui.available_width())
@@ -317,9 +326,8 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, strip: bool)
         let layout = egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(!strip);
         ui.with_layout(layout, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-            let (w, h, preset) = (d.f64("width", 0.0), d.f64("height", 0.0), d.str("preset"));
             for s in &list {
-                let selected = d.fields.contains_key(APPLIED) && s.name == preset && s.width == w && s.height == h;
+                let selected = selected_preset(d, s);
                 let label = if cat == 0 && s.name == "Custom" { tl!("Custom") } else { preset_name(&s.name) };
                 let card = preset_card_impl(ui, s, label, selected, true);
                 if card.clicked() || card.double_clicked() {
@@ -621,6 +629,135 @@ mod tests {
     use vectorcraft_engine::Session;
 
     use crate::VectorcraftApp;
+
+    #[test]
+    fn recent_presets_with_the_same_size_keep_distinct_settings_and_one_selection() {
+        let first = vectorcraft_engine::cmd::newdoc::DocSettings { name: "Custom".into(), width: 595.276, height: 841.89, ..Default::default() };
+        let mut metric = first.clone();
+        metric.units = vectorcraft_doc::Unit::Millimeters;
+        let mut boards = metric.clone();
+        boards.artboards = 4;
+        let mut bleed = metric.clone();
+        bleed.bleed = [10.0; 4];
+        let presets = [first, metric, boards, bleed];
+        let mut d = crate::state::Dialog::new(super::KIND, json!({}));
+        for (index, preset) in presets.iter().enumerate() {
+            super::apply(&mut d, preset);
+            let selected: Vec<_> = presets.iter().enumerate().filter(|(_, s)| super::selected_preset(&d, s)).map(|(i, _)| i).collect();
+            assert_eq!(selected, [index]);
+        }
+    }
+
+    #[test]
+    fn bleed_captions_and_values_fit_without_overlapping_at_small_widths() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        for width in [220.0, 260.0, 292.0] {
+            for unit in [vectorcraft_doc::Unit::Points, vectorcraft_doc::Unit::Millimeters] {
+                let mut d = crate::state::Dialog::new(super::KIND, json!({"bleed": [0, 0, 0, 0]}));
+                let mut out = egui::FullOutput::default();
+                for _ in 0..4 {
+                    out = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 160.0))),
+                            ..Default::default()
+                        },
+                        |ui| {
+                            super::form::bleed(ui, &mut d, unit, 52.0);
+                        },
+                    );
+                    out.textures_delta.clear();
+                }
+                let texts: Vec<_> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some((t.galley.text(), t.visual_bounding_rect())) } else { None })
+                    .collect();
+                let values: Vec<_> = texts.iter().filter(|(text, _)| *text == unit.format(0.0)).map(|(_, r)| *r).collect();
+                assert_eq!(values.len(), 4, "{width}/{unit:?}: {texts:?}");
+                let captions: Vec<_> = texts.iter().filter(|(text, _)| ["Top", "Bottom", "Left", "Right"].contains(text)).map(|(_, r)| *r).collect();
+                assert_eq!(captions.len(), 4);
+                for (caption, value) in captions.iter().zip(&values) {
+                    assert!(caption.bottom() <= value.top(), "{width}: {caption:?} / {value:?}");
+                    assert!(value.right() <= width && value.left() >= 0.0, "{width}: {value:?}");
+                }
+                for pair in values.windows(2) {
+                    assert!(pair[0].right() < pair[1].left());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn linked_bleed_does_not_revert_when_tabbing_into_another_field() {
+        use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect, vec2};
+        for source in [0, 3] {
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            let mut d = crate::state::Dialog::new(super::KIND, json!({"bleed": [0, 0, 0, 0]}));
+            let draw = |d: &mut crate::state::Dialog, events: Vec<Event>| {
+                let modifiers = events
+                    .iter()
+                    .find_map(|event| match event {
+                        Event::Key { modifiers, .. } => Some(*modifiers),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let mut out = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(320.0, 160.0))),
+                        events: std::iter::once(Event::ModifiersChanged(modifiers)).chain(events).collect(),
+                        ..Default::default()
+                    },
+                    |ui| super::form::bleed(ui, d, vectorcraft_doc::Unit::Points, 52.0),
+                );
+                out.textures_delta.clear();
+                out
+            };
+            for _ in 0..3 {
+                draw(&mut d, vec![]);
+            }
+            let out = draw(&mut d, vec![]);
+            let fields: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == "0 pt" => Some(t.visual_bounding_rect().center()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(fields.len(), 4);
+            let at = fields[source];
+            draw(&mut d, vec![Event::PointerMoved(at)]);
+            for pressed in [true, false] {
+                draw(&mut d, vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }]);
+            }
+            assert!(ctx.memory(|m| m.focused()).is_some(), "source {source} at {at:?}");
+            let out = draw(&mut d, vec![Event::Text("3 mm".into())]);
+            assert!(
+                out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "3 mm")),
+                "source {source}: typing reached the field"
+            );
+            if source == 3 {
+                let at = fields[0];
+                draw(&mut d, vec![Event::PointerMoved(at)]);
+                for pressed in [true, false] {
+                    draw(&mut d, vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }]);
+                }
+            }
+            for _ in 0..3 {
+                let modifiers = Modifiers::NONE;
+                draw(
+                    &mut d,
+                    [true, false].map(|pressed| Event::Key { key: Key::Tab, physical_key: None, pressed, repeat: false, modifiers }).to_vec(),
+                );
+                draw(&mut d, vec![]);
+                for v in super::form::bleed_values(&d) {
+                    assert!((v - 3.0 * 72.0 / 25.4).abs() < 1e-6, "source {source}: {:?}", d.fields["bleed"]);
+                }
+            }
+        }
+    }
 
     #[test]
     fn narrow_and_short_dialogs_keep_the_footer_and_fields_inside_the_window() {

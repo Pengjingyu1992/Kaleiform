@@ -31,13 +31,6 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 ui.add_space(78.0 / ui.ctx().zoom_factor());
-                let visible =
-                    app.ui.dock && !app.ui.dock_collapsed && (ui.ctx().content_rect().width() >= OVERLAY_BREAKPOINT || app.ui.inspector_overlay);
-                if widgets::icon_toggle(ui, "dc-options", tl!("Panels"), visible, 28.0).clicked() {
-                    let collapsed = visible;
-                    app.run("window.collapseDock", json!({"collapsed": collapsed})).ok();
-                    app.ui.inspector_overlay = !collapsed;
-                }
                 let (rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
                 let home = ui.interact(rect, Id::new("workspace-home"), Sense::click());
                 if widgets::paint_icon_button(ui, home, "house", tl!("Home"), menus::home_showing(app)).clicked() {
@@ -51,28 +44,22 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     if crate::workspaces::is_builtin(&app.ui.workspace) { tl!(&app.ui.workspace) } else { &app.ui.workspace }.to_string();
                 let text_width = |text: &str| ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(t.font_size), t.text).size().x;
                 let workspace_width = if wide { (text_width(&workspace_name) + 36.0).clamp(112.0, 180.0) } else { 28.0 };
-                let export_width = if tiny { 28.0 } else { (text_width(tl!("Export")) + 36.0).clamp(72.0, 120.0) };
-                let controls = search_width + workspace_width + export_width + if tiny { 12.0 } else { 3.0 * 28.0 + 5.0 * 6.0 };
+                let controls = search_width + workspace_width + 76.0 + 28.0 + if tiny { 18.0 } else { 52.0 + 2.0 * 28.0 + 6.0 * 6.0 };
                 let split = (full.right() - controls).max(ui.cursor().left() + 100.0);
                 let tabs = Rect::from_min_max(pos2(ui.cursor().left() + 4.0, full.top()), pos2(split - 12.0, full.bottom()));
                 crate::chrome::top_tabs::show(app, ui, tabs);
                 let right = Rect::from_min_max(pos2(split, full.top()), full.max);
                 let mut row = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));
                 row.spacing_mut().item_spacing.x = 6.0;
-                if !tiny {
-                    command(app, &mut row, "info", "About Kaleiform", "help.about");
-                }
-                let export = row
-                    .add_enabled_ui(menus::enabled(app, "file.exportAs"), |ui| {
-                        if tiny {
-                            widgets::icon_button(ui, "share-2", tl!("Export"), false, 28.0)
-                        } else {
-                            widgets::command_button(ui, "share-2", tl!("Export"), vec2(export_width, 28.0), true)
-                        }
-                    })
-                    .inner;
-                if export.clicked() {
-                    menus::invoke(app, "file.exportAs", json!({}));
+                let visible =
+                    app.ui.dock && !app.ui.dock_collapsed && (ui.ctx().content_rect().width() >= OVERLAY_BREAKPOINT || app.ui.inspector_overlay);
+                let toggle = row.push_id("workspace-panels", |ui| widgets::icon_toggle(ui, "dc-options", tl!("Panels"), visible, 28.0)).inner;
+                if toggle.clicked() {
+                    app.run("window.collapseDock", json!({"collapsed": visible})).ok();
+                    if !visible && !app.ui.dock {
+                        app.run("window.dock", json!({"enabled": true})).ok();
+                    }
+                    app.ui.inspector_overlay = !visible;
                 }
                 let ws = if wide {
                     widgets::command_button(&mut row, "chevron-down", &workspace_name, vec2(workspace_width, 28.0), false)
@@ -80,6 +67,9 @@ pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
                     widgets::icon_button(&mut row, "layout-grid", tl!("Workspace"), false, 28.0)
                 };
                 egui::Popup::menu(&ws).show(|ui| crate::workspaces::popup(app, ui));
+                row.allocate_ui_with_layout(vec2(if tiny { 76.0 } else { 134.0 }, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    crate::chrome::view_controls(app, ui, !tiny);
+                });
                 if !tiny {
                     command(app, &mut row, "redo-2", "Redo", "edit.redo");
                     command(app, &mut row, "undo-2", "Undo", "edit.undo");
@@ -309,6 +299,22 @@ pub fn overlays(app: &mut VectorcraftApp, ctx: &Context) {
     if !enabled(app) || app.ui.screen_mode >= 3 {
         return;
     }
+    if app.ui.screen_mode == 2
+        && let Some(mut bounds) = app.canvas_rect
+    {
+        if app.ui.dock && app.ui.inspector_overlay && !app.ui.dock_collapsed && ctx.content_rect().width() < OVERLAY_BREAKPOINT {
+            bounds.max.x -= 300.0;
+        }
+        egui::Area::new(Id::new("workspace-view-controls"))
+            .order(egui::Order::Foreground)
+            .pivot(Align2::RIGHT_TOP)
+            .fixed_pos(bounds.right_top() + vec2(-12.0, 12.0))
+            .show(ctx, |ui| {
+                egui::Frame::NONE.fill(Tokens::get(ctx).panel).corner_radius(6).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+                    ui.horizontal(|ui| crate::chrome::view_controls(app, ui, bounds.width() >= 300.0));
+                });
+            });
+    }
     if app.ui.performance_hud {
         let t = Tokens::get(ctx);
         egui::Area::new(Id::new("performance-hud")).order(egui::Order::Foreground).anchor(Align2::LEFT_TOP, vec2(76.0, BAR_HEIGHT + 32.0)).show(
@@ -451,5 +457,63 @@ mod tests {
         assert_eq!(app.session.active().unwrap().history.undo.len(), before);
         app.run("window.performanceHud", json!({"enabled": false})).unwrap();
         assert!(!app.ui.performance_hud);
+    }
+
+    #[test]
+    fn rightmost_panel_toggle_restores_hidden_or_collapsed_panels_and_zoom_stays_in_the_header() {
+        fn draw(app: &mut VectorcraftApp, ctx: &Context, events: Vec<egui::Event>) -> egui::FullOutput {
+            let mut out = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 500.0))), events, ..Default::default() },
+                |ui| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                },
+            );
+            out.textures_delta.clear();
+            out
+        }
+        let mut app = app();
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        for (dock, collapsed) in [(true, true), (false, false), (true, false)] {
+            app.ui.dock = dock;
+            app.ui.dock_collapsed = collapsed;
+            for _ in 0..4 {
+                draw(&mut app, &ctx, vec![]);
+            }
+            let out = draw(&mut app, &ctx, vec![]);
+            let zoom = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text().ends_with('%') && t.visual_bounding_rect().bottom() <= BAR_HEIGHT => {
+                        Some(t.visual_bounding_rect())
+                    }
+                    _ => None,
+                })
+                .expect("header zoom control");
+            assert!(zoom.top() >= 0.0 && zoom.bottom() <= BAR_HEIGHT);
+            assert!(
+                !out.shapes
+                    .iter()
+                    .any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Export" || t.galley.text() == "About Kaleiform"))
+            );
+            let at = pos2(774.0, 26.0);
+            draw(&mut app, &ctx, vec![egui::Event::PointerMoved(at)]);
+            for pressed in [true, false] {
+                draw(
+                    &mut app,
+                    &ctx,
+                    vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }],
+                );
+            }
+            assert!(app.ui.dock);
+            assert_eq!(app.ui.dock_collapsed, dock && !collapsed);
+        }
+        let history = app.session.active().unwrap().history.undo.len();
+        app.run("view.rotate", json!({"angle": -45})).unwrap();
+        assert_eq!(app.view().unwrap().rotation, -45.0);
+        assert_eq!(app.session.active().unwrap().history.undo.len(), history);
+        assert!(app.run("view.rotate", json!({"angle": "invalid"})).is_err());
     }
 }

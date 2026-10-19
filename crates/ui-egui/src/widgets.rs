@@ -294,7 +294,8 @@ fn num_field_impl(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value
     let shown = value.map(|v| unit.format(v)).unwrap_or_default();
     let mut buf: String = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| shown.clone());
     let editing = ui.memory(|m| m.has_focus(id));
-    if !editing {
+    // An earlier field may take focus before this one gets to commit its text.
+    if !editing && !ui.memory(|m| m.had_focus_last_frame(id)) {
         buf = shown.clone();
     }
     take_dialog_focus(ui, id, &buf);

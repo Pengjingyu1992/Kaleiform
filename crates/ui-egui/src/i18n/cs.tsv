@@ -655,3 +655,8 @@
 	Could not open {name}	Nelze otevřít {name}
 	Performance Diagnostics	Diagnostika výkonu
 	MCP Connections	Připojení MCP
+	Delete these recovery copies?	Odstranit tyto kopie pro obnovení?
+	This cannot be undone.	Tuto akci nelze vrátit zpět.
+@msg	angle must be finite	Úhel musí být konečné číslo
+@msg	another dialog is open	Nejprve zavřete aktuální dialog
+	Recover Documents	Obnovit dokumenty

@@ -498,6 +498,44 @@ fn isolation_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
 }
 
+fn rotation_choices(app: &mut VectorcraftApp, ui: &mut Ui) {
+    let rot = app.view().map_or(0.0, |v| v.rotation);
+    for angle in [0.0, 15.0, 30.0, 45.0, 60.0, 90.0, 180.0, -15.0, -30.0, -45.0, -60.0, -90.0] {
+        if ui.selectable_label(rot == angle, format!("{angle:.0}°")).clicked() {
+            app.run("view.rotate", json!({"angle": angle})).ok();
+        }
+    }
+}
+
+pub(crate) fn view_controls(app: &mut VectorcraftApp, ui: &mut Ui, rotation: bool) {
+    let zoom = app.view().map_or(1.0, |v| v.zoom);
+    egui::ComboBox::from_id_salt("zoom-combo").selected_text(egui::RichText::new(zoom_label(zoom)).size(11.5)).width(76.0).show_ui(ui, |ui| {
+        for z in ZOOM_STOPS.iter().rev() {
+            if ui.selectable_label((z / 100.0 - zoom).abs() < 1e-4, zoom_label(z / 100.0)).clicked() {
+                app.run("view.setZoom", json!({"zoom": z})).ok();
+            }
+        }
+        ui.separator();
+        if ui.selectable_label(false, tl!("Fit on Screen")).clicked() {
+            app.run("view.fitArtboard", json!({})).ok();
+        }
+        if ui.selectable_label(false, tl!("Fit All")).clicked() {
+            app.run("view.fitAll", json!({})).ok();
+        }
+        if !rotation {
+            ui.separator();
+            ui.menu_button(tl!("Rotation"), |ui| rotation_choices(app, ui));
+        }
+    });
+    if rotation {
+        let rot = app.view().map_or(0.0, |v| v.rotation);
+        egui::ComboBox::from_id_salt("rot-combo")
+            .selected_text(egui::RichText::new(format!("{rot:.0}°")).size(11.5))
+            .width(52.0)
+            .show_ui(ui, |ui| rotation_choices(app, ui));
+    }
+}
+
 pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let modern = crate::workspace::enabled(app);
@@ -506,38 +544,10 @@ pub fn status_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
         .frame(egui::Frame::NONE.fill(t.surface).inner_margin(egui::Margin::symmetric(8, 0)).stroke(Stroke::new(1.0, t.border)))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                let zoom = app.view().map(|v| v.zoom).unwrap_or(1.0);
-                egui::ComboBox::from_id_salt("zoom-combo").selected_text(egui::RichText::new(zoom_label(zoom)).size(11.5)).width(76.0).show_ui(
-                    ui,
-                    |ui| {
-                        for z in ZOOM_STOPS.iter().rev() {
-                            if ui.selectable_label((z / 100.0 - zoom).abs() < 1e-4, zoom_label(z / 100.0)).clicked() {
-                                app.run("view.setZoom", json!({"zoom": z})).ok();
-                            }
-                        }
-                        ui.separator();
-                        if ui.selectable_label(false, tl!("Fit on Screen")).clicked() {
-                            app.run("view.fitArtboard", json!({})).ok();
-                        }
-                        if ui.selectable_label(false, tl!("Fit All")).clicked() {
-                            app.run("view.fitAll", json!({})).ok();
-                        }
-                    },
-                );
-                let rot = app.view().map(|v| v.rotation).unwrap_or(0.0);
-                egui::ComboBox::from_id_salt("rot-combo").selected_text(egui::RichText::new(format!("{rot:.0}°")).size(11.5)).width(52.0).show_ui(
-                    ui,
-                    |ui| {
-                        for a in [0.0, 15.0, 30.0, 45.0, 60.0, 90.0, 180.0, -15.0, -30.0, -45.0, -60.0, -90.0] {
-                            if ui.selectable_label(rot == a, format!("{a:.0}°")).clicked()
-                                && let Some(v) = app.view_mut()
-                            {
-                                v.rotation = a;
-                            }
-                        }
-                    },
-                );
-                ui.separator();
+                if !modern {
+                    view_controls(app, ui, true);
+                    ui.separator();
+                }
                 // The artboard navigator: first, previous, the current artboard's number, next, last.
                 let nab = app.session.active().map(|d| d.doc.artboards.len()).unwrap_or(0);
                 let cur = app.view().map_or(0, |v| v.artboard).min(nab.saturating_sub(1));
@@ -929,7 +939,7 @@ mod tests {
                     .expect("Home button");
                     let center = if integrated { crate::workspace::BAR_HEIGHT / 2.0 } else { 22.0 };
                     assert!((home.center().y - center).abs() <= 1.0 / scale, "{integrated}, {width}, {scale}: {home:?}");
-                    assert!((home.left() - if integrated { 110.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
+                    assert!((home.left() - if integrated { 78.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
                 }
             }
         }

@@ -3512,3 +3512,7 @@ axis	Both	两者
 	Collapse Panels	收起面板
 	Port	端口
 @msg	Could not start local bridge on port {port}: {error}	无法在端口 {port} 启动本地接口：{error}
+	Delete these recovery copies?	删除这些恢复副本吗？
+	This cannot be undone.	此操作无法撤销。
+@msg	angle must be finite	角度必须为有限数值
+@msg	another dialog is open	请先关闭当前对话框

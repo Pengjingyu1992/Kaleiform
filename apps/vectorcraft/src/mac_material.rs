@@ -25,13 +25,17 @@ pub fn appearance() -> vectorcraft_ui_egui::theme::HostAppearance {
 }
 
 /// Centre the existing system buttons in the app's toolbar; only this window is changed.
-pub fn align_buttons(window: &winit::window::Window, ui_zoom: f32) {
+pub fn align_buttons(window: &winit::window::Window, ui_zoom: f32, visible: bool) {
     let Ok(handle) = window.window_handle() else { return };
     let RawWindowHandle::AppKit(handle) = handle.as_raw() else { return };
     let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
     let Some(window) = view.window() else { return };
     for kind in [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton] {
         if let Some(button) = window.standardWindowButton(kind) {
+            button.setHidden(!visible);
+            if !visible {
+                continue;
+            }
             let frame = button.frame();
             // The retained parent is owned by this live NSWindow.
             let Some(parent) = (unsafe { button.superview() }) else { continue };

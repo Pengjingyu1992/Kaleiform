@@ -136,6 +136,83 @@ fn discard_at_launch_deletes_the_copies_and_cancel_keeps_them() {
 }
 
 #[test]
+fn recovery_selection_preserves_unselected_copies_and_rejects_unlisted_targets() {
+    let store = Arc::new(MemoryStore::default());
+    let mut crashed = app_with(&store, Services::default());
+    crashed.run("file.new", json!({"name": "Second", "width": 300, "height": 200})).unwrap();
+    crashed.run("shape.rectangle", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+    crashed.run("file.recovery.save", json!({})).unwrap();
+    drop(crashed);
+    let mut app = VectorcraftApp::new(Session::new(), Services { recovery_store: Some(store.clone()), ..Default::default() });
+    assert!(recovery::offer(&mut app));
+    let first = app.ui.dialog.as_ref().unwrap().fields["copies"][0]["file"].clone();
+    app.ui.dialog.as_mut().unwrap().fields.insert("selected".into(), json!(["not-listed"]));
+    dialogs::confirm(&mut app).unwrap();
+    assert_eq!(copies(&store), 2);
+    assert!(app.session.documents().is_empty());
+    app.ui.dialog.as_mut().unwrap().fields.insert("selected".into(), json!([first]));
+    dialogs::confirm(&mut app).unwrap();
+    assert_eq!(app.session.documents().len(), 1);
+    assert_eq!(app.ui.dialog.as_ref().unwrap().fields["copies"].as_array().unwrap().len(), 1);
+    assert_eq!(copies(&store), 2, "restored copies are kept until the document is saved or closed");
+}
+
+#[test]
+fn deleting_all_requires_confirmation_and_preserves_running_copies() {
+    fn run(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
+        let mut out = ctx.run_ui(
+            egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))), events, ..Default::default() },
+            |ui| dialogs::show(app, ui.ctx()),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn find(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+        match shape {
+            egui::Shape::Text(t) if t.galley.text() == label => Some(t.visual_bounding_rect().center()),
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, label)),
+            _ => None,
+        }
+    }
+    fn click(app: &mut VectorcraftApp, ctx: &egui::Context, label: &str) {
+        let out = run(app, ctx, vec![]);
+        let at = out.shapes.iter().find_map(|s| find(&s.shape, label)).unwrap_or_else(|| panic!("missing {label}"));
+        run(app, ctx, vec![egui::Event::PointerMoved(at)]);
+        for pressed in [true, false] {
+            run(app, ctx, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }]);
+        }
+    }
+    let store = Arc::new(MemoryStore::default());
+    let mut crashed = app_with(&store, Services::default());
+    crashed.run("file.recovery.save", json!({})).unwrap();
+    drop(crashed);
+    let mut running = app_with(&store, Services::default());
+    running.run("file.recovery.save", json!({})).unwrap();
+    let mut app = VectorcraftApp::new(Session::new(), Services { recovery_store: Some(store.clone()), ..Default::default() });
+    app.run("file.recovery.manage", json!({})).unwrap();
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    for _ in 0..4 {
+        run(&mut app, &ctx, vec![]);
+    }
+    click(&mut app, &ctx, "Delete All");
+    assert_eq!(copies(&store), 2);
+    assert!(app.ui.dialog.as_ref().unwrap().fields.contains_key("__deleteFiles"));
+    click(&mut app, &ctx, "Cancel");
+    assert_eq!(copies(&store), 2);
+    assert!(!app.ui.dialog.as_ref().unwrap().fields.contains_key("__deleteFiles"));
+    click(&mut app, &ctx, "Delete All");
+    let mut later = app_with(&store, Services::default());
+    later.run("file.recovery.save", json!({})).unwrap();
+    drop(later);
+    assert_eq!(copies(&store), 3);
+    click(&mut app, &ctx, "Delete");
+    assert_eq!(copies(&store), 2, "copies created after confirmation was requested are not deleted");
+    assert!(app.ui.dialog.is_none());
+    assert!(running.session.doc().unwrap().recovery.is_some());
+}
+
+#[test]
 fn quitting_with_nothing_unsaved_leaves_no_copies() {
     let store = Arc::new(MemoryStore::default());
     let mut app = app_with(&store, Services::default());

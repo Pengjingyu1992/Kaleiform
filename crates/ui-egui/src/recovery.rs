@@ -68,6 +68,18 @@ pub fn offer(app: &mut VectorcraftApp) -> bool {
     true
 }
 
+pub fn manage(app: &mut VectorcraftApp) -> Result<Value, String> {
+    if app.ui.dialog.is_some() {
+        return Err("another dialog is open".into());
+    }
+    let result = app.run("file.recovery.list", json!({}))?;
+    let copies: Vec<Value> =
+        result["copies"].as_array().into_iter().flatten().filter(|c| c["open"] == false && c["running"] == false).cloned().collect();
+    let count = copies.len();
+    app.ui.dialog = Some(Dialog::new(KIND, json!({"copies": copies})));
+    Ok(json!({"copies": count}))
+}
+
 /// Start a recovery copy of every document that needs one when the interval has passed since the
 /// last (the first call only starts the clock) → how many were started.
 pub fn tick(app: &mut VectorcraftApp, now: f64) -> usize {
@@ -121,23 +133,54 @@ fn write(app: &mut VectorcraftApp, store: &Arc<dyn RecoveryStore>, pick: impl Fn
     started
 }
 
-/// The startup dialog's OK (Restore) or Discard: every copy it lists.
+/// Apply a snapshot of listed copies. Older clients without `selected` still act on the list.
 pub fn confirm(app: &mut VectorcraftApp, d: &Dialog) -> Result<Value, String> {
-    app.ui.dialog = None;
     let id = if d.bool("discard") { "file.recovery.discard" } else { "file.recovery.restore" };
-    let files: Vec<String> =
-        d.fields.get("copies").and_then(Value::as_array).into_iter().flatten().filter_map(|c| c["file"].as_str()).map(str::to_string).collect();
+    let selected = d.fields.get("selected").and_then(Value::as_array);
+    let files: Vec<String> = d
+        .fields
+        .get("copies")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["file"].as_str())
+        .filter(|f| selected.is_none_or(|picked| picked.iter().any(|v| v.as_str() == Some(f))))
+        .map(str::to_string)
+        .collect();
+    if files.is_empty() {
+        return Ok(json!([]));
+    }
+    app.ui.dialog = None;
     let (mut done, mut errors) = (vec![], vec![]);
-    for file in files {
+    let mut completed = vec![];
+    for file in &files {
         match app.run(id, json!({ "file": file })) {
             Ok(r) => {
                 if let Some(restored) = r["restored"].as_array().and_then(|v| v.first()) {
                     crate::dialogs::missing_links::after_open(app, restored);
                 }
                 done.push(r);
+                completed.push(file.as_str());
             }
             Err(e) => errors.push(e),
         }
+    }
+    let remaining: Vec<Value> = d
+        .fields
+        .get("copies")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|c| !completed.contains(&c["file"].as_str().unwrap_or_default()))
+        .cloned()
+        .collect();
+    if !remaining.is_empty() && app.ui.dialog.is_none() {
+        let mut next = d.clone();
+        next.fields.insert("copies".into(), json!(remaining));
+        next.fields.insert("selected".into(), json!(files.iter().filter(|f| !completed.contains(&f.as_str())).collect::<Vec<_>>()));
+        next.fields.remove("__deleteFiles");
+        next.fields.remove("discard");
+        app.ui.dialog = Some(next);
     }
     if !errors.is_empty() {
         return Err(errors.join("; "));

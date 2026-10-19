@@ -601,7 +601,6 @@
 	Direction Handles	Alças de Direção
 	Disable Auto Add/Delete	Desativar Adicionar/Excluir Automático
 	Disable Opacity Mask	Desativar Máscara de Opacidade
-	Discard	Descartar
 	Discard Empty Type	Descartar Texto Vazio
 	Discard Recovered Documents	Descartar Documentos Recuperados
 	Discard White Overprint in Output	Descartar Sobreimpressão Branca na Saída
@@ -2497,7 +2496,6 @@
 	Vector Halftone…	Meio-tom Vetorial…
 	Vector illustration — fast, open, scriptable.	Ilustração vetorial — rápida, aberta, scriptável.
 	Kaleiform Help…	Ajuda do Kaleiform…
-	Kaleiform didn't quit normally last time. These documents had unsaved changes:	O Kaleiform não fechou normalmente da última vez. Estes documentos tinham alterações não salvas:
 	Vectors	Vetores
 	Version {version} — open-source vector illustration in pure Rust.	Versão {version} — ilustração vetorial de código aberto em Rust puro.
 	Version:	Versão:
@@ -2680,3 +2678,7 @@
 	Could not open {name}	Não foi possível abrir {name}
 	Performance Diagnostics	Diagnóstico de desempenho
 	MCP Connections	Conexões MCP
+	Delete these recovery copies?	Excluir estas cópias de recuperação?
+	This cannot be undone.	Esta ação não pode ser desfeita.
+@msg	angle must be finite	O ângulo deve ser um número finito
+@msg	another dialog is open	Feche primeiro a caixa de diálogo atual

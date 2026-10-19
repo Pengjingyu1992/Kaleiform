@@ -3223,3 +3223,7 @@ theme	Appearance	外観
 @msg	Invalid local bridge port	ローカルブリッジのポートが無効です
 @msg	Local bridge requests are paused or stopped	ローカルブリッジへのリクエストは一時停止または停止されています
 @msg	Could not start local bridge on port {port}: {error}	ポート {port} でローカルブリッジを起動できません：{error}
+	Delete these recovery copies?	これらの復元用コピーを削除しますか？
+	This cannot be undone.	この操作は取り消せません。
+@msg	angle must be finite	角度は有限の数値である必要があります
+@msg	another dialog is open	現在のダイアログを閉じてください

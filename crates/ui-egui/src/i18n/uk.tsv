@@ -3784,3 +3784,7 @@ axis	Both	Обидві
 @msg	Invalid local bridge port	Неприпустимий порт локального мосту
 @msg	Local bridge requests are paused or stopped	Запити до локального мосту призупинено або зупинено
 @msg	Could not start local bridge on port {port}: {error}	Не вдалося запустити локальний міст на порту {port}: {error}
+	Delete these recovery copies?	Видалити ці копії відновлення?
+	This cannot be undone.	Цю дію неможливо скасувати.
+@msg	angle must be finite	Кут має бути скінченним числом
+@msg	another dialog is open	Спочатку закрийте поточне діалогове вікно

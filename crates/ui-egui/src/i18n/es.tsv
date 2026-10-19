@@ -3797,3 +3797,7 @@ axis	Both	Ambos
 @msg	Invalid local bridge port	Puerto del puente local no válido
 @msg	Local bridge requests are paused or stopped	Las solicitudes del puente local están en pausa o detenidas
 @msg	Could not start local bridge on port {port}: {error}	No se pudo iniciar el puente local en el puerto {port}: {error}
+	Delete these recovery copies?	¿Eliminar estas copias de recuperación?
+	This cannot be undone.	Esta acción no se puede deshacer.
+@msg	angle must be finite	El ángulo debe ser un número finito
+@msg	another dialog is open	Cierra primero el diálogo actual
