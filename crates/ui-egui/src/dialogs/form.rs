@@ -39,20 +39,8 @@ pub(super) fn length_field(ui: &mut egui::Ui, d: &mut Dialog, key: &str, label: 
 /// "5 mm", wins), kept in points (a string with a unit, "12 pt", also reads). Returns true when it
 /// changed.
 pub(super) fn length(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32) -> bool {
-    length_impl(ui, d, key, unit, width, false)
-}
-
-pub(super) fn inline_length(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32) -> bool {
-    length_impl(ui, d, key, unit, width, true)
-}
-
-fn length_impl(ui: &mut egui::Ui, d: &mut Dialog, key: &str, unit: Unit, width: f32, inline: bool) -> bool {
     let value = d.fields.contains_key(key).then(|| d.f64(key, 0.0));
-    let changed = if inline {
-        crate::widgets::inline_num_field(ui, ("dlg-len", key), value, unit, width)
-    } else {
-        crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width)
-    };
+    let changed = crate::widgets::num_field(ui, ("dlg-len", key), value, unit, width);
     let label = match key {
         "width" => Some(tl!("Width")),
         "height" => Some(tl!("Height")),

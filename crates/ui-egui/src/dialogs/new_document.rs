@@ -248,6 +248,8 @@ fn detail_pane(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, b: &
         ui.set_width(width);
         ui.set_height(height);
         egui::ScrollArea::vertical().id_salt("newdoc-details").max_height(height - 44.0).auto_shrink([false, false]).show(ui, |ui| {
+            // Keep the floating scrollbar off the fields, even before scrolling is needed.
+            ui.set_width(width - 12.0);
             details(app, ui, d);
         });
         ui.add_space(12.0);
@@ -402,12 +404,12 @@ fn preset_card_impl(ui: &mut egui::Ui, s: &DocSettings, label: &str, selected: b
 fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     let t = Tokens::get(ui.ctx());
     let width = ui.available_width();
-    ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
+    ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
     ui.label(egui::RichText::new(tl!("PRESET DETAILS")).font(theme::semibold(11.0)).color(t.text_dim));
     ui.add_space(8.0);
     let name = ui.label(egui::RichText::new(tl!("File Name:")).size(11.0).color(t.text_dim));
     ui.horizontal(|ui| {
-        form::text_edit(ui, d, "name", width - 50.0).labelled_by(name.id);
+        form::text_edit(ui, d, "name", width - 48.0).labelled_by(name.id);
         if widgets::icon_toggle(ui, "save", tl!("Save Preset"), d.bool(SAVING), 26.0).clicked() {
             let saving = !d.bool(SAVING);
             d.fields.insert(SAVING.into(), json!(saving));
@@ -422,44 +424,39 @@ fn details(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     }
     ui.add_space(8.0);
     let unit = unit(d);
-    let field = (width - 8.0) / 2.0;
-    ui.horizontal(|ui| {
-        for label in [tl!("Width"), tl!("Height")] {
-            ui.add_sized(egui::vec2(field, 14.0), egui::Label::new(egui::RichText::new(label).size(11.0).color(t.text_dim)));
+    ui.columns(2, |columns| {
+        for (ui, (key, label)) in columns.iter_mut().zip([("width", tl!("Width")), ("height", tl!("Height"))]) {
+            form::caption(ui, label);
+            form::length(ui, d, key, unit, ui.available_width());
         }
     });
-    widgets::field_group(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            form::inline_length(ui, d, "width", unit, field);
-            form::inline_length(ui, d, "height", unit, field);
-        });
-    });
     ui.add_space(6.0);
+    let orientation_width = 54.0;
+    let artboards_width = 84.0;
+    let units_width = width - orientation_width - artboards_width - 16.0;
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
+        ui.allocate_ui_with_layout(egui::vec2(units_width, 46.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             form::caption(ui, tl!("Units"));
-            units_dropdown(ui, d, 104.0);
+            units_dropdown(ui, d, units_width + 4.0);
         });
-        ui.add_space(6.0);
-        ui.vertical(|ui| {
+        ui.allocate_ui_with_layout(egui::vec2(orientation_width, 46.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             form::caption(ui, tl!("Orientation"));
             orientation(ui, d);
         });
-        ui.add_space(6.0);
-        ui.vertical(|ui| {
+        ui.allocate_ui_with_layout(egui::vec2(artboards_width, 46.0), egui::Layout::top_down(egui::Align::Min), |ui| {
             form::caption(ui, tl!("Artboards"));
-            artboards(ui, d, 76.0);
+            artboards(ui, d, artboards_width);
         });
     });
     ui.add_space(8.0);
     form::caption(ui, tl!("Bleed"));
-    form::bleed(ui, d, unit, 52.0);
+    form::bleed(ui, d, unit, (width - 48.0) / 4.0);
     ui.add_space(8.0);
     form::caption(ui, tl!("Background Contents"));
-    background(ui, d, width - 34.0);
+    background(ui, d, width - 26.0);
     ui.add_space(8.0);
-    advanced(ui, d, 110.0, width - 116.0);
+    ui.separator();
+    advanced(ui, d, 90.0, width - 98.0);
 }
 
 fn footer(ui: &mut egui::Ui, b: &mut Buttons, create: &str) {
@@ -479,7 +476,7 @@ fn save_row(app: &mut VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog) {
     ui.add_space(4.0);
     let name = ui.label(egui::RichText::new(tl!("Preset Name")).size(11.0).color(Tokens::get(ui.ctx()).text_dim));
     ui.horizontal(|ui| {
-        let enter = form::text_edit(ui, d, "presetName", width - 140.0).labelled_by(name.id).lost_focus()
+        let enter = form::text_edit(ui, d, "presetName", width - 144.0).labelled_by(name.id).lost_focus()
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         if widgets::flat_button(ui, tl!("Save"), 54.0).clicked() || enter {
             let mut p: Map<String, Value> = PARAMS.iter().filter_map(|k| Some((k.to_string(), d.fields.get(*k)?.clone()))).collect();
@@ -581,18 +578,19 @@ fn advanced(ui: &mut egui::Ui, d: &mut Dialog, label: f32, field: f32) {
         ("rasterEffectsPpi", tl!("Raster Effects"), &ppi),
         ("previewMode", tl!("Preview Mode"), &previews),
     ] {
-        widgets::label_row(ui, name, label, |ui| choice(ui, d, key, options, field));
+        widgets::label_row(ui, name, label, |ui| choice(ui, d, key, options, field + 4.0));
     }
     ui.add_space(8.0);
-    arrangement(ui, d);
+    ui.separator();
+    arrangement(ui, d, label, field);
 }
 
-fn arrangement(ui: &mut egui::Ui, d: &mut Dialog) {
+fn arrangement(ui: &mut egui::Ui, d: &mut Dialog, label: f32, field: f32) {
     let (lay, cols, spacing, rtl) = layout(d);
     let n = d.f64("artboards", 1.0);
-    form::caption(ui, tl!("Layout:"));
     ui.add_enabled_ui(n > 1.0, |ui| {
-        ui.horizontal(|ui| {
+        widgets::label_row(ui, tl!("Layout:"), label, |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
             for (l, icon) in [
                 (ArtboardLayout::GridByRow, "dc-grid-view"),
                 (ArtboardLayout::GridByColumn, "grid-3x3"),
@@ -608,14 +606,14 @@ fn arrangement(ui: &mut egui::Ui, d: &mut Dialog) {
                 set_layout(d, "rightToLeft", json!(!rtl));
             }
         });
-        widgets::label_row(ui, tl!("Spacing:"), 110.0, |ui| {
-            if let Some(v) = widgets::num_field(ui, "newdoc-spacing", Some(spacing), unit(d), 100.0) {
+        widgets::label_row(ui, tl!("Spacing:"), label, |ui| {
+            if let Some(v) = widgets::num_field(ui, "newdoc-spacing", Some(spacing), unit(d), field) {
                 set_layout(d, "spacing", json!(v.max(0.0)));
             }
         });
         ui.add_enabled_ui(matches!(lay, ArtboardLayout::GridByRow | ArtboardLayout::GridByColumn), |ui| {
-            widgets::label_row(ui, tl!("Columns:"), 110.0, |ui| {
-                if let Some(v) = widgets::spin_plain(ui, "newdoc-columns", cols as f64, "", 0, 76.0, 1.0, 1.0, &[]) {
+            widgets::label_row(ui, tl!("Columns:"), label, |ui| {
+                if let Some(v) = widgets::spin_plain(ui, "newdoc-columns", cols as f64, "", 0, field, 1.0, 1.0, &[]) {
                     set_layout(d, "columns", json!(v.round().clamp(1.0, n) as u64));
                 }
             });
@@ -629,6 +627,140 @@ mod tests {
     use vectorcraft_engine::Session;
 
     use crate::VectorcraftApp;
+
+    #[test]
+    fn detail_scrollbar_has_a_gutter_and_does_not_shift_the_dimension_fields() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, Default::default());
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.newDialog", json!({})).unwrap();
+        let mut d = app.ui.dialog.take().unwrap();
+        let mut dimensions = vec![];
+        for advanced in [false, true] {
+            d.fields.insert("advanced".into(), json!(advanced));
+            let mut out = egui::FullOutput::default();
+            for _ in 0..4 {
+                out = ctx.run_ui(
+                    egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(292.0, 428.0))), ..Default::default() },
+                    |ui| super::detail_pane(&mut app, ui, &mut d, &mut super::Buttons::default(), 292.0, 428.0),
+                );
+                out.textures_delta.clear();
+            }
+            let t = crate::theme::Tokens::get(&ctx);
+            for s in &out.shapes {
+                if let egui::Shape::Rect(r) = &s.shape
+                    && r.fill == t.input
+                    && r.rect.width() > 30.0
+                    && s.clip_rect.intersects(r.rect)
+                {
+                    assert!(r.rect.right() <= 280.1, "{advanced}: scrollbar overlaps {r:?}");
+                }
+            }
+            let labels: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if ["Width", "Height"].contains(&t.galley.text()) => Some(t.visual_bounding_rect()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(labels.len(), 2);
+            dimensions.push(labels);
+        }
+        assert_eq!(dimensions[0], dimensions[1]);
+    }
+
+    #[test]
+    fn details_keep_separate_dimensions_and_align_advanced_fields() {
+        for width in [276.0, 292.0, 360.0] {
+            for unit in super::UNITS {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                crate::theme::apply(&ctx, Default::default());
+                let mut app = VectorcraftApp::new(Session::new(), Default::default());
+                app.run("file.newDialog", json!({})).unwrap();
+                let mut d = app.ui.dialog.take().unwrap();
+                d.fields.insert("advanced".into(), json!(true));
+                d.fields.insert(super::SAVING.into(), json!(true));
+                d.fields.insert("artboards".into(), json!(4));
+                d.fields.insert("units".into(), json!(unit.label()));
+                let mut out = egui::FullOutput::default();
+                for _ in 0..4 {
+                    out = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 1000.0))),
+                            ..Default::default()
+                        },
+                        |ui| super::details(&mut app, ui, &mut d),
+                    );
+                    out.textures_delta.clear();
+                }
+                let t = crate::theme::Tokens::get(&ctx);
+                let mut inputs: Vec<_> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Rect(r) if r.fill == t.input && r.rect.width() > 30.0 && r.rect.height() > 15.0 => Some(r.rect),
+                        _ => None,
+                    })
+                    .collect();
+                // Steppers and their text fields form one editing control.
+                for rect in &mut inputs {
+                    if let Some(stepper) = out.shapes.iter().find_map(|s| match &s.shape {
+                        egui::Shape::Rect(r)
+                            if r.fill == t.input
+                                && (r.rect.width() - 16.0).abs() < 0.1
+                                && (r.rect.right() - rect.left()).abs() < 0.1
+                                && (r.rect.top() - rect.top()).abs() < 1.0 =>
+                        {
+                            Some(r.rect)
+                        }
+                        _ => None,
+                    }) {
+                        *rect = rect.union(stepper);
+                    }
+                }
+                for rect in &inputs {
+                    assert!(rect.left() >= 0.0 && rect.right() <= width + 0.1, "{width}/{unit:?}: {rect:?}");
+                }
+                let controls = ctx.viewport(|vp| {
+                    vp.prev_pass
+                        .widgets
+                        .layers()
+                        .flat_map(|(_, widgets)| widgets.iter())
+                        .filter(|w| w.sense.senses_click())
+                        .map(|w| w.rect)
+                        .collect::<Vec<_>>()
+                });
+                for rect in controls {
+                    assert!(rect.left() >= 0.0 && rect.right() <= width + 0.1, "control outside details at {width}/{unit:?}: {rect:?}");
+                }
+                let text = |label: &str| {
+                    out.shapes
+                        .iter()
+                        .find_map(|s| match &s.shape {
+                            egui::Shape::Text(t) if t.galley.text() == label => Some(t.visual_bounding_rect()),
+                            _ => None,
+                        })
+                        .unwrap()
+                };
+                let dimensions: Vec<_> = inputs.iter().filter(|r| r.top() > text("Width").bottom() && r.bottom() < text("Units").top()).collect();
+                assert_eq!(dimensions.len(), 2, "width and height have independent editing surfaces: {inputs:?}");
+                assert!((dimensions[0].width() - dimensions[1].width()).abs() < 0.1);
+                assert!(dimensions[1].left() - dimensions[0].right() >= 7.0);
+                assert!((text("Width").left() - dimensions[0].left()).abs() < 1.0);
+                assert!((text("Height").left() - dimensions[1].left()).abs() < 1.0);
+                let advanced: Vec<_> = inputs.iter().filter(|r| r.top() > text("Advanced Options").bottom()).collect();
+                assert_eq!(advanced.len(), 5, "three choices, spacing and columns: {advanced:?}");
+                for pair in advanced.windows(2) {
+                    assert!((pair[0].left() - pair[1].left()).abs() < 0.1, "advanced left edges: {advanced:?}");
+                    assert!((pair[0].right() - pair[1].right()).abs() < 0.1, "advanced right edges: {advanced:?}");
+                    assert!(pair[0].bottom() < pair[1].top());
+                }
+            }
+        }
+    }
 
     #[test]
     fn recent_presets_with_the_same_size_keep_distinct_settings_and_one_selection() {
@@ -1165,7 +1297,7 @@ mod tests {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect, events, ..Default::default() }, |ui| {
                 ui.set_width(super::DETAILS);
                 ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
-                super::arrangement(ui, &mut dialog);
+                super::arrangement(ui, &mut dialog, 90.0, super::DETAILS - 96.0);
             });
             out.textures_delta.clear();
         };
