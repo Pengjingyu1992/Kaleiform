@@ -19,6 +19,8 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
     let n_sel = st.selection.len();
     let anchors = crate::chrome::anchor_controls(app);
     let first = first_selected(app);
+    let has_compound = matches!(first.as_ref().map(|n| &n.kind), Some(NodeKind::Compound { .. }))
+        || (n_sel > 1 && st.selection.nodes(&st.doc).iter().any(|n| matches!(n.kind, NodeKind::Compound { .. })));
     // Edit Artboards (the Artboard tool): the active artboard, whatever is selected.
     let editing_artboards = app.session.tool_id() == "artboard";
     let label = match (&first, n_sel) {
@@ -111,6 +113,9 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         actions.push((tl!("Ungroup"), "object.ungroup"));
         actions.push((tl!("Isolate Group"), "object.isolate"));
     }
+    if has_compound {
+        actions.push((tl!("Release Compound Path"), "object.compoundPath.release"));
+    }
     if is_live {
         actions.push((tl!("Expand Shape"), "object.expandShape"));
     }
@@ -141,7 +146,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
 fn action_icon(id: &str) -> &'static str {
     match id {
         "object.group" => "group",
-        "object.ungroup" => "ungroup",
+        "object.ungroup" | "object.compoundPath.release" => "ungroup",
         "ui.recolorDialog" => "palette",
         "ui.cropImage" => "frame",
         "object.path.simplify" => "spline",
@@ -609,7 +614,11 @@ mod tests {
 
     /// One frame of the panel with `events` → the texts painted, with their rects.
     fn frame(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<Event>) -> Vec<(String, Rect)> {
-        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 700.0))), events, ..Default::default() };
+        frame_width(app, ctx, events, 300.0)
+    }
+
+    fn frame_width(app: &mut VectorcraftApp, ctx: &egui::Context, events: Vec<Event>, width: f32) -> Vec<(String, Rect)> {
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 700.0))), events, ..Default::default() };
         let mut out = ctx.run_ui(raw, |ui| show(app, ui));
         out.textures_delta.clear();
         out.shapes
@@ -629,6 +638,66 @@ mod tests {
         let b = |pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
         frame(app, ctx, vec![Event::PointerMoved(at), b(true)]);
         frame(app, ctx, vec![b(false)]);
+    }
+
+    #[test]
+    fn release_compound_path_quick_action_uses_one_undo_step() {
+        use vectorcraft_doc::NodeId;
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let label = "Release Compound Path";
+        app.run("shape.rectangle", json!({"x": 10, "y": 10, "width": 80, "height": 60})).unwrap();
+        assert!(!frame_width(&mut app, &ctx, vec![], 400.0).iter().any(|(t, _)| t == label));
+        app.run("shape.rectangle", json!({"x": 30, "y": 25, "width": 20, "height": 15})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        app.run("object.group", json!({})).unwrap();
+        assert!(!frame_width(&mut app, &ctx, vec![], 400.0).iter().any(|(t, _)| t == label));
+        app.run("object.ungroup", json!({})).unwrap();
+        let compound = NodeId(app.run("object.compoundPath.make", json!({})).unwrap()["id"].as_u64().unwrap());
+        for _ in 0..3 {
+            frame_width(&mut app, &ctx, vec![], 400.0);
+        }
+        let texts = frame_width(&mut app, &ctx, vec![], 400.0);
+        let at = texts.iter().find(|(t, _)| t == label).expect("release quick action").1.center();
+        let before = app.session.active().unwrap().history.undo.len();
+        frame_width(&mut app, &ctx, vec![Event::PointerMoved(at)], 400.0);
+        for pressed in [true, false] {
+            frame_width(
+                &mut app,
+                &ctx,
+                vec![Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() }],
+                400.0,
+            );
+        }
+        let st = app.session.active().unwrap();
+        assert_eq!(st.history.undo.len(), before + 1);
+        assert!(st.doc.node(compound).is_none());
+        assert_eq!(st.selection.len(), 2);
+        assert!(st.selection.nodes(&st.doc).iter().all(|n| matches!(n.kind, NodeKind::Path { .. })));
+        assert!(!frame_width(&mut app, &ctx, vec![], 400.0).iter().any(|(t, _)| t == label));
+        app.run("edit.undo", json!({})).unwrap();
+        assert!(matches!(app.session.active().unwrap().doc.node(compound).unwrap().kind, NodeKind::Compound { .. }));
+        assert!(frame_width(&mut app, &ctx, vec![], 400.0).iter().any(|(t, _)| t == label));
+        app.run("edit.redo", json!({})).unwrap();
+        assert!(app.session.active().unwrap().doc.node(compound).is_none());
+    }
+
+    #[test]
+    fn release_quick_action_detects_a_compound_after_a_plain_selected_path() {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        for x in [10, 30] {
+            app.run("shape.rectangle", json!({"x": x, "y": 10, "width": 20, "height": 20})).unwrap();
+        }
+        app.run("select.all", json!({})).unwrap();
+        let compound = app.run("object.compoundPath.make", json!({})).unwrap()["id"].as_u64().unwrap();
+        let plain = app.run("shape.rectangle", json!({"x": 80, "y": 10, "width": 20, "height": 20})).unwrap()["id"].as_u64().unwrap();
+        app.run("select.set", json!({"ids": [plain, compound]})).unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        assert!(frame_width(&mut app, &ctx, vec![], 440.0).iter().any(|(t, _)| t == "Release Compound Path"));
     }
 
     /// #696: the number fields are all as wide: the Transform fields, the rotation, the corner
