@@ -10,12 +10,12 @@ Windows、Linux ARM64、FreeBSD 和 Web 暂无本项目已验证的下载包。
 
 ## macOS 安装
 
-1. 从 [预览 14 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.14) 下载
-   `kaleiform-0.7.0-kaleiform.14-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
+1. 从 [预览 15 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.15) 下载
+   `kaleiform-0.7.0-kaleiform.15-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
 2. 可在下载目录运行下面命令，将结果与 `SHA256SUMS.txt` 中同名文件比较：
 
    ```sh
-   shasum -a 256 kaleiform-0.7.0-kaleiform.14-macos-arm64.dmg
+   shasum -a 256 kaleiform-0.7.0-kaleiform.15-macos-arm64.dmg
    ```
 
 3. 双击 DMG，把 **虹构.app** 拖至窗口中的 **Applications** 文件夹。

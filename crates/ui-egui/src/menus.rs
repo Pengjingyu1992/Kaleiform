@@ -241,7 +241,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("window.taskBar.reset", "Reset Bar Position", "", "{} unpin the Contextual Task Bar and put it back under the selection"),
     ("window.dock", "Panels", "Tab", "{} show/hide all panels"),
-    ("window.performanceHud", "Performance Diagnostics", "Cmd+Ctrl+Alt+P", "{enabled?: bool} show measured raster and UI processing times"),
+    ("window.performanceHud", "Performance Diagnostics", "Cmd+Alt+F12", "{enabled?: bool} show measured raster and UI processing times"),
     ("window.mcp", "MCP Connections", "", "{} show local bridge connections and in-memory activity"),
     ("window.mcp.start", "Start Local Bridge", "", "{port?: 1..65535} start a loopback control bridge (default 7979)"),
     ("window.mcp.pause", "Pause Requests", "", "{paused?: bool} refuse new and queued control requests until resumed"),

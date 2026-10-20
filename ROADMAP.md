@@ -131,9 +131,14 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
-- **Preview 14 release (2026-10-20, M14.156):** privacy-audited macOS arm64 packaging for
+- **Preview 15 release correction (2026-10-20, M14.157):** Performance Diagnostics uses
+  Cmd+Alt+F12, distinct from Document Setup on all desktop platforms; a key-event regression
+  covers both actions. Supersedes the unpublished Preview 14 candidate without rewriting its tag.
+  Release scope and maturity scores are unchanged.
+- **Preview 14 candidate (2026-10-20, M14.156):** privacy-audited macOS arm64 packaging for
   M14.152-M14.155, source archive and build/checksum metadata; prior releases and Linux assets
-  retained. Local gates pass; platform and security limits remain documented. No score change.
+  retained. Local gates passed, but Linux CI caught a shortcut collision; this candidate was not
+  publicly released. Platform and security limits remain documented. No score change.
 - **New-document detail alignment (2026-10-20, M14.155, local .14 follow-up):** separate equal-width
   size fields, bounded unit/orientation/count columns, full-width bleed controls and aligned advanced
   choices and arrangement fields. Dialog size and document settings are unchanged; no score change.
@@ -378,6 +383,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M14.154 | Properties compound-path release quick action | Local `.14` follow-up: shows for selections containing compound paths, invokes the existing release command and preserves one-step undo | Existing M14 estimate unchanged |
 | M14.155 | New-document details layout alignment | Local `.14` follow-up: equal size fields, bounded basic columns, aligned bleed and advanced settings; fixed footer and compact window retained | Existing M14 estimate unchanged |
 | M14.156 | Preview 14 privacy review and macOS publication | Packages M14.152-M14.155 with audited source and build/checksum metadata; prior assets retained, no new platform or maturity claim | Existing M14 estimate unchanged |
+| M14.157 | Preview 15 cross-platform shortcut correction and audited publication | Distinct performance-diagnostics chord with actual key-event regression; supersedes unpublished Preview 14 without rewriting its tag | Existing M14 estimate unchanged |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |

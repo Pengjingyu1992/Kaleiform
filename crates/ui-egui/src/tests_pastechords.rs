@@ -73,3 +73,17 @@ fn a_paste_takes_the_command_of_the_v_chord_held() {
 fn no_two_commands_tools_or_panels_share_a_default_shortcut() {
     assert_eq!(shortcut_editor::all_conflicts(&BTreeMap::new()), vec![]);
 }
+
+#[test]
+fn performance_diagnostics_and_document_setup_have_independent_chords() {
+    let mut app = VectorcraftApp::new(Session::new(), Default::default());
+    app.run("file.new", json!({"width": 400, "height": 400})).unwrap();
+    let modifiers = Modifiers::COMMAND | Modifiers::ALT;
+    let press = |key| Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+    frame(&mut app, modifiers, vec![press(Key::F12)]);
+    assert!(app.ui.performance_hud);
+    assert!(app.ui.dialog.is_none());
+    frame(&mut app, modifiers, vec![press(Key::P)]);
+    assert!(app.ui.performance_hud);
+    assert_eq!(app.ui.dialog.as_ref().map(|dialog| dialog.kind.as_str()), Some("documentSetup"));
+}
