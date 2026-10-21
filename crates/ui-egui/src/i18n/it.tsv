@@ -3805,3 +3805,12 @@ axis	Both	Entrambi
 	This cannot be undone.	Questa operazione non può essere annullata.
 @msg	angle must be finite	L’angolo deve essere un numero finito
 @msg	another dialog is open	Chiudi prima la finestra di dialogo attuale
+
+	Drag Image to Another App	Trascina l’immagine in un’altra app
+	Drag image to another app	Trascina l’immagine in un’altra app
+@msg	Couldn't drag image: {e}	Impossibile trascinare l’immagine: {e}
+@msg	invalid PNG data	dati PNG non validi
+@msg	invalid image transfer placement	posizionamento dell’immagine trasferita non valido
+@msg	native image drag is unavailable	il trascinamento nativo delle immagini non è disponibile
+@msg	no PNG was generated	non è stata generata alcuna immagine PNG
+@msg	no bounded image-transfer reader	lettore di trasferimento immagini con limite di dimensione non disponibile

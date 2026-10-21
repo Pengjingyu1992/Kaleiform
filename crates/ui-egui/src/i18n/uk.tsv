@@ -3788,3 +3788,12 @@ axis	Both	Обидві
 	This cannot be undone.	Цю дію неможливо скасувати.
 @msg	angle must be finite	Кут має бути скінченним числом
 @msg	another dialog is open	Спочатку закрийте поточне діалогове вікно
+
+	Drag Image to Another App	Перетягнути зображення до іншої програми
+	Drag image to another app	Перетягнути зображення до іншої програми
+@msg	Couldn't drag image: {e}	Не вдалося перетягнути зображення: {e}
+@msg	invalid PNG data	неприпустимі дані PNG
+@msg	invalid image transfer placement	неприпустимі параметри розміщення зображення
+@msg	native image drag is unavailable	системне перетягування зображень недоступне
+@msg	no PNG was generated	зображення PNG не створено
+@msg	no bounded image-transfer reader	немає засобу читання переданих зображень з обмеженням розміру

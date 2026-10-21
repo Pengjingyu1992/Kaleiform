@@ -33,6 +33,7 @@ pub mod graphics;
 pub mod i18n;
 pub mod icon_data;
 pub mod icons;
+pub mod image_transfer;
 pub mod io;
 pub mod mcp_panel;
 pub mod menus;
@@ -200,6 +201,10 @@ pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Platform services injected by the host app (desktop or web).
 #[derive(Default)]
 pub struct Services {
+    /// Native image-copy drag. PNG bytes are full resolution; placement is shared with Compositor.
+    pub begin_image_drag: Option<image_transfer::BeginDrag>,
+    /// Current pointer in the native content view's top-left logical coordinates.
+    pub image_drop_position: Option<Box<dyn FnMut() -> Option<[f32; 2]>>>,
     pub start_control: Option<mcp_panel::StartControl>,
     pub control_status: Option<Arc<mcp_panel::ControlStatus>>,
     pub mcp_cli: Option<String>,
@@ -1026,7 +1031,13 @@ impl VectorcraftApp {
         if dropped.is_empty() {
             return;
         }
-        let pos = place::drag_pos(ctx);
+        let pos = self
+            .services
+            .image_drop_position
+            .as_mut()
+            .and_then(|p| p())
+            .map(|p| egui::pos2(p[0], p[1]) / ctx.zoom_factor())
+            .or_else(|| place::drag_pos(ctx));
         let mut files = vec![];
         for f in dropped {
             let path = Some(f.path().to_string_lossy().to_string()).filter(|s| !s.is_empty());

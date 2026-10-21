@@ -2682,3 +2682,12 @@
 	This cannot be undone.	Esta ação não pode ser desfeita.
 @msg	angle must be finite	O ângulo deve ser um número finito
 @msg	another dialog is open	Feche primeiro a caixa de diálogo atual
+
+	Drag Image to Another App	Arrastar imagem para outro aplicativo
+	Drag image to another app	Arrastar imagem para outro aplicativo
+@msg	Couldn't drag image: {e}	Não foi possível arrastar a imagem: {e}
+@msg	invalid PNG data	dados PNG inválidos
+@msg	invalid image transfer placement	posição da imagem transferida inválida
+@msg	native image drag is unavailable	o recurso nativo de arrastar imagens está indisponível
+@msg	no PNG was generated	nenhuma imagem PNG foi gerada
+@msg	no bounded image-transfer reader	não há leitor de transferência de imagens com limite de tamanho

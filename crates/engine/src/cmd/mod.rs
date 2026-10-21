@@ -29,6 +29,7 @@ pub(crate) mod freeform;
 pub(crate) mod gradient;
 pub(crate) mod graph;
 mod halftone;
+pub mod image_transfer;
 pub(crate) mod inline;
 mod layer;
 mod layerpanel;
@@ -191,6 +192,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         let mut v = Vec::new();
         v.extend(edit::specs());
         v.extend(clipboard::specs());
+        v.extend(image_transfer::specs());
         v.extend(recolor::specs());
         v.extend(fileio::specs());
         v.extend(create::specs());

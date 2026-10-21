@@ -3227,3 +3227,12 @@ theme	Appearance	外観
 	This cannot be undone.	この操作は取り消せません。
 @msg	angle must be finite	角度は有限の数値である必要があります
 @msg	another dialog is open	現在のダイアログを閉じてください
+
+	Drag Image to Another App	画像をほかのアプリへドラッグ
+	Drag image to another app	画像をほかのアプリへドラッグ
+@msg	Couldn't drag image: {e}	画像をドラッグできませんでした: {e}
+@msg	invalid PNG data	PNG データが無効です
+@msg	invalid image transfer placement	画像の配置情報が無効です
+@msg	native image drag is unavailable	ネイティブの画像ドラッグを利用できません
+@msg	no PNG was generated	PNG 画像が生成されませんでした
+@msg	no bounded image-transfer reader	画像転送の読み込みサービスがありません

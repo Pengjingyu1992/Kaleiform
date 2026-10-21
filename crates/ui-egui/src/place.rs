@@ -345,7 +345,18 @@ pub fn drop_files(app: &mut VectorcraftApp, mut files: Vec<(DropTarget, DropFile
                     None => json!({ "name": name, "dataBase64": vectorcraft_format::base64_encode(&bytes) }),
                 };
                 p["at"] = json!([at.x, at.y]);
-                p["link"] = json!(!embed);
+                let exchange = path.as_deref().is_some_and(crate::image_transfer::is_transfer_path);
+                p["link"] = json!(!embed && !exchange);
+                if let Some(path) = path.as_deref() {
+                    match crate::image_transfer::placement(app, path) {
+                        Ok(Some(t)) => p["imageTransfer"] = t,
+                        Ok(None) => {}
+                        Err(e) => {
+                            app.status(format!("Couldn't place {name}: {e}"));
+                            continue;
+                        }
+                    }
+                }
                 run(app, &p).map(|_| ())
             }
             DropTarget::Open => io::open_bytes(app, &name, &bytes, path.clone()).map(|_| {

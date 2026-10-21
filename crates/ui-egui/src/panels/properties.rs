@@ -41,6 +41,7 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
         return;
     }
     transform_section(app, ui);
+    crate::image_transfer::handle(app, ui);
     divider(ui);
     let is_image = n_sel == 1 && matches!(first.as_ref().map(|n| &n.kind), Some(NodeKind::Image(_)));
     if is_image {

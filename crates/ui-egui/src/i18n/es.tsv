@@ -3801,3 +3801,12 @@ axis	Both	Ambos
 	This cannot be undone.	Esta acción no se puede deshacer.
 @msg	angle must be finite	El ángulo debe ser un número finito
 @msg	another dialog is open	Cierra primero el diálogo actual
+
+	Drag Image to Another App	Arrastrar imagen a otra aplicación
+	Drag image to another app	Arrastrar imagen a otra aplicación
+@msg	Couldn't drag image: {e}	No se pudo arrastrar la imagen: {e}
+@msg	invalid PNG data	datos PNG no válidos
+@msg	invalid image transfer placement	posición de transferencia de imagen no válida
+@msg	native image drag is unavailable	el arrastre nativo de imágenes no está disponible
+@msg	no PNG was generated	no se generó ninguna imagen PNG
+@msg	no bounded image-transfer reader	no hay un lector de transferencia de imágenes con límite de tamaño

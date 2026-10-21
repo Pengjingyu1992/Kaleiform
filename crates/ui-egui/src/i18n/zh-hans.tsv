@@ -3516,3 +3516,13 @@ axis	Both	两者
 	This cannot be undone.	此操作无法撤销。
 @msg	angle must be finite	角度必须为有限数值
 @msg	another dialog is open	请先关闭当前对话框
+
+	Drag image to another app	拖出图片到其他应用
+
+	Drag Image to Another App	拖出图片到其他应用
+@msg	Couldn't drag image: {e}	无法拖出图片：{e}
+@msg	invalid PNG data	PNG 数据无效
+@msg	invalid image transfer placement	图片互通的摆放信息无效
+@msg	native image drag is unavailable	原生图片拖拽不可用
+@msg	no PNG was generated	未生成 PNG 图片
+@msg	no bounded image-transfer reader	图片互通读取服务不可用

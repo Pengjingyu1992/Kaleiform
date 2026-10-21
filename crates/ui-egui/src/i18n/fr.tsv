@@ -3816,3 +3816,12 @@ axis	Both	Les deux
 	This cannot be undone.	Cette opération est irréversible.
 @msg	angle must be finite	L’angle doit être un nombre fini
 @msg	another dialog is open	Fermez d’abord la boîte de dialogue actuelle
+
+	Drag Image to Another App	Glisser l’image vers une autre application
+	Drag image to another app	Glisser l’image vers une autre application
+@msg	Couldn't drag image: {e}	Impossible de faire glisser l’image : {e}
+@msg	invalid PNG data	données PNG non valides
+@msg	invalid image transfer placement	placement de l’image transférée non valide
+@msg	native image drag is unavailable	le glisser-déposer natif d’images est indisponible
+@msg	no PNG was generated	aucune image PNG n’a été générée
+@msg	no bounded image-transfer reader	aucun lecteur de transfert d’images à taille limitée

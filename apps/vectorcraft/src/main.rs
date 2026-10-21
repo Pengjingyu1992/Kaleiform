@@ -23,6 +23,8 @@ mod control_server;
 mod gpu;
 mod logging;
 #[cfg(target_os = "macos")]
+mod mac_drag;
+#[cfg(target_os = "macos")]
 mod mac_material;
 #[cfg(target_os = "macos")]
 mod mac_menu;
@@ -116,6 +118,8 @@ impl eframe::App for App {
         }
     }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        #[cfg(target_os = "macos")]
+        mac_drag::finish_input(_ctx, raw);
         #[cfg(target_os = "macos")]
         if self.app.services.native_menu.is_some() {
             mac_menu::raw_input_hook(raw);
@@ -369,9 +373,15 @@ fn read_preview(path: &str, limit: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn services(parent: Parent) -> Services {
+fn services(parent: Parent, _ctx: egui::Context) -> Services {
+    #[cfg(target_os = "macos")]
+    let (begin_image_drag, image_drop_position) = mac_drag::services(parent.clone(), _ctx);
     let (p1, p2, p3, p4, p5) = (parent.clone(), parent.clone(), parent.clone(), parent.clone(), parent);
     Services {
+        #[cfg(target_os = "macos")]
+        begin_image_drag,
+        #[cfg(target_os = "macos")]
+        image_drop_position,
         background_trace: true,
         pick_open: Some(Box::new(move |pick: &FilePick| pick_now(PickRequest::Open(pick.clone()), &p1).into_iter().next())),
         pick_open_multi: Some(Box::new(move || pick_now(PickRequest::OpenMany, &p2))),
@@ -546,7 +556,7 @@ fn main() -> std::process::ExitCode {
             "Kaleiform",
             options,
             Box::new(move |cc| {
-                let mut app = VectorcraftApp::new(Session::new(), services(cc.winit_window().cloned()));
+                let mut app = VectorcraftApp::new(Session::new(), services(cc.winit_window().cloned(), cc.egui_ctx.clone()));
                 load_prefs(&mut app, saved);
                 // Fit the window to its monitor, or put it back where it was (still hidden).
                 if let Some(w) = cc.winit_window() {

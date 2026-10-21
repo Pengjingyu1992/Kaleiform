@@ -3803,3 +3803,12 @@ axis	Both	Оба
 	This cannot be undone.	Это действие нельзя отменить.
 @msg	angle must be finite	Угол должен быть конечным числом
 @msg	another dialog is open	Сначала закройте текущее диалоговое окно
+
+	Drag Image to Another App	Перетащить изображение в другое приложение
+	Drag image to another app	Перетащить изображение в другое приложение
+@msg	Couldn't drag image: {e}	Не удалось перетащить изображение: {e}
+@msg	invalid PNG data	недопустимые данные PNG
+@msg	invalid image transfer placement	недопустимые параметры размещения изображения
+@msg	native image drag is unavailable	системное перетаскивание изображений недоступно
+@msg	no PNG was generated	изображение PNG не создано
+@msg	no bounded image-transfer reader	нет средства чтения передаваемых изображений с ограничением размера

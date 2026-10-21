@@ -660,3 +660,12 @@
 @msg	angle must be finite	Úhel musí být konečné číslo
 @msg	another dialog is open	Nejprve zavřete aktuální dialog
 	Recover Documents	Obnovit dokumenty
+
+	Drag Image to Another App	Přetáhnout obrázek do jiné aplikace
+	Drag image to another app	Přetáhnout obrázek do jiné aplikace
+@msg	Couldn't drag image: {e}	Obrázek nelze přetáhnout: {e}
+@msg	invalid PNG data	neplatná data PNG
+@msg	invalid image transfer placement	neplatné údaje o umístění obrázku
+@msg	native image drag is unavailable	nativní přetahování obrázků není dostupné
+@msg	no PNG was generated	nebyl vytvořen žádný obrázek PNG
+@msg	no bounded image-transfer reader	služba čtení přenášených obrázků není dostupná
