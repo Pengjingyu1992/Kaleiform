@@ -13,7 +13,8 @@ use std::time::{Duration, SystemTime};
 use block2::RcBlock;
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, rc::Retained, runtime::ProtocolObject};
 use objc2_app_kit::{
-    NSDragOperation, NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent, NSEventMask, NSImage, NSPasteboardItem, NSView,
+    NSDragOperation, NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent, NSEventMask, NSEventType, NSImage,
+    NSPasteboardItem, NSView,
 };
 use objc2_foundation::{NSArray, NSData, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL};
 use serde_json::Value;
@@ -69,17 +70,35 @@ impl Host {
         let mtm = MainThreadMarker::new().ok_or("image drags require the main thread")?;
         let down = Rc::new(RefCell::new(None));
         let save = down.clone();
+        let repaint = ctx.clone();
         let block = RcBlock::new(move |event: NonNull<NSEvent>| {
             // AppKit lends a live event for this callback; retain it for the upcoming egui drag.
             let e = unsafe { event.as_ref() };
-            let _ = vectorcraft_engine::guard::catch_panic(|| *save.borrow_mut() = Some(e.retain()));
+            let _ = vectorcraft_engine::guard::catch_panic(|| {
+                *save.borrow_mut() = (e.r#type() != NSEventType::LeftMouseUp).then(|| e.retain());
+                repaint.request_repaint();
+            });
             event.as_ptr()
         });
         // Returning the input event unchanged leaves winit's mouse and IME handling intact.
-        let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::LeftMouseDown, &block) }
-            .ok_or("couldn't observe drag mouse events")?;
+        let monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::LeftMouseDown | NSEventMask::LeftMouseDragged | NSEventMask::LeftMouseUp,
+                &block,
+            )
+        }
+        .ok_or("couldn't observe drag mouse events")?;
         let source = DragSource::new(mtm, ctx);
         Ok(Self { _window: window, down, monitor, source })
+    }
+
+    fn outside(&self) -> bool {
+        let Some(mtm) = MainThreadMarker::new() else { return false };
+        let event = self.down.borrow();
+        let Some(window) = event.as_ref().and_then(|e| e.window(mtm)) else { return false };
+        let frame = window.frame();
+        let p = NSEvent::mouseLocation();
+        p.x < frame.origin.x || p.y < frame.origin.y || p.x >= frame.origin.x + frame.size.width || p.y >= frame.origin.y + frame.size.height
     }
 
     fn begin(&self, png: &[u8], placement: &Value) -> Result<(), String> {
@@ -120,16 +139,20 @@ fn view(window: &winit::window::Window) -> Option<&NSView> {
 }
 
 type DropPosition = Box<dyn FnMut() -> Option<[f32; 2]>>;
+type OutsideWindow = Box<dyn FnMut() -> bool>;
 
-pub fn services(window: Option<Arc<winit::window::Window>>, ctx: egui::Context) -> (Option<BeginDrag>, Option<DropPosition>) {
-    let Some(window) = window else { return (None, None) };
+pub fn services(window: Option<Arc<winit::window::Window>>, ctx: egui::Context) -> (Option<BeginDrag>, Option<DropPosition>, Option<OutsideWindow>) {
+    let Some(window) = window else { return (None, None, None) };
     let host = match Host::attach(window.clone(), ctx) {
         Ok(host) => host,
         Err(e) => {
             log::warn!("native image drag unavailable: {e}");
-            return (None, None);
+            return (None, None, None);
         }
     };
+    let host = Rc::new(host);
+    let outside_host = host.clone();
+    let outside: OutsideWindow = Box::new(move || outside_host.outside());
     let begin: BeginDrag = Box::new(move |png, placement| host.begin(png, placement));
     let position: DropPosition = Box::new(move || {
         let view = view(&window)?;
@@ -138,7 +161,7 @@ pub fn services(window: Option<Arc<winit::window::Window>>, ctx: egui::Context) 
         let y = if view.isFlipped() { point.y } else { view.bounds().size.height - point.y };
         Some([point.x as f32, y as f32])
     });
-    (Some(begin), Some(position))
+    (Some(begin), Some(position), Some(outside))
 }
 
 /// AppKit consumes the release during a native drag (including Escape). Release egui's handle too.

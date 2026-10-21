@@ -4,22 +4,23 @@ use serde_json::{Value, json};
 
 pub type BeginDrag = Box<dyn FnMut(&[u8], &Value) -> Result<(), String>>;
 
+pub fn begin(app: &mut VectorcraftApp) -> Result<(), String> {
+    let value = app.run("image.transfer", json!({})).map_err(|e| e.to_string())?;
+    let bytes = vectorcraft_format::base64_decode(value["dataBase64"].as_str().ok_or("no PNG was generated")?).ok_or("invalid PNG data")?;
+    let start = app.services.begin_image_drag.as_mut().ok_or("native image drag is unavailable")?;
+    start(&bytes, &value["placement"])
+}
+
 pub fn handle(app: &mut VectorcraftApp, ui: &mut egui::Ui) {
     if app.services.begin_image_drag.is_none() {
         return;
     }
     let enabled = vectorcraft_engine::find_command("image.transfer").is_some_and(|c| (c.enabled)(&app.session).is_ok());
     let response = ui.add_enabled(enabled, egui::Button::new(tl!("Drag image to another app")).sense(egui::Sense::drag()));
-    if response.drag_started() {
-        let result = (|| -> Result<(), String> {
-            let value = app.run("image.transfer", json!({})).map_err(|e| e.to_string())?;
-            let bytes = vectorcraft_format::base64_decode(value["dataBase64"].as_str().ok_or("no PNG was generated")?).ok_or("invalid PNG data")?;
-            let begin = app.services.begin_image_drag.as_mut().ok_or("native image drag is unavailable")?;
-            begin(&bytes, &value["placement"])
-        })();
-        if let Err(e) = result {
-            app.status(format!("Couldn't drag image: {e}"));
-        }
+    if response.drag_started()
+        && let Err(e) = begin(app)
+    {
+        app.status(format!("Couldn't drag image: {e}"));
     }
 }
 

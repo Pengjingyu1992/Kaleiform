@@ -203,6 +203,8 @@ pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 pub struct Services {
     /// Native image-copy drag. PNG bytes are full resolution; placement is shared with Compositor.
     pub begin_image_drag: Option<image_transfer::BeginDrag>,
+    /// Whether the held native pointer has crossed its source window's outer frame.
+    pub image_drag_outside: Option<Box<dyn FnMut() -> bool>>,
     /// Current pointer in the native content view's top-left logical coordinates.
     pub image_drop_position: Option<Box<dyn FnMut() -> Option<[f32; 2]>>>,
     pub start_control: Option<mcp_panel::StartControl>,

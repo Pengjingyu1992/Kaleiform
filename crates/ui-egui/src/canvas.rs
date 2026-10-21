@@ -673,6 +673,12 @@ fn handle_input(app: &mut VectorcraftApp, ui: &Ui, resp: &egui::Response, rect: 
         let held = if middle_pan { pointer.button_down(egui::PointerButton::Middle) } else { pointer.primary_down() };
         if held {
             ui.data_mut(|dd| dd.insert_temp(drag_pos_id(), p));
+            // Native coordinates keep updating after egui has lost pointer hover. Only the
+            // outer window boundary starts an external drag; panels keep their own art drops.
+            if matches!(d, Drag::Tool | Drag::Art) && drag_image_out(app, ui, view, matches!(d, Drag::Art)) {
+                ui.data_mut(|dd| dd.insert_temp(drag_id(), Drag::Gesture));
+                return;
+            }
             match d {
                 Drag::Pan { start, center, .. } => {
                     let d = xf.delta_to_doc(p - start);
@@ -932,6 +938,27 @@ fn drag_art_out(app: &mut VectorcraftApp, ui: &Ui, resp: &egui::Response, p: Pos
     // With nothing left to commit, the tool's mouse-up just returns it to rest.
     dispatch(app, &PointerEvent { kind: PointerKind::Up, pos: Point::ZERO, mods: Mods::default(), pressure: 1.0 }, view);
     egui::DragAndDrop::set_payload(ui.ctx(), widgets::PanelDrag::Art(ids));
+    true
+}
+
+fn drag_image_out(app: &mut VectorcraftApp, ui: &Ui, view: vectorcraft_engine::ViewInfo, panel_drag: bool) -> bool {
+    if app.services.begin_image_drag.is_none() || app.session.tool_id() != "selection" {
+        return false;
+    }
+    let moving = app.session.active().is_some_and(|st| st.interaction.as_ref().is_some_and(|i| i.label == "Move" || i.label == "Copy"));
+    let art = panel_drag && egui::DragAndDrop::payload::<widgets::PanelDrag>(ui.ctx()).is_some_and(|p| matches!(&*p, widgets::PanelDrag::Art(_)));
+    if (!moving && !art) || !app.services.image_drag_outside.as_mut().is_some_and(|outside| outside()) {
+        return false;
+    }
+    if let Err(e) = app.session.cancel_interaction() {
+        app.status(format!("Couldn't drag image: {e}"));
+        return false;
+    }
+    dispatch(app, &PointerEvent { kind: PointerKind::Up, pos: Point::ZERO, mods: Mods::default(), pressure: 1.0 }, view);
+    egui::DragAndDrop::clear_payload(ui.ctx());
+    if let Err(e) = crate::image_transfer::begin(app) {
+        app.status(format!("Couldn't drag image: {e}"));
+    }
     true
 }
 
@@ -3679,6 +3706,80 @@ mod tests {
         let st = app.session.active().unwrap();
         assert_eq!(*st.doc, *before);
         assert_eq!(st.history.undo.len(), undo);
+    }
+
+    #[test]
+    fn canvas_image_crosses_native_window_once_and_restores_source_even_after_failure() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+        for through_panel in [false, true] {
+            let outside = Arc::new(AtomicBool::new(false));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let mut png = vec![];
+            image::RgbaImage::from_pixel(100, 80, image::Rgba([170, 60, 220, 128]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            let original = png.clone();
+            let observed = calls.clone();
+            let boundary = outside.clone();
+            let services = crate::Services {
+                image_drag_outside: Some(Box::new(move || boundary.load(Ordering::Relaxed))),
+                begin_image_drag: Some(Box::new(move |bytes, _| {
+                    assert_eq!(bytes, original);
+                    let n = observed.fetch_add(1, Ordering::Relaxed);
+                    if n == 1 { Err("simulated native rejection".into()) } else { Ok(()) }
+                })),
+                ..Default::default()
+            };
+            let mut app = VectorcraftApp::new(Session::new(), services);
+            app.session.execute("file.new", &json!({"width":400,"height":300})).unwrap();
+            app.session
+                .execute("file.place", &json!({"name":"Source.png","dataBase64":vectorcraft_format::base64_encode(&png),"link":false}))
+                .unwrap();
+            app.select_tool("selection");
+            let ctx = egui::Context::default();
+            frame(&mut app, &ctx, vec![]);
+            let st = app.session.active().unwrap();
+            let before = st.doc.clone();
+            let selection = st.selection.objects.clone();
+            let undo = st.history.undo.len();
+            let xf = Xf::new(app.canvas_rect.unwrap(), app.view().unwrap());
+            let center = before.node(selection[0]).unwrap().visual_bounds().unwrap().center();
+            let start = xf.to_screen(center);
+            let button =
+                |pressed| egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            for attempt in 1..=3 {
+                outside.store(false, Ordering::Relaxed);
+                frame(&mut app, &ctx, vec![egui::Event::PointerMoved(start), button(true)]);
+                frame(&mut app, &ctx, vec![egui::Event::PointerMoved(start + vec2(25.0, 0.0))]);
+                assert!(
+                    app.session.active().unwrap().interaction.is_some(),
+                    "attempt={attempt} panel={through_panel} start={start:?} center={center:?} drag={:?} tool={}",
+                    ctx.data(|d| d.get_temp::<Drag>(drag_id())),
+                    app.session.tool_id()
+                );
+                assert_eq!(calls.load(Ordering::Relaxed), attempt - 1, "in-window motion is still an edit");
+                if through_panel {
+                    frame(&mut app, &ctx, vec![egui::Event::PointerMoved(pos2(850.0, 100.0))]);
+                    assert!(egui::DragAndDrop::payload::<widgets::PanelDrag>(&ctx).is_some());
+                }
+                outside.store(true, Ordering::Relaxed);
+                // Native pointer tracking triggers conversion even without another egui position.
+                frame(&mut app, &ctx, vec![]);
+                frame(&mut app, &ctx, vec![]);
+                assert_eq!(calls.load(Ordering::Relaxed), attempt);
+                let st = app.session.active().unwrap();
+                assert_eq!(*st.doc, *before);
+                assert_eq!(st.selection.objects, selection);
+                assert_eq!(st.history.undo.len(), undo);
+                assert!(st.interaction.is_none());
+                assert!(!app.session.tool_busy());
+                assert!(egui::DragAndDrop::payload::<widgets::PanelDrag>(&ctx).is_none());
+                frame(&mut app, &ctx, vec![button(false)]);
+            }
+        }
     }
 
     /// One frame of keyboard handling and canvas, as the app runs them; returns the IME output.

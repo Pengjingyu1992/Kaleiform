@@ -375,11 +375,13 @@ fn read_preview(path: &str, limit: u64) -> Result<Vec<u8>, String> {
 
 fn services(parent: Parent, _ctx: egui::Context) -> Services {
     #[cfg(target_os = "macos")]
-    let (begin_image_drag, image_drop_position) = mac_drag::services(parent.clone(), _ctx);
+    let (begin_image_drag, image_drop_position, image_drag_outside) = mac_drag::services(parent.clone(), _ctx);
     let (p1, p2, p3, p4, p5) = (parent.clone(), parent.clone(), parent.clone(), parent.clone(), parent);
     Services {
         #[cfg(target_os = "macos")]
         begin_image_drag,
+        #[cfg(target_os = "macos")]
+        image_drag_outside,
         #[cfg(target_os = "macos")]
         image_drop_position,
         background_trace: true,
