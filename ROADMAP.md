@@ -131,6 +131,10 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Preview 16 packaging (2026-10-22, M14.159):** publishes the accepted native PNG interchange
+  and direct-canvas copy-drag correction with exact-source macOS arm64 packages, privacy boundaries
+  for original metadata and delayed temporary-file cleanup, and source/checksum metadata.
+  Existing releases and Linux assets are retained; no new platform or maturity-score claim.
 - **Preview 15 release correction (2026-10-20, M14.157):** Performance Diagnostics uses
   Cmd+Alt+F12, distinct from Document Setup on all desktop platforms; a key-event regression
   covers both actions. Supersedes the unpublished Preview 14 candidate without rewriting its tag.
@@ -139,7 +143,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
   M14.152-M14.155, source archive and build/checksum metadata; prior releases and Linux assets
   retained. Local gates passed, but Linux CI caught a shortcut collision; this candidate was not
   publicly released. Platform and security limits remain documented. No score change.
-- **macOS PNG interchange (2026-10-21, M14.158, local):** a native copy-drag handle in
+- **macOS PNG interchange (2026-10-21, M14.158, preview 16):** a native copy-drag handle in
   Properties shares full PNG data with Compositor; ordinary PNGs retain their original bytes,
   edited selections render on transparency without the clipboard size cap. Exchange drops embed
   their pixels, keep placement separate from pixel dimensions and use native canvas coordinates.
@@ -389,7 +393,8 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M14.155 | New-document details layout alignment | Local `.14` follow-up: equal size fields, bounded basic columns, aligned bleed and advanced settings; fixed footer and compact window retained | Existing M14 estimate unchanged |
 | M14.156 | Preview 14 privacy review and macOS publication | Packages M14.152-M14.155 with audited source and build/checksum metadata; prior assets retained, no new platform or maturity claim | Existing M14 estimate unchanged |
 | M14.157 | Preview 15 cross-platform shortcut correction and audited publication | Distinct performance-diagnostics chord with actual key-event regression; supersedes unpublished Preview 14 without rewriting its tag | Existing M14 estimate unchanged |
-| M14.158 | macOS PNG interchange | Canvas moves crossing the source window become copy-drags with source rollback; original PNG copy-drag, transparent appearance output, embedded receiver placement; local scope, existing maturity scores unchanged | Included |
+| M14.158 | macOS PNG interchange | Canvas moves crossing the source window become copy-drags with source rollback; original PNG copy-drag, transparent appearance output, embedded receiver placement; preview 16 macOS scope, existing maturity scores unchanged | Included |
+| M14.159 | Preview 16 privacy review and macOS publication | Exact-source arm64 packages for M14.158; original PNG metadata and temporary exchange retention documented, existing release assets preserved | Existing M14 estimate unchanged |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |

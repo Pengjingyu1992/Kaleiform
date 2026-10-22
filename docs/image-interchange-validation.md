@@ -1,6 +1,9 @@
 # PNG interchange validation — 2026-10-21
 
-Local macOS builds only. No public release or repository push was performed.
+The acceptance results below describe local macOS builds tested before publication.
+Preview 16 packages this work; publication scope and limitations are documented in
+[the release notes](release-preview16.md). Backup statements describe the validation time:
+later latest-version-only cleanup moved old bundles to Trash, so no active rollback copy is promised.
 
 ## Canvas-drag correction — 2026-10-22
 

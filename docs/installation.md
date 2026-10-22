@@ -2,7 +2,7 @@
 
 ## 预览版支持范围
 
-macOS 当前预览版为 `0.7.0-kaleiform.14`，提供 **arm64 / Apple Silicon** 包，
+macOS 当前预览版为 `0.7.0-kaleiform.16`，提供 **arm64 / Apple Silicon** 包，
 最低系统声明为 macOS 11，实际交互测试在维护者当前 macOS 上进行，未逐一测试所有系统版本。
 Intel Mac 不能直接使用此 arm64 包。另提供预览 6 的 Linux **x86_64 / glibc 2.35+** 包，
 通过 Ubuntu 22.04 最小环境安装运行检查；Fedora/RPM 安装尚未验收。
@@ -10,12 +10,12 @@ Windows、Linux ARM64、FreeBSD 和 Web 暂无本项目已验证的下载包。
 
 ## macOS 安装
 
-1. 从 [预览 15 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.15) 下载
-   `kaleiform-0.7.0-kaleiform.15-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
+1. 从 [预览 16 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.16) 下载
+   `kaleiform-0.7.0-kaleiform.16-macos-arm64.dmg` 及 `SHA256SUMS.txt`。
 2. 可在下载目录运行下面命令，将结果与 `SHA256SUMS.txt` 中同名文件比较：
 
    ```sh
-   shasum -a 256 kaleiform-0.7.0-kaleiform.15-macos-arm64.dmg
+   shasum -a 256 kaleiform-0.7.0-kaleiform.16-macos-arm64.dmg
    ```
 
 3. 双击 DMG，把 **虹构.app** 拖至窗口中的 **Applications** 文件夹。
