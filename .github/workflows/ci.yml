@@ -19,6 +19,8 @@ jobs:
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      # Canvas tests share process-wide font, proof and placed-image caches.
+      RUST_TEST_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Desktop build dependencies

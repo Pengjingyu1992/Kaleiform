@@ -134,6 +134,8 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 - **Preview 16 packaging (2026-10-22, M14.159):** publishes the accepted native PNG interchange
   and direct-canvas copy-drag correction with exact-source macOS arm64 packages, privacy boundaries
   for original metadata and delayed temporary-file cleanup, and source/checksum metadata.
+  CI matches the locally validated single-threaded test execution for process-wide render caches;
+  all tests and assertions are retained.
   Existing releases and Linux assets are retained; no new platform or maturity-score claim.
 - **Preview 15 release correction (2026-10-20, M14.157):** Performance Diagnostics uses
   Cmd+Alt+F12, distinct from Document Setup on all desktop platforms; a key-event regression
