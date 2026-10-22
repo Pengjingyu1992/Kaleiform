@@ -414,7 +414,12 @@ pub fn show(app: &mut VectorcraftApp, ui: &mut Ui) {
             None => {}
         }
     }
-    if t.glass && (app.ui.open_panel.is_some() || !app.ui.floating_panels.is_empty() || app.ui.toolbar_pos.is_some()) {
+    let inspector_overlay = crate::workspace::enabled(app)
+        && app.ui.dock
+        && !app.ui.dock_collapsed
+        && app.ui.inspector_overlay
+        && ui.ctx().content_rect().width() < crate::workspace::OVERLAY_BREAKPOINT;
+    if t.glass && (inspector_overlay || app.ui.open_panel.is_some() || !app.ui.floating_panels.is_empty() || app.ui.toolbar_pos.is_some()) {
         app.canvas.glass.publish(ui.ctx(), &xf, key.doc);
     }
     if let Some(look) = grid_look.filter(|_| !grids_in_back) {

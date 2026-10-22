@@ -25,8 +25,13 @@ pub fn run(root: &Path) -> Result<(), String> {
         std::fs::copy(root.join(notice), app.join("Resources").join(notice)).map_err(|e| format!("copy {notice}: {e}"))?;
     }
     for notice in ["MIT", "APACHE"] {
-        std::fs::copy(root.join(format!("vendor/linesweeper/LICENSE-{notice}")), app.join(format!("Resources/LICENSE-linesweeper-{notice}")))
-            .map_err(|e| format!("copy linesweeper license: {e}"))?;
+        for (library, separator) in [("linesweeper", "-"), ("wgpu-hal", ".")] {
+            std::fs::copy(
+                root.join(format!("vendor/{library}/LICENSE{separator}{notice}")),
+                app.join(format!("Resources/LICENSE-{library}-{notice}")),
+            )
+            .map_err(|e| format!("copy {library} license: {e}"))?;
+        }
     }
     let sha = std::env::var("VECTORCRAFT_BUILD_SHA").unwrap_or_else(|_| "unknown".into());
     std::fs::write(app.join("Info.plist"), info_plist(env!("CARGO_PKG_VERSION"), &sha)).map_err(|e| e.to_string())?;

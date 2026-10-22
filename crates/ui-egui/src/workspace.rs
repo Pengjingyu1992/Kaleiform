@@ -97,25 +97,8 @@ pub fn inspector(app: &mut VectorcraftApp, ui: &mut Ui) {
         return;
     }
     let available = ui.available_rect_before_wrap();
-    if ui.ctx().content_rect().width() < OVERLAY_BREAKPOINT {
-        if !app.ui.inspector_overlay {
-            return;
-        }
-        let ctx = ui.ctx().clone();
-        let r = Rect::from_min_max(pos2(available.right() - 300.0, available.top()), available.max);
-        egui::Area::new(Id::new("workspace-inspector-overlay")).order(egui::Order::Foreground).constrain(false).fixed_pos(r.min).show(&ctx, |ui| {
-            ui.set_width(r.width());
-            ui.set_min_height(r.height());
-            egui::Frame::NONE.fill(Tokens::get(&ctx).panel).stroke(Stroke::new(1.0, Tokens::get(&ctx).divider)).show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("inspector-overlay-bounds")
-                    .max_height(r.height() - 2.0)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| inspector_body(app, ui, r.height() - 2.0));
-            });
-        });
-        remember_rect(&ctx, r);
-    } else {
+    // Overlay panels are painted after the canvas publishes this frame's backdrop.
+    if ui.ctx().content_rect().width() >= OVERLAY_BREAKPOINT {
         let t = Tokens::get(ui.ctx());
         let panel = egui::Panel::right("workspace-inspector")
             .resizable(true)
@@ -125,6 +108,25 @@ pub fn inspector(app: &mut VectorcraftApp, ui: &mut Ui) {
             .show(ui, |ui| inspector_body(app, ui, available.height()));
         remember_rect(ui.ctx(), panel.response.rect);
     }
+}
+
+pub fn inspector_overlay(app: &mut VectorcraftApp, ctx: &Context, available: Rect) {
+    if !app.ui.inspector_overlay || app.ui.dock_collapsed {
+        return;
+    }
+    let r = Rect::from_min_max(pos2(available.right() - 312.0, available.top() + 10.0), available.max - vec2(12.0, 10.0));
+    egui::Area::new(Id::new("workspace-inspector-overlay")).order(egui::Order::Foreground).constrain(false).fixed_pos(r.min).show(ctx, |ui| {
+        crate::glass::frame(ui, |ui| {
+            ui.set_width(r.width());
+            ui.set_min_height(r.height());
+            egui::ScrollArea::vertical()
+                .id_salt("inspector-overlay-bounds")
+                .max_height(r.height() - 2.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| inspector_body(app, ui, r.height() - 2.0));
+        });
+    });
+    remember_rect(ctx, r);
 }
 
 fn remember_rect(ctx: &Context, r: Rect) {

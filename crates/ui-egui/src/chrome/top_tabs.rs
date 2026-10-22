@@ -8,7 +8,7 @@ use crate::theme::Tokens;
 use crate::{VectorcraftApp, icons, theme, widgets};
 
 const HEIGHT: f32 = 26.0;
-const SURFACE_HEIGHT: f32 = 20.0;
+const SURFACE_HEIGHT: f32 = 26.0;
 const GAP: f32 = 6.0;
 const MORE: f32 = 26.0;
 pub(super) const ZOOM_WIDTH: f32 = 144.0;
@@ -80,7 +80,7 @@ pub(crate) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
         let selected = Some(i) == active;
         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, detail));
         let fill = if selected {
-            t.tool_active
+            t.button
         } else if response.hovered() {
             t.hover
         } else {
@@ -275,7 +275,7 @@ mod tests {
                     let new = w.rect("new", 0);
                     assert_eq!(new.size(), vec2(26.0, 26.0), "keep the click target");
                     let visible = surface(new);
-                    assert_eq!(visible.size(), vec2(20.0, 20.0));
+                    assert_eq!(visible.size(), vec2(26.0, 26.0));
                     assert!(
                         visible.top() >= 6.0 && visible.bottom() <= crate::workspace::BAR_HEIGHT - 6.0,
                         "space above and below the visible well: {visible:?}"

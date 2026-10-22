@@ -212,15 +212,26 @@ fn body(app: &mut VectorcraftApp, ui: &mut Ui, cols: usize, floating: Option<egu
                     let (rect, resp) = ui.allocate_exact_size(vec2(36.0, PITCH - 1.0), Sense::click_and_drag());
                     let well = egui::Rect::from_center_size(rect.center(), vec2(35.5, 27.5));
                     if is_active {
-                        ui.painter().rect_filled(well, CornerRadius::same(if modern { 6 } else { 1 }), t.tool_active);
+                        ui.painter().rect_filled(well, CornerRadius::same(if modern { 7 } else { 1 }), if modern { t.accent } else { t.tool_active });
                     } else if resp.hovered() {
                         ui.painter().rect_filled(well, CornerRadius::same(if modern { 6 } else { 1 }), t.hover);
                     }
                     let ir = egui::Rect::from_center_size(rect.center(), vec2(18.0, 18.0));
-                    icons::paint(ui, icons::tool_icon(shown.icon), ir, if is_active { t.text_strong } else { t.icon });
+                    let ink = if is_active && modern {
+                        t.accent_text
+                    } else if is_active {
+                        t.text_strong
+                    } else {
+                        t.icon
+                    };
+                    icons::paint(ui, icons::tool_icon(shown.icon), ir, ink);
                     if slot.len() > 1 {
                         let c = rect.center() + vec2(12.5, 10.0);
-                        ui.painter().add(egui::Shape::convex_polygon(vec![c, c + vec2(-3.5, 0.0), c + vec2(0.0, -3.5)], t.icon, Stroke::NONE));
+                        ui.painter().add(egui::Shape::convex_polygon(
+                            vec![c, c + vec2(-3.5, 0.0), c + vec2(0.0, -3.5)],
+                            if is_active { ink } else { t.icon },
+                            Stroke::NONE,
+                        ));
                     }
                     let press = if slot.len() > 1 { flyout_press(ui, &resp, rect) } else { None };
                     let alt = ui.input(|inp| inp.modifiers.alt);

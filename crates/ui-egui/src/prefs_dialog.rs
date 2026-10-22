@@ -420,7 +420,7 @@ mod tests {
         for accent in [[10, 132, 255], [255, 210, 30]] {
             theme::set_host_appearance(
                 &ctx,
-                theme::HostAppearance { accent, reduce_transparency: false, reduce_motion: false },
+                theme::HostAppearance { accent, colors: None, reduce_transparency: false, reduce_motion: false },
                 app.ui.brightness,
                 app.ui.glass,
             );

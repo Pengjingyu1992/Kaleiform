@@ -146,6 +146,33 @@ impl IccProfile {
         Some(dst.map(|x| x.clamp(0.0, 1.0)))
     }
 
+    /// Convert straight display pixels from an embedded RGB/gray profile into sRGB.
+    /// Convert all RGB samples in bounded batches, preserving alpha exactly.
+    /// CMYK images retain their separate ink/profile rendering path.
+    pub fn rgba8_to_srgb(&self, pixels: &mut [u8]) -> Option<()> {
+        if !pixels.len().is_multiple_of(4) || self.kind == ProfileKind::Cmyk {
+            return None;
+        }
+        let gray = self.kind == ProfileKind::Gray;
+        let layout = if gray { Layout::Gray } else { Layout::Rgba };
+        let xf = self.profile.create_transform_8bit(layout, &self.srgb, Layout::Rgba, Self::opts(Intent::RelativeColorimetric)).ok()?;
+        let mut source = Vec::with_capacity(4096 * 4);
+        let mut output = vec![0; 4096 * 4];
+        for batch in pixels.chunks_mut(4096 * 4) {
+            source.clear();
+            if gray {
+                source.extend(batch.as_chunks::<4>().0.iter().map(|p| p[0]));
+            } else {
+                source.extend_from_slice(batch);
+            }
+            xf.transform(&source, &mut output[..batch.len()]).ok()?;
+            for (pixel, converted) in batch.as_chunks_mut::<4>().0.iter_mut().zip(output.as_chunks::<4>().0) {
+                pixel[..3].copy_from_slice(&converted[..3]);
+            }
+        }
+        Some(())
+    }
+
     /// sRGB → device values.
     pub fn from_srgb(&self, rgb: [f32; 3], intent: Intent) -> Option<Vec<f32>> {
         let xf = self.inverse_xf(intent)?;

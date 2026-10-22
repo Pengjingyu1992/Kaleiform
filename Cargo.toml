@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
-exclude = ["vendor/linesweeper"]
+exclude = ["vendor/linesweeper", "vendor/wgpu-hal"]
 default-members = ["crates/*", "apps/vectorcraft", "apps/vectorcraft-cli", "xtask"]
 
 [workspace.package]
@@ -106,3 +106,7 @@ opt-level = 1
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Keep Metal SDR surfaces explicitly colour-matched across resize/recreation.
+[patch.crates-io]
+wgpu-hal = { path = "vendor/wgpu-hal" }

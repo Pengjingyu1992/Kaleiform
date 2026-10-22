@@ -80,7 +80,11 @@ pub fn jpeg_rgba(bytes: &[u8]) -> Option<image::RgbaImage> {
         jpeg_decoder::PixelFormat::CMYK32 => return Inks { width: w, height: h, data }.rgba(),
         jpeg_decoder::PixelFormat::L16 => return None,
     };
-    image::RgbaImage::from_raw(w, h, rgba)
+    let mut image = image::RgbaImage::from_raw(w, h, rgba)?;
+    if let Some(profile) = decoder.icc_profile().and_then(|p| vectorcraft_color::cms::IccProfile::from_bytes(None, &p).ok()) {
+        let _ = profile.rgba8_to_srgb(image.as_mut());
+    }
+    Some(image)
 }
 
 fn is_tiff(bytes: &[u8]) -> bool {

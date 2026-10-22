@@ -62,9 +62,9 @@ struct App {
 #[cfg(target_os = "macos")]
 impl App {
     fn sync_material(&mut self, ctx: &egui::Context) {
-        let host = mac_material::appearance();
-        vectorcraft_ui_egui::theme::set_host_appearance(ctx, host, self.app.ui.brightness, self.app.ui.glass);
         let dark = vectorcraft_ui_egui::theme::Tokens::for_brightness(self.app.ui.brightness).dark;
+        let host = mac_material::appearance(dark);
+        vectorcraft_ui_egui::theme::set_host_appearance(ctx, host, self.app.ui.brightness, self.app.ui.glass);
         let want = (self.app.ui.glass && !host.reduce_transparency, dark);
         if let Some(window) = &self.window {
             mac_material::align_buttons(window, ctx.zoom_factor(), self.app.ui.screen_mode < 2);

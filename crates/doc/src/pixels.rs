@@ -1,5 +1,6 @@
 //! Pixel access for embedded images: a stable content key and recolouring the pixels.
 
+use image::ImageDecoder;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -12,12 +13,21 @@ impl ImageBlob {
         Self::decode_rgba(&self.bytes)
     }
 
-    /// Decode encoded pixels consistently, without copying the encoded bytes.
+    /// Decode into sRGB display pixels. Encoded originals and their profiles stay unchanged.
     pub fn decode_rgba(bytes: &[u8]) -> Option<image::RgbaImage> {
         if bytes.starts_with(&[0xFF, 0xD8]) {
             return crate::cmyk::jpeg_rgba(bytes);
         }
-        image::load_from_memory(bytes).ok().map(|img| img.to_rgba8())
+        let reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format().ok()?;
+        let mut decoder = reader.into_decoder().ok()?;
+        let profile = decoder.icc_profile().ok().flatten();
+        let mut rgba = image::DynamicImage::from_decoder(decoder).ok()?.to_rgba8();
+        if let Some(profile) = profile.and_then(|p| vectorcraft_color::cms::IccProfile::from_bytes(None, &p).ok()) {
+            let _ = profile.rgba8_to_srgb(rgba.as_mut());
+        }
+        // Decoded display/editing pixels always describe sRGB, including later PNG edits.
+        let _ = rgba.set_color_space(image::metadata::Cicp::SRGB);
+        Some(rgba)
     }
 
     /// CMYK samples as RGBA, using the image decoder's usual unprofiled conversion. The
@@ -141,6 +151,58 @@ fn sample_pixels(img: &image::RgbaImage, x: f64, y: f64, size: u32) -> Option<[u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::ImageEncoder;
+
+    fn profiled_png(profile: Vec<u8>, data: &[u8]) -> Vec<u8> {
+        let mut png = Vec::new();
+        let mut encoder = image::codecs::png::PngEncoder::new(&mut png);
+        encoder.set_icc_profile(profile).unwrap();
+        encoder.write_image(data, (data.len() / 4) as u32, 1, image::ExtendedColorType::Rgba8).unwrap();
+        png
+    }
+
+    #[test]
+    fn embedded_p3_png_is_displayed_in_srgb_without_changing_original_or_alpha() {
+        let icc = vectorcraft_color::cms::icc_bytes(vectorcraft_color::cms::DISPLAY_P3).unwrap();
+        let source = [200, 100, 60, 255, 80, 180, 100, 128, 60, 100, 200, 0];
+        let png = profiled_png(icc.to_vec(), &source);
+        let b = ImageBlob::png(png.clone());
+        let got = b.rgba().unwrap();
+        // CoreGraphics relative-colorimetric reference, Display P3 -> sRGB.
+        let reference = [[215, 93, 47, 255], [0, 183, 90, 128], [45, 101, 207, 0]];
+        for (p, want) in got.pixels().zip(reference) {
+            assert_eq!(p[3], want[3]);
+            for c in 0..3 {
+                assert!(p[c].abs_diff(want[c]) <= 2, "{p:?} vs {want:?}");
+            }
+        }
+        assert_eq!(&*b.bytes, &png, "encoded original is unchanged");
+        assert_eq!(image::load_from_memory(&b.bytes).unwrap().to_rgba8().as_raw(), &source);
+    }
+
+    #[test]
+    fn absent_or_invalid_profile_keeps_srgb_pixels_and_alpha() {
+        let source = [200, 100, 60, 255, 80, 180, 100, 128, 60, 100, 200, 0];
+        let b = blob(source.as_chunks::<4>().0, 3, 1);
+        assert_eq!(b.rgba().unwrap().as_raw(), &source);
+        let bad = profiled_png(b"invalid ICC".to_vec(), &source);
+        assert_eq!(ImageBlob::decode_rgba(&bad).unwrap().as_raw(), &source);
+    }
+
+    #[test]
+    fn embedded_p3_jpeg_uses_its_profile_after_the_strict_jpeg_decoder() {
+        let mut jpeg = Vec::new();
+        let mut encoder = jpeg_encoder::Encoder::new(&mut jpeg, 100);
+        encoder.add_icc_profile(&vectorcraft_color::cms::icc_bytes(vectorcraft_color::cms::DISPLAY_P3).unwrap()).unwrap();
+        encoder.encode(&[200, 100, 60].repeat(64), 8, 8, jpeg_encoder::ColorType::Rgb).unwrap();
+        let got = ImageBlob::decode_rgba(&jpeg).unwrap();
+        for p in got.pixels() {
+            for (c, want) in [215u8, 93, 47].into_iter().enumerate() {
+                assert!(p[c].abs_diff(want) <= 3, "{p:?}");
+            }
+            assert_eq!(p[3], 255);
+        }
+    }
 
     fn blob(px: &[[u8; 4]], w: u32, h: u32) -> ImageBlob {
         let img = image::RgbaImage::from_raw(w, h, px.concat()).unwrap();

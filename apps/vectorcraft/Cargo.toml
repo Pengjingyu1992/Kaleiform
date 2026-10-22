@@ -47,7 +47,7 @@ windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
 # with default features off). Pinned exactly: review the diff before bumping.
 muda = { version = "=0.21.1", default-features = false }
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSDragging", "NSDraggingItem", "NSDraggingSession", "NSImage", "NSApplication", "NSMenu", "NSEvent", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSTextInputContext", "NSView", "NSVisualEffectView", "NSWindow", "NSGraphics", "NSButton", "NSControl", "NSPanel", "NSPopUpButton", "NSSavePanel", "NSTextField", "NSColor", "NSColorSpace", "NSWorkspace", "NSAccessibility"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSDragging", "NSDraggingItem", "NSDraggingSession", "NSImage", "NSApplication", "NSMenu", "NSEvent", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSTextInputContext", "NSView", "NSVisualEffectView", "NSWindow", "NSGraphics", "NSButton", "NSControl", "NSPanel", "NSPopUpButton", "NSSavePanel", "NSTextField", "NSColor", "NSColorSpace", "NSWorkspace", "NSAccessibility", "NSAppearance"] }
 # Files opened from Finder and the Dock (src/open_documents.rs) and pasted bitmaps (src/clipboard.rs); both already come with winit, muda and rfd.
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSData", "NSNotification", "NSOperation", "NSString", "NSURL"] }
 block2 = "0.6"
@@ -55,3 +55,7 @@ block2 = "0.6"
 [build-dependencies]
 # Icon + VERSIONINFO for vectorcraft.exe; build.rs only uses it when targeting Windows.
 winresource = "0.1"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAMetalLayer", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGColorSpace"] }

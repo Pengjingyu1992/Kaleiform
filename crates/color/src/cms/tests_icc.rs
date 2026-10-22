@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn embedded_rgba_conversion_handles_batches_and_keeps_alpha() {
+    let profile = IccProfile::from_bytes(None, &icc_bytes(DISPLAY_P3).unwrap()).unwrap();
+    let mut pixels = [80, 180, 100, 128].repeat(4100);
+    profile.rgba8_to_srgb(&mut pixels).unwrap();
+    for p in pixels.as_chunks::<4>().0 {
+        // Apple ColorSync / CoreGraphics relative-colorimetric reference.
+        for (got, want) in p[..3].iter().zip([0u8, 183, 90]) {
+            assert!(got.abs_diff(want) <= 2, "{p:?}");
+        }
+        assert_eq!(p[3], 128);
+    }
+    let mut malformed = [10, 20, 30];
+    assert!(profile.rgba8_to_srgb(&mut malformed).is_none());
+    assert_eq!(malformed, [10, 20, 30]);
+}
+
 fn parse(bytes: &[u8]) -> moxcms::ColorProfile {
     moxcms::ColorProfile::new_from_slice(bytes).unwrap()
 }

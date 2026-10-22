@@ -1,4 +1,4 @@
-//! Design tokens (Illustrator's four UI brightness levels), fonts and egui style.
+//! Design tokens, native macOS semantic colours, fonts and egui style.
 
 use std::sync::Arc;
 
@@ -6,8 +6,20 @@ use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId,
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostColors {
+    pub window: [u8; 4],
+    pub control: [u8; 4],
+    pub label: [u8; 4],
+    pub secondary: [u8; 4],
+    pub disabled: [u8; 4],
+    pub separator: [u8; 4],
+    pub under_page: [u8; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HostAppearance {
     pub accent: [u8; 3],
+    pub colors: Option<HostColors>,
     pub reduce_transparency: bool,
     pub reduce_motion: bool,
 }
@@ -491,12 +503,43 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
             if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
         };
         let luminance = 0.2126 * linear(host.accent[0]) + 0.7152 * linear(host.accent[1]) + 0.0722 * linear(host.accent[2]);
-        t.accent_text = if luminance > 0.179 { Color32::BLACK } else { Color32::WHITE };
+        // Match AppKit's white glyphs on system blue; reserve dark glyphs for pale accents.
+        t.accent_text = if luminance > 0.45 { Color32::BLACK } else { Color32::WHITE };
         t.row_selected = t.panel.lerp_to_gamma(t.accent, 0.24);
         t.tool_active = t.row_selected;
         t.flyout_active = t.text_strong;
         t.button = t.hover;
         t.button_border = t.input_border;
+        if let Some(colors) = host.colors {
+            let rgba = |[r, g, b, a]: [u8; 4]| Color32::from_rgba_unmultiplied(r, g, b, a);
+            t.panel = rgba(colors.window);
+            t.panel_darker = rgba(colors.control);
+            t.app_bar = t.panel;
+            t.surface = t.panel;
+            if t.glass && crate::glass::native_material(ctx) {
+                t.app_bar = t.panel.gamma_multiply(0.9);
+                t.surface = t.panel.gamma_multiply(0.94);
+            }
+            t.input = rgba(colors.control);
+            t.text = rgba(colors.label);
+            t.text_strong = t.text;
+            t.text_dim = rgba(colors.secondary);
+            t.text_disabled = rgba(colors.disabled);
+            t.icon = t.text;
+            t.divider = rgba(colors.separator);
+            t.border = t.divider;
+            t.input_border = t.text.gamma_multiply(0.16);
+            t.button_border = t.input_border;
+            t.hover = t.panel.lerp_to_gamma(t.text, 0.10);
+            t.button = t.panel.lerp_to_gamma(t.text, 0.07);
+            t.tab_strip = t.panel;
+            t.glass_tint = t.panel.gamma_multiply(0.78);
+            t.pasteboard = rgba(colors.under_page);
+            t.ruler = t.panel;
+            t.ruler_tick = t.text_dim;
+            t.row_selected = t.panel.lerp_to_gamma(t.accent, 0.24);
+            t.tool_active = t.row_selected;
+        }
         t.radius = 6;
     }
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
@@ -562,7 +605,7 @@ mod tests {
     fn host_accessibility_and_accent_keep_controls_legible_and_canvas_opaque() {
         let ctx = egui::Context::default();
         crate::glass::set_native_material(&ctx, true);
-        let host = HostAppearance { accent: [255, 210, 30], reduce_transparency: true, reduce_motion: true };
+        let host = HostAppearance { accent: [255, 210, 30], colors: None, reduce_transparency: true, reduce_motion: true };
         set_host_appearance(&ctx, host, Brightness::Dark, true);
         let t = Tokens::get(&ctx);
         assert!(!t.glass);
@@ -570,7 +613,7 @@ mod tests {
         assert_eq!(t.pasteboard.a(), 255);
         assert_eq!(t.accent_text, Color32::BLACK);
         assert_eq!(ctx.global_style().animation_time, 0.0);
-        let host = HostAppearance { accent: [0, 60, 180], reduce_transparency: false, reduce_motion: false };
+        let host = HostAppearance { accent: [0, 60, 180], colors: None, reduce_transparency: false, reduce_motion: false };
         set_host_appearance(&ctx, host, Brightness::Light, true);
         let t = Tokens::get(&ctx);
         assert!(t.glass);

@@ -117,6 +117,8 @@ printf 'APPL????' >"$APP/Contents/PkgInfo"
 cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/NOTICE" "$APP/Contents/Resources/"
 cp "$ROOT/vendor/linesweeper/LICENSE-MIT" "$APP/Contents/Resources/LICENSE-linesweeper-MIT"
 cp "$ROOT/vendor/linesweeper/LICENSE-APACHE" "$APP/Contents/Resources/LICENSE-linesweeper-APACHE"
+cp "$ROOT/vendor/wgpu-hal/LICENSE.MIT" "$APP/Contents/Resources/LICENSE-wgpu-hal-MIT"
+cp "$ROOT/vendor/wgpu-hal/LICENSE.APACHE" "$APP/Contents/Resources/LICENSE-wgpu-hal-APACHE"
 # The licences of the craft-fonts fonts embedded in the binary (release builds).
 copy_docs "$APP/Contents/Resources"
 

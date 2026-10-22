@@ -16,6 +16,10 @@ The vendored linesweeper 0.4.0 library (vendor/linesweeper), by Joe Neeman and c
 is MIT OR Apache-2.0. Its license texts are retained there. Kaleiform adds opt-in cooperative
 computation limits; see vendor/linesweeper/KALEIFORM.md for the local patch.
 
+The vendored wgpu-hal 30.0.1 library (vendor/wgpu-hal), by the gfx-rs developers, is
+MIT OR Apache-2.0. Its original licence texts are retained there and shipped with macOS
+bundles. Kaleiform explicitly tags Metal SDR surfaces as sRGB; see its KALEIFORM.md.
+
 This product bundles third-party material under its own licenses, listed below. The per-file
 list (author, source, license) is in ASSETS.md.
 

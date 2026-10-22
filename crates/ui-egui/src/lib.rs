@@ -1189,6 +1189,7 @@ impl VectorcraftApp {
         if self.ui.dock && self.ui.screen_mode < 3 && !home {
             dock::show(self, ui);
         }
+        let inspector_bounds = ui.available_rect_before_wrap();
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.pasteboard)).show(ui, |ui| {
             if self.ui.screen_mode < 3 {
                 chrome::doc_tabs(self, ui);
@@ -1196,6 +1197,9 @@ impl VectorcraftApp {
             canvas::show(self, ui);
         });
         if !home {
+            if workspace::enabled(self) && self.ui.dock && self.ui.screen_mode < 3 && ctx.content_rect().width() < workspace::OVERLAY_BREAKPOINT {
+                workspace::inspector_overlay(self, &ctx, inspector_bounds);
+            }
             workspace::overlays(self, &ctx);
             dock::floating_panel(self, &ctx);
             floating::show(self, &ctx);
