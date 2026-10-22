@@ -1,2 +1,5 @@
 # Translation keys and status-bar fragments intentionally retain trailing spaces.
 crates/ui-egui/src/i18n/*.tsv whitespace=-blank-at-eol
+
+# Preserve upstream crate line endings while retaining normal whitespace checks.
+vendor/wgpu-hal/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
