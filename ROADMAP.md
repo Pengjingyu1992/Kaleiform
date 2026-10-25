@@ -131,6 +131,10 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Preview 17 packaging (2026-10-25, M14.161):** publishes M14.160's native macOS appearance,
+  explicit sRGB Metal presentation and embedded image profile decoding with exact-source arm64
+  packages, pinned vendor provenance, privacy checks and source/checksum metadata. Existing
+  releases, original PNG interchange bytes, editing precision and maturity scores are retained.
 - **Native macOS appearance and display colour (2026-10-22, M14.160, local):** AppKit semantic
   chrome colours, neutral document tabs, accent tool selection and inset inspector material;
   explicit sRGB Metal presentation and embedded RGB/gray PNG/JPEG profile decoding. Original
@@ -402,6 +406,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M14.157 | Preview 15 cross-platform shortcut correction and audited publication | Distinct performance-diagnostics chord with actual key-event regression; supersedes unpublished Preview 14 without rewriting its tag | Existing M14 estimate unchanged |
 | M14.158 | macOS PNG interchange | Canvas moves crossing the source window become copy-drags with source rollback; original PNG copy-drag, transparent appearance output, embedded receiver placement; preview 16 macOS scope, existing maturity scores unchanged | Included |
 | M14.160 | Native macOS appearance and display colour | Semantic AppKit chrome, explicit sRGB Metal presentation, embedded image profiles; local validation, existing editing precision and platform scores retained | Existing M14 estimate unchanged |
+| M14.161 | Preview 17 privacy review and macOS publication | Audited M14.160 arm64 packages, pinned wgpu-hal provenance, strict signing and exact-source/download verification; prior assets preserved | Existing M14 estimate unchanged |
 | M14.159 | Preview 16 privacy review and macOS publication | Exact-source arm64 packages for M14.158; original PNG metadata and temporary exchange retention documented, existing release assets preserved | Existing M14 estimate unchanged |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
