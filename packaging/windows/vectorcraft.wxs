@@ -90,12 +90,9 @@
           <Extension Id="vectorcraft" ContentType="application/x-vectorcraft">
             <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
           </Extension>
-          <Extension Id="drawcraft" ContentType="application/x-vectorcraft">
-            <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
-          </Extension>
-          <Extension Id="vctemplate" ContentType="application/x-vectorcraft-template">
-            <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
-          </Extension>
+          <!-- All three extensions share one ProgId and therefore one shell\open command. -->
+          <Extension Id="drawcraft" ContentType="application/x-vectorcraft" />
+          <Extension Id="vctemplate" ContentType="application/x-vectorcraft-template" />
         </ProgId>
       </Component>
 
