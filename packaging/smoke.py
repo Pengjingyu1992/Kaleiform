@@ -138,8 +138,18 @@ def run(bindir, desktop, work):
                         if all(abs(a-b) <= 1 for a, b in zip(state["window"], (width, height))):
                             return state
                         time.sleep(.1)
-                    raise AssertionError("Window resize did not reach its requested logical size")
+                    raise AssertionError(f"Window resize expected {(width, height)}, got {state['window']}; {state.get('windowState')}")
 
+                if os.name == "nt" and not call("ui.inspect")["windowState"]["maximized"]:
+                    state = call("ui.inspect")
+                    call("ui.click", {"x": state["window"][0] - 69, "y": 26})
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if call("ui.inspect")["windowState"]["maximized"]:
+                            break
+                        time.sleep(.1)
+                    else:
+                        raise AssertionError("The Windows maximize caption did not maximize the window")
                 progress("Starting desktop theme, resize, new-dialog and unsaved-close checks")
                 resize(1440, 900)
                 for brightness in ("light", "dark"):
@@ -172,8 +182,12 @@ def run(bindir, desktop, work):
                 print("Desktop: file launch, Chinese UI, draw, undo/redo, save/reopen, SVG/PNG/PDF export, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
         except Exception:
             log.flush()
-            log.seek(0)
-            print(log.read(), flush=True)
+            # A driver can log repeatedly while the desktop is failing. Keep diagnostics
+            # bounded instead of reading a growing file into the test runner's memory.
+            with (work / "desktop.log").open("rb") as captured:
+                captured.seek(0, os.SEEK_END)
+                captured.seek(max(0, captured.tell() - 16 * 1024))
+                print(captured.read(16 * 1024).decode("utf-8", errors="replace"), flush=True)
             raise
         finally:
             if proc.poll() is None:
@@ -182,7 +196,7 @@ def run(bindir, desktop, work):
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait()
+                proc.wait(timeout=5)
 
 
 if __name__ == "__main__":

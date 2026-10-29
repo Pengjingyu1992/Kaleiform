@@ -27,7 +27,7 @@ SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行�
 ## 源码与 Linux 安装包
 
 本机 `RUST_TEST_THREADS=1 cargo xtask ci` 的 fmt、严格 Clippy、test、assets、brands、layers、wasm
-七项全部通过：4,785 项测试通过、0 失败、5 项按已有标注忽略；20 个 WASM 安全模块检查通过。
+七项全部通过：4,787 项测试通过、0 失败、5 项按已有标注忽略；20 个 WASM 安全模块检查通过。
 提交 `b7995cc` 的[主分支源码 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241062)
 也通过全部质量门槛；[打包语法检查](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241238)
 和 [Affinity 文件回归](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241209)通过。
@@ -47,6 +47,13 @@ SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行�
 这不能记作安装或 GUI 通过，也不能仅凭该错误确定是应用、驱动还是机器状态导致。
 后续流程在构建静态检查后保存包，再用两台新的 Windows 2025 机器分别执行安装版与便携版，
 将安装、CLI、GUI 和卸载拆为独立步骤；默认 DX12 与原有功能断言全部保留。
+
+提交 `e759c2f` 的[分步验收](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40894732255)
+已通过包隐私检查、MSI 安装/文件关联/卸载、安装版与便携版 CLI，以及桌面保存和导出，
+随后均在调整窗口尺寸时失败。小屏启动会自动最大化，而控制接口此前直接请求尺寸、未先还原；
+Windows 会忽略最大化窗口的尺寸请求。修正为先还原再请求尺寸，并拒绝非数值、非有限或超界尺寸；
+新增两项回归测试。验收会主动最大化再调整窗口，保留宽窄布局断言，失败时输出实际尺寸和窗口状态。
+日志只读取有界尾部，避免异常期间读取持续增长的日志；最终原生结果仍以修正后任务为准。
 
 Windows 的安装与桌面结果以 [Windows x64 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
 成功任务及其 QA 产物为准，不能把 Linux 上的共享 UI 测试记作 Windows 原生运行。

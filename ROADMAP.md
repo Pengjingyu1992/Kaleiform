@@ -136,6 +136,9 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
   separate caption controls and a complete in-window menu row. Windows x64 MSI/portable checks
   cover notices, native document associations, checksums and installed/portable desktop smoke.
   Linux and Windows share the functional runner. See [desktop QA](docs/qa-desktop-2026-10-29.md).
+  Native runtime checks use fresh hosts; control resizes restore maximized windows before
+  requesting their size. Approved desktop publishing pins source and CI runs, preserves existing
+  assets and keeps the Mac latest marker.
   Native hardware coverage and large-document performance remain open; no parity-score increase.
 - **Preview 17 packaging (2026-10-25, M14.161):** publishes M14.160's native macOS appearance,
   explicit sRGB Metal presentation and embedded image profile decoding with exact-source arm64
