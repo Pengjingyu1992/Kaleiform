@@ -85,6 +85,7 @@ pub fn caption_buttons(app: &mut VectorcraftApp, ui: &mut Ui, bar: Rect) {
             Caption::Maximize => tl!("Maximize"),
             Caption::Close => tl!("Close"),
         };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
         if resp.on_hover_text(tip).clicked() {
             clicked = Some(c);
         }

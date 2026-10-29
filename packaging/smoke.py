@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import runpy
 
 
 def progress(message):
@@ -24,7 +25,7 @@ def png(path, expected=None):
     assert min(size) > 0 and (expected is None or size == expected), size
 
 
-def run(bindir, desktop, work):
+def run(bindir, desktop, work, extended=False):
     suffix = ".exe" if os.name == "nt" else ""
     cli = bindir / f"vectorcraft-cli{suffix}"
     app = bindir / f"vectorcraft{suffix}"
@@ -180,6 +181,10 @@ def run(bindir, desktop, work):
                     call("ui.dialog.cancel")
                 print("Desktop: shared workspace, light/dark, narrow inspector, new-dialog cancel and unsaved caption close passed", flush=True)
                 print("Desktop: file launch, Chinese UI, draw, undo/redo, save/reopen, SVG/PNG/PDF export, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
+                if extended:
+                    progress("Starting the extended desktop functional matrix")
+                    matrix = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_functional.py"))
+                    matrix["run"](call, work)
         except Exception:
             log.flush()
             # A driver can log repeatedly while the desktop is failing. Keep diagnostics
@@ -204,12 +209,13 @@ if __name__ == "__main__":
     parser.add_argument("--prefix", type=Path, default=Path("/usr"))
     parser.add_argument("--bin-dir", type=Path, help="Directory containing the app and CLI (Windows installer or portable folder)")
     parser.add_argument("--desktop", action="store_true")
+    parser.add_argument("--extended", action="store_true", help="Also run the synthetic panel/preference/effect/format desktop matrix")
     parser.add_argument("--output", type=Path, help="Retain generated evidence in this directory")
     args = parser.parse_args()
     bindir = args.bin_dir.resolve() if args.bin_dir else args.prefix.resolve() / "bin"
     if args.output:
         args.output.mkdir(parents=True, exist_ok=True)
-        run(bindir, args.desktop, args.output.resolve())
+        run(bindir, args.desktop, args.output.resolve(), args.extended)
     else:
         with tempfile.TemporaryDirectory(prefix="kaleiform-smoke-") as directory:
-            run(bindir, args.desktop, Path(directory))
+            run(bindir, args.desktop, Path(directory), args.extended)

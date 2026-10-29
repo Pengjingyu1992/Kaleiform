@@ -3,9 +3,9 @@ name: Linux packages
 on:
   push:
     branches: [main, codex/windows-linux-desktop]
-    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", ".github/workflows/linux.yml"]
+    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml"]
   pull_request:
-    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", ".github/workflows/linux.yml"]
+    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml"]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -78,7 +78,8 @@ jobs:
       - name: Install and exercise the deb in a minimal runtime
         run: |
           # The runner's development libraries could mask missing package dependencies.
-          docker run --rm -v "$GITHUB_WORKSPACE:/workspace:ro" ubuntu:22.04 bash -c '
+          mkdir -p "$RUNNER_TEMP/linux-qa"
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace:ro" -v "$RUNNER_TEMP/linux-qa:/qa" ubuntu:22.04 bash -c '
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
@@ -87,11 +88,21 @@ jobs:
             apt-get install -y --no-install-recommends /workspace/dist/release/*.deb
             desktop-file-validate /usr/share/applications/ai.storyteller.vectorcraft.desktop
             VECTORCRAFT_NO_PREFS=1 LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=vulkan \
-              xvfb-run -a python3 /workspace/packaging/linux/smoke.py --desktop --output /tmp/linux-smoke
-            test "$(xdg-mime query filetype /tmp/linux-smoke/smoke.vectorcraft)" = application/x-vectorcraft
+              xvfb-run -a python3 /workspace/packaging/linux/smoke.py --desktop --extended --output /qa
+            test "$(xdg-mime query filetype /qa/smoke.vectorcraft)" = application/x-vectorcraft
             apt-get remove -y vectorcraft
             test ! -e /usr/bin/vectorcraft
           '
+      - name: Retain synthetic desktop evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-linux-x86_64-desktop-qa
+          path: |
+            ${{ runner.temp }}/linux-qa/**/*.png
+            ${{ runner.temp }}/linux-qa/**/*.log
+            ${{ runner.temp }}/linux-qa/**/*.json
+          if-no-files-found: ignore
       - name: Exercise the portable archive
         run: |
           mkdir -p "$RUNNER_TEMP/portable"
@@ -108,6 +119,18 @@ jobs:
           cmp "$RUNNER_TEMP/portable/bin/vectorcraft" "$RUNNER_TEMP/appimage-check/squashfs-root/usr/bin/vectorcraft"
           cmp "$RUNNER_TEMP/portable/bin/vectorcraft-cli" "$RUNNER_TEMP/appimage-check/squashfs-root/usr/bin/vectorcraft-cli"
           python3 packaging/linux/publish.py --version "$VERSION" --directory "$DIST" --check-files
+      - name: Measure existing 50000-path performance budgets
+        continue-on-error: true
+        env:
+          VECTORCRAFT_BUILD_SHA: ${{ github.sha }}
+        run: python3 packaging/performance.py --cli "$RUNNER_TEMP/portable/bin/vectorcraft-cli" --output dist/linux-qa/performance
+      - name: Retain performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-linux-x86_64-performance
+          path: dist/linux-qa/performance/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: kaleiform-linux-x86_64

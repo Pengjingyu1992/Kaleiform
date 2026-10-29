@@ -36,6 +36,7 @@ Windows 包未配置 Authenticode 签名；Linux 要求 glibc 2.35 以上。安�
 Windows x64 的 MSI/便携试用构建与安装验证见 [Windows 指南](docs/windows.md)，
 Linux 的持续构建见 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/linux.yml)。
 桌面预览使用独立发布标签和校验清单，保留全部既有 Mac 附件及 latest 标记；[本轮验收与边界](docs/qa-desktop-2026-10-29.md) 单独记录。
+后续按钮、命令、文件格式与性能的扩展检查见[桌面功能复查](docs/qa-desktop-2026-10-30.md)。
 
 **预览 5 新增磨砂玻璃界面**：macOS 顶栏和边栏使用原生窗口材质，浮动面板模糊其后方画布；
 画板和输入框保持不透明。可在“虹构 → 外观 → 磨砂玻璃”或“首选项 → 用户界面”切换，

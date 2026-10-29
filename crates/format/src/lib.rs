@@ -142,19 +142,23 @@ fn preview_mime(bytes: &[u8]) -> &'static str {
     if bytes.starts_with(&[0xff, 0xd8]) { "image/jpeg" } else { vectorcraft_doc::links::PROXY_MIME }
 }
 
-/// The JSON of a file and the data after it (v4), split at [`BLOB_MAGIC`] after the first JSON
-/// value.
-fn split_tail(text: &[u8]) -> (&[u8], &[u8]) {
-    let mut values = serde_json::Deserializer::from_slice(text).into_iter::<serde::de::IgnoredAny>();
-    if values.next().is_some_and(|v| v.is_ok()) {
-        let end = values.byte_offset();
-        if let Some(rest) = text.get(end..)
-            && rest.starts_with(BLOB_MAGIC)
-        {
-            return (text.get(..end).unwrap_or(text), rest.get(BLOB_MAGIC.len()..).unwrap_or_default());
-        }
+/// Decode the first JSON value once, then validate its boundary before reading v4 blobs.
+/// Scanning it as `IgnoredAny` first doubled the JSON traversal for every document and preview.
+fn decode_with_tail<'de, T: Deserialize<'de>>(text: &'de [u8]) -> Result<(T, &'de [u8]), FormatError> {
+    let mut values = serde_json::Deserializer::from_slice(text).into_iter::<T>();
+    let value = values
+        .next()
+        .transpose()
+        .map_err(|e| FormatError::NotVectorcraft(e.to_string()))?
+        .ok_or_else(|| FormatError::NotVectorcraft("empty JSON document".into()))?;
+    let rest = text.get(values.byte_offset()..).unwrap_or_default();
+    if let Some(tail) = rest.strip_prefix(BLOB_MAGIC) {
+        return Ok((value, tail));
     }
-    (text, &[])
+    if rest.iter().any(|b| !matches!(b, b' ' | b'\n' | b'\r' | b'\t')) {
+        return Err(FormatError::NotVectorcraft("trailing characters after document JSON".into()));
+    }
+    Ok((value, &[]))
 }
 
 #[derive(Deserialize)]
@@ -433,8 +437,7 @@ pub fn load_info(bytes: &[u8]) -> Result<(Document, FileInfo), FormatError> {
 /// [`load`], with everything else the file carries.
 pub fn load_file(bytes: &[u8]) -> Result<NativeFile, FormatError> {
     let text = unpack(bytes)?;
-    let (json, tail) = split_tail(&text);
-    let f: File = serde_json::from_slice(json).map_err(|e| FormatError::NotVectorcraft(e.to_string()))?;
+    let (f, tail): (File, _) = decode_with_tail(&text)?;
     if f.format != EXTENSION && f.format != LEGACY_EXTENSION {
         return Err(FormatError::NotVectorcraft(format!("format is `{}`", f.format)));
     }
@@ -474,8 +477,8 @@ struct Head {
 /// The file's head and the data after its JSON.
 fn head(bytes: &[u8]) -> Option<(Head, Vec<u8>)> {
     let text = unpack(bytes).ok()?;
-    let (json, tail) = split_tail(&text);
-    Some((serde_json::from_slice(json).ok()?, tail.to_vec()))
+    let (head, tail) = decode_with_tail(&text).ok()?;
+    Some((head, tail.to_vec()))
 }
 
 /// The preview PNG embedded in a native file (`None`: it has none, or isn't a native file).

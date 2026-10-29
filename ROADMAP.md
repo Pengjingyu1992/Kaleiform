@@ -131,6 +131,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Desktop functional coverage (2026-10-30, M14.163):** adds native pointer tests for every
+  tool-drawer button and core workspace controls, UI-command invariant sweeps, and a shared
+  panel/preference/effect/export desktop matrix. Fixes missing caption semantics and a stale
+  native Save As format default; native reads decode JSON once. Windows now runs all native
+  workspace tests; both package pipelines record unchanged performance budgets separately.
+  See [extended desktop QA](docs/qa-desktop-2026-10-30.md) for actual results and remaining gaps.
 - **Shared Windows/Linux desktop workspace (2026-10-29, M14.162):** reuses the preview 17
   Mac workspace, compact tabs, inspector and neutral theme on custom-titlebar desktops, with
   separate caption controls and a complete in-window menu row. Windows x64 MSI/portable checks

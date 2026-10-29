@@ -22,6 +22,17 @@ fn b64(v: &Value) -> Vec<u8> {
     vectorcraft_format::base64_decode(v["dataBase64"].as_str().expect("dataBase64")).unwrap()
 }
 
+#[test]
+fn native_save_dialog_defaults_match_the_current_encoder_version() {
+    let mut s = session(100.0, 100.0, 1);
+    let options = s.execute("file.formatOptions", &json!({"format": "vectorcraft"})).unwrap();
+    let selected = options["options"]["version"]["value"].as_u64().unwrap();
+    let encoded = b64(&s.execute("document.serialize", &json!({})).unwrap());
+    let actual = vectorcraft_format::load_file(&encoded).unwrap().info.version;
+    assert_eq!(selected, u64::from(actual), "Save As must not silently choose an older native format");
+    assert_eq!(actual, vectorcraft_format::VERSION);
+}
+
 fn open(s: &mut Session, name: &str, bytes: &[u8]) -> Value {
     s.execute("document.open", &json!({"name": name, "dataBase64": vectorcraft_format::base64_encode(bytes)}))
         .unwrap_or_else(|e| panic!("{name}: {e}"))

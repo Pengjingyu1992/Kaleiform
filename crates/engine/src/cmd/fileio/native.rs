@@ -25,8 +25,8 @@ pub const OPTIONS: &[FormatOption] = &[
     FormatOption {
         name: "version",
         ty: "integer",
-        default: "3",
-        description: "the format version to write: 3 (current), or 2 or 1 for older Kaleiform versions (not compressed; newer features they don't know are lost there)",
+        default: "4",
+        description: "the format version to write: 4 (current, large data in binary sections), or 3, 2 or 1 for older Kaleiform versions (compression requires 3 or later; newer features older readers don't know are lost there)",
     },
     FormatOption {
         name: "preview",

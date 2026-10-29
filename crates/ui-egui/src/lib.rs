@@ -79,6 +79,8 @@ mod tests_contextmenu;
 #[cfg(test)]
 mod tests_cut;
 #[cfg(test)]
+mod tests_desktop_qa;
+#[cfg(test)]
 mod tests_distortkeys;
 #[cfg(test)]
 mod tests_docsetup;

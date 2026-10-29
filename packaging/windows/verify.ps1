@@ -49,7 +49,7 @@ function Invoke-Smoke([string] $Directory, [string] $Name, [switch] $Desktop) {
   Assert-Package $Directory
   Write-Output "::notice::Starting $Name checks"
   $smokeArguments = @((Join-Path $Root 'packaging\smoke.py'), '--bin-dir', $Directory, '--output', (Join-Path $Output $Name))
-  if ($Desktop) { $smokeArguments += '--desktop' }
+  if ($Desktop) { $smokeArguments += @('--desktop', '--extended') }
   python @smokeArguments
   if ($LASTEXITCODE -ne 0) { throw "$Name checks failed" }
   Write-Output "::notice::$Name checks passed"

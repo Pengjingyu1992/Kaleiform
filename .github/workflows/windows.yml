@@ -3,9 +3,9 @@ name: Windows x64 packages
 on:
   push:
     branches: [main, codex/windows-linux-desktop]
-    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", ".github/workflows/windows.yml"]
+    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", ".github/workflows/windows.yml"]
+    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
   packages:
     name: Build and audit x64 packages
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_BUILD_JOBS: "4"
@@ -43,21 +43,33 @@ jobs:
         with:
           key: windows-x64-desktop
           cache-on-failure: true
-      - name: Test the shared UI and native desktop code
+      - name: Test all native workspace libraries, commands, tools and desktop code
         run: |
           New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
           $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
-          cargo --config $rustConfig test --release --target x86_64-pc-windows-msvc --locked -p vectorcraft-ui-egui -p vectorcraft --lib --bins 2>&1 | Tee-Object dist/windows-qa/unit.log
-          if ($LASTEXITCODE -ne 0) { throw 'Windows UI/desktop tests failed' }
+          cargo --config $rustConfig test --workspace --release --target x86_64-pc-windows-msvc --locked 2>&1 | Tee-Object dist/windows-qa/unit.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native workspace tests failed' }
       - name: Install WiX
         run: |
           dotnet tool install --global wix --version 5.0.2
           wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+      - name: Measure opt-in trace, geometry, filters and dense dragging
+        continue-on-error: true
+        run: |
+          $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
+          cargo --config $rustConfig test --release --target x86_64-pc-windows-msvc --locked -p vectorcraft-trace -p vectorcraft-pathops -p vectorcraft-effects -p vectorcraft-ui-egui -- --ignored --nocapture --test-threads=1 2>&1 | Tee-Object dist/windows-qa/optional-performance.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output '::warning::An opt-in performance check failed; its original assertions and log are retained'
+            exit 1
+          }
       - name: Build x64 MSI and portable package
         run: ./packaging/windows/package.ps1 -Arch x64 *>&1 | Tee-Object dist/windows-qa/build.log
       - name: Check package privacy and checksums
         timeout-minutes: 5
         run: ./packaging/windows/verify.ps1 -Phase Validate *>&1 | Tee-Object dist/windows-qa/static.log
+      - name: Measure existing 50000-path performance budgets
+        continue-on-error: true
+        run: python -B packaging/performance.py --cli target/windows-package/x64/vectorcraft-cli.exe --output dist/windows-qa/performance
       - uses: actions/upload-artifact@v4
         with:
           name: kaleiform-windows-x64
@@ -71,7 +83,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kaleiform-windows-x64-build-qa
-          path: dist/windows-qa/*.log
+          path: |
+            dist/windows-qa/**/*.log
+            dist/windows-qa/**/*.json
           if-no-files-found: ignore
 
   runtime:
@@ -111,7 +125,7 @@ jobs:
         run: ./packaging/windows/verify.ps1 -Phase InstalledCli *>&1 | Tee-Object dist/windows-qa/cli.log
       - name: Exercise installed desktop
         if: matrix.mode == 'installed'
-        timeout-minutes: 5
+        timeout-minutes: 12
         run: ./packaging/windows/verify.ps1 -Phase InstalledDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
       - name: Uninstall this test installation
         if: always() && matrix.mode == 'installed'
@@ -126,7 +140,7 @@ jobs:
         run: ./packaging/windows/verify.ps1 -Phase PortableCli *>&1 | Tee-Object dist/windows-qa/cli.log
       - name: Exercise portable desktop
         if: matrix.mode == 'portable'
-        timeout-minutes: 5
+        timeout-minutes: 12
         run: ./packaging/windows/verify.ps1 -Phase PortableDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
       - name: Surface failures for review
         if: failure()
@@ -139,4 +153,5 @@ jobs:
           path: |
             dist/windows-qa/**/*.png
             dist/windows-qa/**/*.log
+            dist/windows-qa/**/*.json
           if-no-files-found: ignore
