@@ -9,7 +9,9 @@ macOS 继续使用系统菜单和原生窗口材质。Windows/Linux 的窗口底
 ## 获取试用构建
 
 在 [Windows x64 packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
-的成功构建页，先登录 GitHub，再下载 Artifacts 中的 `kaleiform-windows-x64`，其中包含：
+的构建页，先登录 GitHub，再下载 Artifacts 中的 `kaleiform-windows-x64`。它在原生测试、
+PE/版本、SHA-256 和隐私检查通过后保存；安装版与便携版的运行验收是另外两个任务，
+请同时查看它们的结果，完整通过的任务才代表本轮自动验收成功。包中包含：
 
 - `vectorcraft-0.7.0-kaleiform.17-windows-x64.msi`：Windows 10/11 x64 安装包。
 - `vectorcraft-0.7.0-kaleiform.17-windows-x64-portable.zip`：解压后运行 `vectorcraft.exe`；
@@ -42,11 +44,15 @@ wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
 
 ## 验证
 
-Windows CI 执行共享 UI 与桌面代码测试，再生成 MSI/ZIP；在一次性 runner 中运行
-`packaging/windows/verify.ps1`：校验 SHA-256、安装 MSI、检查文件关联与许可证，执行 CLI
+Windows CI 在 Windows 2022 上执行共享 UI 与桌面代码测试，生成 MSI/ZIP 并通过静态隐私检查，
+然后保存包。安装版与便携版分别使用新的 Windows 2025 runner，保持默认 DX12 后端，
+用 `packaging/windows/verify.ps1 -Phase ...` 分步校验 SHA-256、安装 MSI、检查文件关联与许可证，执行 CLI
 绘图、原生重开和 SVG/PNG/PDF 导出，以及真实窗口的中文、浅深色、窄窗口、新建取消和未保存关闭流程，
-然后卸载并验收解压后的便携版。合成截图和诊断日志另存为 `kaleiform-windows-x64-qa`。
-CLI 与 MSI 客户端有独立超时，原生验收步骤最多 15 分钟；阶段记录会显示在任务的 Annotations 中。
+并卸载本轮安装。卸载需要本轮安装写入的标记，拒绝卸载其他已有安装。
+诊断日志分别保存为 `kaleiform-windows-x64-build-qa`、`kaleiform-windows-x64-installed-qa`、
+`kaleiform-windows-x64-portable-qa`；运行日志与合成截图不进入安装包。
+CLI 与 MSI 客户端有独立超时，每个运行步骤最多 5 分钟、每台运行验收机器最多 20 分钟。
+阶段记录会显示在任务的 Annotations 中。单机全部验收入口 `-Phase All` 仍可用，但仅限一次性测试机器。
 
 这些自动检查不代表所有 Windows 显卡、输入法、数位板和多显示器 DPI 组合都已实测。
 ARM64 和实验性的 [Windows 7 入口](windows7.md) 不在本次 x64 交付验收范围内。

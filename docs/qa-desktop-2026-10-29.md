@@ -26,16 +26,27 @@ SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行�
 
 ## 源码与 Linux 安装包
 
-`RUST_TEST_THREADS=1 cargo xtask ci` 的 fmt、严格 Clippy、test、assets、brands、layers、wasm
+本机 `RUST_TEST_THREADS=1 cargo xtask ci` 的 fmt、严格 Clippy、test、assets、brands、layers、wasm
 七项全部通过：4,785 项测试通过、0 失败、5 项按已有标注忽略；20 个 WASM 安全模块检查通过。
+提交 `b7995cc` 的[主分支源码 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241062)
+也通过全部质量门槛；[打包语法检查](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241238)
+和 [Affinity 文件回归](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241209)通过。
 
-提交 `bbc2847` 的 [Linux packages #16](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40864060423)
+提交 `b7995cc` 的 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241071)
 成功生成 DEB、RPM、AppImage、便携压缩包和校验清单。在最小 Ubuntu 22.04 容器中安装 DEB，
 执行真实桌面与 CLI 检查、验证 MIME 类型、卸载；另检查便携包及 AppImage 的 CLI，比较二进制，
 执行产物隐私扫描和 SHA-256 校验。RPM 在本轮仅验证生成，未进行 Fedora 安装验收。
 产物名称为 `kaleiform-linux-x86_64`。
 
 ## Windows 原生验收
+
+提交 `b7995cc` 的 Windows 原生 UI/桌面代码测试、PE/版本检查与 MSI/便携包生成通过。
+[主分支任务](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241253)及
+[同提交功能分支任务](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40869502563)
+在合并的运行验收步骤中被 GitHub 标记为 hosted runner lost communication，未保留运行产物。
+这不能记作安装或 GUI 通过，也不能仅凭该错误确定是应用、驱动还是机器状态导致。
+后续流程在构建静态检查后保存包，再用两台新的 Windows 2025 机器分别执行安装版与便携版，
+将安装、CLI、GUI 和卸载拆为独立步骤；默认 DX12 与原有功能断言全部保留。
 
 Windows 的安装与桌面结果以 [Windows x64 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
 成功任务及其 QA 产物为准，不能把 Linux 上的共享 UI 测试记作 Windows 原生运行。

@@ -17,8 +17,9 @@ concurrency:
 
 jobs:
   packages:
+    name: Build and audit x64 packages
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 60
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_BUILD_JOBS: "4"
@@ -36,6 +37,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Test distribution privacy rules
+        run: python -B -m unittest discover -s packaging/windows -p 'test_*.py'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           key: windows-x64-desktop
@@ -52,9 +55,9 @@ jobs:
           wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
       - name: Build x64 MSI and portable package
         run: ./packaging/windows/package.ps1 -Arch x64 *>&1 | Tee-Object dist/windows-qa/build.log
-      - name: Install, exercise, uninstall and check portable desktop
-        timeout-minutes: 15
-        run: ./packaging/windows/verify.ps1 *>&1 | Tee-Object dist/windows-qa/runtime.log
+      - name: Check package privacy and checksums
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase Validate *>&1 | Tee-Object dist/windows-qa/static.log
       - uses: actions/upload-artifact@v4
         with:
           name: kaleiform-windows-x64
@@ -62,18 +65,77 @@ jobs:
           if-no-files-found: error
       - name: Surface failures for review
         if: failure()
-        run: |
-          foreach ($log in Get-ChildItem dist/windows-qa/*.log -ErrorAction SilentlyContinue) {
-            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error(?:\[[A-Z0-9]+\])?[\s:]|\bFAILED\b|panicked|AssertionError|Exception|RuntimeError|TimeoutExpired' -and $_ -notmatch '^\s*(Compiling|test result: ok\.)' } | Select-Object -Last 8 | ForEach-Object {
-              $message = "$_".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-              Write-Output "::error::$message"
-            }
-          }
-      - name: Retain synthetic UI screenshots and test logs
+        run: ./packaging/windows/report.ps1
+      - name: Retain build and privacy logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-windows-x64-qa
+          name: kaleiform-windows-x64-build-qa
+          path: dist/windows-qa/*.log
+          if-no-files-found: ignore
+
+  runtime:
+    name: ${{ matrix.mode }} desktop
+    needs: packages
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [installed, portable]
+    env:
+      VECTORCRAFT_NO_PREFS: "1"
+      WGPU_BACKEND: dx12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: kaleiform-windows-x64
+          path: dist/release
+      - name: Verify downloaded packages
+        timeout-minutes: 5
+        run: |
+          New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
+          ./packaging/windows/verify.ps1 -Phase Validate *>&1 | Tee-Object dist/windows-qa/static.log
+      - name: Install MSI and check document associations
+        id: install
+        if: matrix.mode == 'installed'
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase Install *>&1 | Tee-Object dist/windows-qa/install-phase.log
+      - name: Exercise installed CLI
+        if: matrix.mode == 'installed'
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase InstalledCli *>&1 | Tee-Object dist/windows-qa/cli.log
+      - name: Exercise installed desktop
+        if: matrix.mode == 'installed'
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase InstalledDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
+      - name: Uninstall this test installation
+        if: always() && matrix.mode == 'installed'
+        timeout-minutes: 5
+        run: |
+          if (Test-Path dist/windows-qa/installed.sha256) {
+            ./packaging/windows/verify.ps1 -Phase Uninstall *>&1 | Tee-Object dist/windows-qa/uninstall-phase.log
+          }
+      - name: Exercise portable CLI
+        if: matrix.mode == 'portable'
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase PortableCli *>&1 | Tee-Object dist/windows-qa/cli.log
+      - name: Exercise portable desktop
+        if: matrix.mode == 'portable'
+        timeout-minutes: 5
+        run: ./packaging/windows/verify.ps1 -Phase PortableDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
+      - name: Surface failures for review
+        if: failure()
+        run: ./packaging/windows/report.ps1
+      - name: Retain synthetic screenshots and runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-windows-x64-${{ matrix.mode }}-qa
           path: |
             dist/windows-qa/**/*.png
             dist/windows-qa/**/*.log
