@@ -20,13 +20,25 @@
 在隔离的 Xvfb 窗口、Mesa llvmpipe/Vulkan 上执行，禁用用户偏好持久化。
 基线和更新后均拍摄实际窗口。已检查 1440×900 的浅深色与 800×600 的窄窗口和新建弹窗，
 核对菜单、标签、窗口按钮、检查器和底部操作区。
-CLI 绘图、SVG/PNG/PDF 导出、原生重开，桌面的中文切换、撤销重做、新建取消和关闭未保存提示通过。
+CLI 绘图、SVG/PNG/PDF 导出、原生重开，桌面的中文切换、撤销重做、保存后重开、
+SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行目录仅含合成文档。
 窗口按钮、拖动、边缘缩放、DPI、原生 Mac/旧布局保留和全部面板入口由共享 UI 测试覆盖。
+
+## 源码与 Linux 安装包
+
+`RUST_TEST_THREADS=1 cargo xtask ci` 的 fmt、严格 Clippy、test、assets、brands、layers、wasm
+七项全部通过：4,785 项测试通过、0 失败、5 项按已有标注忽略；20 个 WASM 安全模块检查通过。
+
+提交 `bbc2847` 的 [Linux packages #16](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40864060423)
+成功生成 DEB、RPM、AppImage、便携压缩包和校验清单。在最小 Ubuntu 22.04 容器中安装 DEB，
+执行真实桌面与 CLI 检查、验证 MIME 类型、卸载；另检查便携包及 AppImage 的 CLI，比较二进制，
+执行产物隐私扫描和 SHA-256 校验。RPM 在本轮仅验证生成，未进行 Fedora 安装验收。
+产物名称为 `kaleiform-linux-x86_64`。
+
+## Windows 原生验收
 
 Windows 的安装与桌面结果以 [Windows x64 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
 成功任务及其 QA 产物为准，不能把 Linux 上的共享 UI 测试记作 Windows 原生运行。
-Linux 安装包由 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/linux.yml)
-在 Ubuntu 22.04 构建并执行最小安装运行检查。完整源码质量门槛为 `RUST_TEST_THREADS=1 cargo xtask ci`。
 
 ## 边界
 

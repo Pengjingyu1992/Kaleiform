@@ -9,7 +9,7 @@ macOS 继续使用系统菜单和原生窗口材质。Windows/Linux 的窗口底
 ## 获取试用构建
 
 在 [Windows x64 packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
-的成功构建页，下载 Artifacts 中的 `kaleiform-windows-x64`，其中包含：
+的成功构建页，先登录 GitHub，再下载 Artifacts 中的 `kaleiform-windows-x64`，其中包含：
 
 - `vectorcraft-0.7.0-kaleiform.17-windows-x64.msi`：Windows 10/11 x64 安装包。
 - `vectorcraft-0.7.0-kaleiform.17-windows-x64-portable.zip`：解压后运行 `vectorcraft.exe`；
@@ -46,6 +46,7 @@ Windows CI 执行共享 UI 与桌面代码测试，再生成 MSI/ZIP；在一次
 `packaging/windows/verify.ps1`：校验 SHA-256、安装 MSI、检查文件关联与许可证，执行 CLI
 绘图、原生重开和 SVG/PNG/PDF 导出，以及真实窗口的中文、浅深色、窄窗口、新建取消和未保存关闭流程，
 然后卸载并验收解压后的便携版。合成截图和诊断日志另存为 `kaleiform-windows-x64-qa`。
+CLI 与 MSI 客户端有独立超时，原生验收步骤最多 15 分钟；阶段记录会显示在任务的 Annotations 中。
 
 这些自动检查不代表所有 Windows 显卡、输入法、数位板和多显示器 DPI 组合都已实测。
 ARM64 和实验性的 [Windows 7 入口](windows7.md) 不在本次 x64 交付验收范围内。

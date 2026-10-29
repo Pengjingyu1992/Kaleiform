@@ -12,6 +12,7 @@ $msis = @(Get-ChildItem -LiteralPath $Dist -Filter '*-windows-x64.msi')
 $zips = @(Get-ChildItem -LiteralPath $Dist -Filter '*-windows-x64-portable.zip')
 $manifests = @(Get-ChildItem -LiteralPath $Dist -Filter '*-windows-x64.sha256')
 if ($msis.Count -ne 1 -or $zips.Count -ne 1 -or $manifests.Count -ne 1) { throw 'Expected exactly one x64 MSI, portable ZIP and manifest' }
+Write-Output '::notice::Checking Windows package SHA-256'
 $expected = @($msis[0].Name, $zips[0].Name)
 $seen = @()
 foreach ($line in Get-Content -LiteralPath $manifests[0].FullName) {
@@ -22,8 +23,10 @@ foreach ($line in Get-Content -LiteralPath $manifests[0].FullName) {
   $seen += $name
 }
 if ($seen.Count -ne 2) { throw 'The manifest did not verify both Windows packages' }
+Write-Output '::notice::Scanning Windows portable payload privacy'
 python (Join-Path $PSScriptRoot 'privacy.py') $zips[0].FullName
 if ($LASTEXITCODE -ne 0) { throw 'Windows package privacy checks failed' }
+Write-Output '::notice::Windows checksums and package privacy passed'
 
 function Assert-Package([string] $Directory) {
   foreach ($file in 'vectorcraft.exe', 'vectorcraft-cli.exe', 'docs\NOTICE', 'docs\UPSTREAM.md',
@@ -34,17 +37,29 @@ function Assert-Package([string] $Directory) {
 
 function Invoke-Smoke([string] $Directory, [string] $Name) {
   Assert-Package $Directory
+  Write-Output "::notice::Starting $Name desktop/CLI checks"
   python (Join-Path $Root 'packaging\smoke.py') --bin-dir $Directory --desktop --output (Join-Path $Output $Name)
   if ($LASTEXITCODE -ne 0) { throw "$Name desktop/CLI checks failed" }
+  Write-Output "::notice::$Name desktop/CLI checks passed"
 }
 
 function Invoke-Msi([string] $Operation, [string] $Log) {
   $msiArguments = @($Operation, "`"$($msis[0].FullName)`"", '/qn', '/norestart', '/l*v', "`"$Log`"")
-  $install = Start-Process msiexec.exe -ArgumentList $msiArguments -Wait -PassThru
+  Write-Output "::notice::Starting msiexec $Operation"
+  # Wait for the installer client itself, not every descendant process in a PowerShell job.
+  # Keep its handle alive so ExitCode remains available after a short-lived client exits.
+  $install = Start-Process msiexec.exe -ArgumentList $msiArguments -PassThru
+  $null = $install.Handle
+  if (-not $install.WaitForExit(180000)) {
+    try { $install.Kill() } catch { Write-Warning 'Could not stop the timed-out installer client' }
+    Get-Content -LiteralPath $Log -Tail 60 -ErrorAction SilentlyContinue
+    throw "msiexec $Operation did not exit within 180 seconds"
+  }
   if ($install.ExitCode -notin 0, 3010) {
     Get-Content -LiteralPath $Log -Tail 60
     throw "msiexec $Operation failed: $($install.ExitCode)"
   }
+  Write-Output "::notice::msiexec $Operation passed"
 }
 
 $directory = Join-Path $env:ProgramFiles 'Kaleiform'

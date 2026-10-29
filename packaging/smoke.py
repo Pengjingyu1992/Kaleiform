@@ -12,6 +12,11 @@ import tempfile
 import time
 
 
+def progress(message):
+    prefix = "::notice::" if os.environ.get("GITHUB_ACTIONS") == "true" else ""
+    print(prefix + message, flush=True)
+
+
 def png(path, expected=None):
     data = path.read_bytes()
     assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 100, path
@@ -30,16 +35,18 @@ def run(bindir, desktop, work):
         runtime_env["PATH"] = os.pathsep.join((str(bindir), str(system / "System32"), str(system)))
     native = work / "smoke.vectorcraft"
     svg, raster, pdf = (work / f"smoke.{ext}" for ext in ("svg", "png", "pdf"))
+    progress("Starting CLI draw and SVG/PNG/PDF export")
     subprocess.run([
         str(cli), "run", "--cmd", "file.new", "--params", '{"width":240,"height":120}',
         "--cmd", "shape.rectangle", "--params", '{"x":10,"y":10,"width":100,"height":50}',
         "--cmd", "paint.setFill", "--params", '{"color":"#3366ff"}',
         "--export", str(native), "--export", str(svg), "--export", str(raster), "--export", str(pdf),
-    ], check=True, stdout=subprocess.DEVNULL, env=runtime_env, cwd=work)
+    ], check=True, stdout=subprocess.DEVNULL, env=runtime_env, cwd=work, timeout=180)
     assert "3366ff" in svg.read_text(), "SVG lost the rectangle's fill"
     assert pdf.read_bytes().startswith(b"%PDF-"), "Invalid PDF export"
     png(raster, (240, 120))
-    reopened = subprocess.check_output([str(cli), "run", "--in", str(native), "--cmd", "document.inspect"], text=True, env=runtime_env, cwd=work)
+    progress("Starting CLI native document reopen")
+    reopened = subprocess.check_output([str(cli), "run", "--in", str(native), "--cmd", "document.inspect"], text=True, encoding="utf-8", env=runtime_env, cwd=work, timeout=60)
     info = json.loads(reopened.splitlines()[-1])
     assert info["result"]["artboards"][0]["width"] == 240, info
     print("CLI: draw, SVG/PNG/PDF export and native document reopen passed", flush=True)
@@ -51,7 +58,8 @@ def run(bindir, desktop, work):
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
     env = dict(runtime_env, VECTORCRAFT_NO_PREFS="1")
-    with (work / "desktop.log").open("w+") as log:
+    progress("Starting the desktop application")
+    with (work / "desktop.log").open("w+", encoding="utf-8", errors="replace") as log:
         proc = subprocess.Popen([str(app), "--control", str(port), str(native)], env=env, stdout=log, stderr=log, cwd=work)
         try:
             deadline = time.monotonic() + 45
@@ -66,6 +74,7 @@ def run(bindir, desktop, work):
                         raise RuntimeError("Desktop did not start within 45 seconds") from None
                     time.sleep(0.2)
             with conn:
+                progress("Desktop control channel connected")
                 conn.settimeout(20)
                 f = conn.makefile("rwb")
 
@@ -99,6 +108,7 @@ def run(bindir, desktop, work):
                 command("edit.redo")
                 assert count(call("document.inspect")) == before + 1
                 saved = work / "desktop-saved.vectorcraft"
+                progress("Starting desktop save, SVG/PNG/PDF export and reopen")
                 call("app.save", {"path": str(saved)})
                 exported = [work / f"desktop-export.{ext}" for ext in ("svg", "png", "pdf")]
                 for path in exported:
@@ -112,7 +122,7 @@ def run(bindir, desktop, work):
                 assert "3366ff" in exported[0].read_text()
                 png(exported[1], (240, 120))
                 assert exported[2].read_bytes().startswith(b"%PDF-")
-                reopened = subprocess.check_output([str(cli), "run", "--in", str(saved), "--cmd", "document.inspect"], text=True, env=runtime_env, cwd=work)
+                reopened = subprocess.check_output([str(cli), "run", "--in", str(saved), "--cmd", "document.inspect"], text=True, encoding="utf-8", env=runtime_env, cwd=work, timeout=60)
                 assert count(json.loads(reopened.splitlines()[-1])["result"]) == before + 1
                 # Keep an unsaved edit for the caption-close confirmation check below.
                 command("paint.setFill", {"color": "#f29b55"})
@@ -130,6 +140,7 @@ def run(bindir, desktop, work):
                         time.sleep(.1)
                     raise AssertionError("Window resize did not reach its requested logical size")
 
+                progress("Starting desktop theme, resize, new-dialog and unsaved-close checks")
                 resize(1440, 900)
                 for brightness in ("light", "dark"):
                     call("ui.set", {"brightness": brightness})

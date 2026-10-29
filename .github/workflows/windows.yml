@@ -53,6 +53,7 @@ jobs:
       - name: Build x64 MSI and portable package
         run: ./packaging/windows/package.ps1 -Arch x64 *>&1 | Tee-Object dist/windows-qa/build.log
       - name: Install, exercise, uninstall and check portable desktop
+        timeout-minutes: 15
         run: ./packaging/windows/verify.ps1 *>&1 | Tee-Object dist/windows-qa/runtime.log
       - uses: actions/upload-artifact@v4
         with:
@@ -63,7 +64,7 @@ jobs:
         if: failure()
         run: |
           foreach ($log in Get-ChildItem dist/windows-qa/*.log -ErrorAction SilentlyContinue) {
-            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error(?:\[[A-Z0-9]+\])?[\s:]|\bFAILED\b|panicked|AssertionError|Exception|RuntimeError' -and $_ -notmatch '^\s*(Compiling|test result: ok\.)' } | Select-Object -Last 8 | ForEach-Object {
+            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error(?:\[[A-Z0-9]+\])?[\s:]|\bFAILED\b|panicked|AssertionError|Exception|RuntimeError|TimeoutExpired' -and $_ -notmatch '^\s*(Compiling|test result: ok\.)' } | Select-Object -Last 8 | ForEach-Object {
               $message = "$_".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
               Write-Output "::error::$message"
             }
