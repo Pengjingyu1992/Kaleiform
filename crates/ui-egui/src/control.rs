@@ -107,6 +107,7 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "workspace": {
             "enabled": crate::workspace::enabled(app),
             "inspectorOverlay": app.ui.inspector_overlay,
+            "customTitlebar": app.custom_titlebar,
             "performanceHud": app.ui.performance_hud,
         },
         "mcp": {

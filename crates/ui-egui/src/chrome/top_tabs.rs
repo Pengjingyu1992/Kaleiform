@@ -1,5 +1,5 @@
-//! Compact document tabs inside the macOS title bar. Other platforms and fullscreen modes
-//! keep the separate strip; isolation and pattern breadcrumbs remain above the canvas.
+//! Compact document tabs in the shared desktop workspace. Legacy and fullscreen modes keep
+//! the separate strip; isolation and pattern breadcrumbs remain above the canvas.
 
 use egui::{Align2, CornerRadius, FontId, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use serde_json::json;
@@ -19,7 +19,7 @@ pub(super) fn surface(rect: Rect) -> Rect {
 }
 
 pub(super) fn enabled(app: &VectorcraftApp) -> bool {
-    app.integrated_titlebar && app.services.native_menu.is_some() && app.ui.screen_mode < 2
+    crate::workspace::enabled(app) && app.ui.screen_mode < 2
 }
 
 fn id(part: &str, index: usize) -> Id {

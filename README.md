@@ -30,6 +30,12 @@ Linux 的 deb、rpm、AppImage 和便携压缩包见 [预览 6 下载](https://g
 这些平台尚未提供本项目经验证的正式安装包。
 不要把“源码有构建支持”理解为“所有平台已完成测试”。
 
+**Windows/Linux 工作区更新**：两端现已复用 macOS 预览 17 的紧凑文档标签、画布优先布局、
+属性检查器和新建窗口，保留 Windows/Linux 的窗口按钮与完整菜单。
+Windows x64 的 MSI/便携试用构建与安装验证见 [Windows 指南](docs/windows.md)，
+Linux 的更新构建见 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/linux.yml)。
+当前公开 Release 下载范围仍以上方链接为准；[本轮验收与边界](docs/qa-desktop-2026-10-29.md) 单独记录。
+
 **预览 5 新增磨砂玻璃界面**：macOS 顶栏和边栏使用原生窗口材质，浮动面板模糊其后方画布；
 画板和输入框保持不透明。可在“虹构 → 外观 → 磨砂玻璃”或“首选项 → 用户界面”切换，
 关闭后恢复原有实色界面，详见 [界面说明](docs/glass-interface.md)。

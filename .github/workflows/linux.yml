@@ -2,7 +2,7 @@ name: Linux packages
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/windows-linux-desktop]
     paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", ".github/workflows/linux.yml"]
   pull_request:
     paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", ".github/workflows/linux.yml"]
@@ -51,8 +51,7 @@ jobs:
           sha256sum --check selected.sha256
           tar -xzf "$archive" nfpm
           echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
-      - name: Verified AppImage tool for manual release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+      - name: Verified AppImage tool
         run: |
           tool="$RUNNER_TEMP/linux-tools/appimagetool-x86_64.AppImage"
           curl --fail --location --proto '=https' --tlsv1.2 -o "$tool" \
@@ -66,11 +65,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           export RUSTFLAGS="--remap-path-prefix=$GITHUB_WORKSPACE=. --remap-path-prefix=$HOME/.cargo=rust-cargo --remap-path-prefix=$HOME/.rustup=rust-toolchain"
-          formats="deb rpm tar"
+          formats="appimage deb rpm tar"
           if [ -n "$RELEASE_TAG" ]; then
             . packaging/env.sh
             test "$RELEASE_TAG" = "v$VERSION"
-            formats="appimage deb rpm tar"
           fi
           packaging/linux/package.sh --formats "$formats"
           cd dist/release
@@ -98,7 +96,6 @@ jobs:
           tar -xzf dist/release/*.tar.gz -C "$RUNNER_TEMP/portable" --strip-components=1
           python3 packaging/linux/smoke.py --prefix "$RUNNER_TEMP/portable"
       - name: Exercise the AppImage and scan release privacy
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         run: |
           . packaging/env.sh
           image="$DIST/vectorcraft-$VERSION-linux-x86_64.AppImage"

@@ -33,7 +33,9 @@
     <Property Id="ARPPRODUCTICON" Value="VectorcraftIcon.ico" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="Kaleiform" />
+      <Directory Id="INSTALLFOLDER" Name="Kaleiform">
+        <Directory Id="DOCSFOLDER" Name="docs" />
+      </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
@@ -44,6 +46,7 @@
 
     <Feature Id="Main" Title="Kaleiform" Level="1">
       <ComponentGroupRef Id="VectorcraftFiles" />
+      <ComponentGroupRef Id="VectorcraftDocumentation" />
     </Feature>
 
     <!-- The setup wizard: WixUI_InstallDir without its licence page (the code is MIT OR
@@ -83,11 +86,25 @@
 
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\vectorcraft.exe" Value="[#VectorcraftExe]" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\VectorCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+        <ProgId Id="Vectorcraft.Document" Description="Kaleiform document" Icon="VectorcraftIcon.ico">
+          <Extension Id="vectorcraft" ContentType="application/x-vectorcraft">
+            <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
+          </Extension>
+          <Extension Id="drawcraft" ContentType="application/x-vectorcraft">
+            <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
+          </Extension>
+          <Extension Id="vctemplate" ContentType="application/x-vectorcraft-template">
+            <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
+          </Extension>
+        </ProgId>
       </Component>
 
       <Component Id="VectorcraftCli">
         <File Id="VectorcraftCliExe" Source="$(var.BinDir)\vectorcraft-cli.exe" KeyPath="yes" />
       </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="VectorcraftDocumentation" Directory="DOCSFOLDER">
+      <Files Include="$(var.BinDir)\docs\**" />
     </ComponentGroup>
   </Fragment>
 </Wix>

@@ -240,11 +240,18 @@ mod tests {
         app.services.read = Some(Box::new(|p: &str| std::fs::read(p).map_err(|e| e.to_string())));
         app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
         let pic = dir.join("a.png");
-        std::fs::write(&pic, png([200, 0, 0])).unwrap();
+        // Link stamps use milliseconds. Control the fixture's mtime so equal-size PNG writes
+        // cannot accidentally happen inside one timestamp tick on a fast or coarse filesystem.
+        let write_image = |colour, seconds| {
+            std::fs::write(&pic, png(colour)).unwrap();
+            let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
+            std::fs::File::options().write(true).open(&pic).unwrap().set_times(std::fs::FileTimes::new().set_modified(modified)).unwrap();
+        };
+        write_image([200, 0, 0], 1_700_000_000);
         app.run("file.place", json!({"path": pic.to_string_lossy()})).unwrap();
         let doc = dir.join("doc.vectorcraft").to_string_lossy().into_owned();
         app.run("document.save", json!({"path": doc})).unwrap();
-        std::fs::write(&pic, png([0, 0, 200])).unwrap();
+        write_image([0, 0, 200], 1_700_000_002);
         crate::io::open_path(&mut app, &doc).unwrap();
         let d = app.ui.dialog.as_ref().expect("asks");
         assert_eq!((d.kind.as_str(), d.str("__command")), (super::super::confirm::KIND, "links.update".to_string()));
@@ -252,7 +259,7 @@ mod tests {
         assert_eq!(app.run("links.check", json!({})).unwrap()["modified"], 0);
         // Manually: no question.
         app.run("prefs.set", json!({"key": "updateLinks", "value": "manually"})).unwrap();
-        std::fs::write(&pic, png([0, 200, 0])).unwrap();
+        write_image([0, 200, 0], 1_700_000_004);
         crate::io::open_path(&mut app, &doc).unwrap();
         assert!(app.ui.dialog.is_none());
         let _ = std::fs::remove_dir_all(dir);

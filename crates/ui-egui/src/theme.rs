@@ -24,6 +24,19 @@ pub struct HostAppearance {
     pub reduce_motion: bool,
 }
 
+/// Use the same neutral desktop surfaces as the Mac workspace when a host has no semantic
+/// colour provider. Keep the backing opaque; this does not claim compositor blur support.
+pub fn ensure_desktop_appearance(ctx: &egui::Context, brightness: Brightness, glass: bool) {
+    if ctx.data(|d| d.get_temp::<HostAppearance>(egui::Id::new("host-appearance"))).is_none() {
+        set_host_appearance(
+            ctx,
+            HostAppearance { accent: [0, 122, 255], colors: None, reduce_transparency: false, reduce_motion: false },
+            brightness,
+            glass,
+        );
+    }
+}
+
 pub fn set_host_appearance(ctx: &egui::Context, appearance: HostAppearance, brightness: Brightness, glass: bool) {
     let id = egui::Id::new("host-appearance");
     if ctx.data(|d| d.get_temp::<HostAppearance>(id)) == Some(appearance) {
@@ -471,7 +484,14 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
     }
     if let Some(host) = host {
         let rgb = |value| Color32::from_gray(value);
-        let (surface, panel, input, ink, secondary) = if t.dark { (38, 40, 30, 242, 190) } else { (244, 246, 255, 26, 85) };
+        // Keep all four app brightness choices distinct in the shared desktop fallback.
+        // Native semantic colours, when supplied, still override this palette below.
+        let (surface, panel, input, ink, secondary) = match b {
+            Brightness::Dark => (30, 32, 24, 242, 190),
+            Brightness::MediumDark => (42, 46, 36, 242, 190),
+            Brightness::MediumLight => (228, 232, 244, 26, 85),
+            Brightness::Light => (244, 246, 255, 26, 85),
+        };
         t.panel = rgb(panel);
         t.panel_darker = rgb(if t.dark { 30 } else { 235 });
         t.input = rgb(input);
@@ -600,6 +620,29 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_fallback_keeps_chrome_opaque_and_preserves_host_accessibility() {
+        let ctx = egui::Context::default();
+        ensure_desktop_appearance(&ctx, Brightness::Dark, true);
+        let mut panels = std::collections::HashSet::new();
+        for brightness in Brightness::ALL {
+            apply_material(&ctx, brightness, true);
+            let t = Tokens::get(&ctx);
+            assert_eq!(t.radius, 6);
+            assert_eq!((t.surface.a(), t.app_bar.a(), t.input.a(), t.pasteboard.a()), (255, 255, 255, 255));
+            assert_eq!(t.accent, Color32::from_rgb(0, 122, 255));
+            panels.insert(t.panel.to_array());
+        }
+        assert_eq!(panels.len(), 4, "brightness must affect all four desktop themes");
+        let host = HostAppearance { accent: [255, 210, 30], colors: None, reduce_transparency: true, reduce_motion: true };
+        set_host_appearance(&ctx, host, Brightness::Light, true);
+        ensure_desktop_appearance(&ctx, Brightness::Light, true);
+        let t = Tokens::get(&ctx);
+        assert!(!t.glass);
+        assert_eq!(t.accent, Color32::from_rgb(255, 210, 30));
+        assert_eq!(ctx.global_style().animation_time, 0.0);
+    }
 
     #[test]
     fn host_accessibility_and_accent_keep_controls_legible_and_canvas_opaque() {

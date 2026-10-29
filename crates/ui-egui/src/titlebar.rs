@@ -248,7 +248,7 @@ mod tests {
                     .layers()
                     .filter(|(l, _)| l.order != Order::Foreground)
                     .flat_map(|(_, ws)| ws.iter())
-                    .filter(|w| w.sense.senses_click() && w.rect.top() < 44.0 && !skip.contains(&w.id))
+                    .filter(|w| w.sense.senses_click() && w.rect.top() < crate::workspace::BAR_HEIGHT && !skip.contains(&w.id))
                     .map(|w| w.rect)
                     .collect()
             })
@@ -266,7 +266,7 @@ mod tests {
             assert!(close.height() >= 42.0 && [min, max, close].iter().all(|r| r.width() == BUTTON_WIDTH));
             assert_eq!((min.right(), max.right()), (max.left(), close.left()));
             let widgets = w.bar_widgets();
-            assert!(widgets.len() >= 12, "home, nine menus, workspace switcher, search: {widgets:?}");
+            assert!(widgets.len() >= 7, "home, new document, workspace, view controls, search and panels: {widgets:?}");
             for (i, a) in widgets.iter().enumerate() {
                 assert!(a.right() <= min.left() - 8.0, "{a:?} runs into the caption buttons at {width}");
                 for b in &widgets[i + 1..] {
@@ -276,7 +276,8 @@ mod tests {
             // Wide windows show the search field; narrow ones reduce it to an icon.
             let texts: Vec<String> = texts(&out).into_iter().map(|(t, _)| t).collect();
             let has = |s: &str| texts.iter().any(|t| t == s);
-            assert_eq!((has("Discord"), has("Search commands and tools")), (false, width > 1000.0), "{width}: {texts:?}");
+            assert!(has("File") && has("Edit") && has("Window"), "the full menu tree remains available: {texts:?}");
+            assert_eq!((has("Discord"), has("Search commands and tools")), (false, width >= 1200.0), "{width}: {texts:?}");
         }
     }
 
@@ -314,7 +315,7 @@ mod tests {
     fn empty_bar_space_drags_and_double_click_maximizes() {
         let mut w = Win::new(1440.0);
         w.frame(vec![]);
-        let empty = pos2(700.0, 22.0);
+        let empty = pos2(300.0, crate::workspace::BAR_HEIGHT / 2.0);
         assert!(w.bar_widgets().iter().all(|r| !r.contains(empty)), "the probe point must be empty bar space");
         let cmds = w.gesture(&[empty, empty + vec2(12.0, 4.0), empty + vec2(30.0, 8.0)]);
         assert_eq!(cmds.iter().filter(|c| matches!(c, ViewportCommand::StartDrag)).count(), 1, "{cmds:?}");

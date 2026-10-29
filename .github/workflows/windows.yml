@@ -1,0 +1,77 @@
+name: Windows x64 packages
+
+on:
+  push:
+    branches: [main, codex/windows-linux-desktop]
+    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-x64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "1"
+      VECTORCRAFT_NO_PREFS: "1"
+      VECTORCRAFT_BUILD_SHA: ${{ github.sha }}
+      WGPU_BACKEND: dx12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          key: windows-x64-desktop
+      - name: Test the shared UI and native desktop code
+        run: |
+          New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
+          cargo test --locked -p vectorcraft-ui-egui -p vectorcraft --lib --bins 2>&1 | Tee-Object dist/windows-qa/unit.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows UI/desktop tests failed' }
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+      - name: Build x64 MSI and portable package
+        run: ./packaging/windows/package.ps1 -Arch x64 *>&1 | Tee-Object dist/windows-qa/build.log
+      - name: Install, exercise, uninstall and check portable desktop
+        run: ./packaging/windows/verify.ps1 *>&1 | Tee-Object dist/windows-qa/runtime.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-windows-x64
+          path: dist/release/*
+          if-no-files-found: error
+      - name: Surface failures for review
+        if: failure()
+        run: |
+          foreach ($log in Get-ChildItem dist/windows-qa/*.log -ErrorAction SilentlyContinue) {
+            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error|FAILED|panicked|AssertionError|Exception|RuntimeError' } | Select-Object -Last 8 | ForEach-Object {
+              $message = "$_".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error::$message"
+            }
+          }
+      - name: Retain synthetic UI screenshots and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-windows-x64-qa
+          path: |
+            dist/windows-qa/**/*.png
+            dist/windows-qa/**/*.log
+          if-no-files-found: ignore

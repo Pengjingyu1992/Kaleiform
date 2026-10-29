@@ -934,6 +934,9 @@ impl VectorcraftApp {
                 }
             }
         }
+        if self.custom_titlebar {
+            theme::ensure_desktop_appearance(ctx, self.ui.brightness, self.ui.glass);
+        }
         if !self.styled || self.font_language != Some(self.ui_language().code()) {
             theme::install_fonts(ctx);
             self.font_language = Some(self.ui_language().code());

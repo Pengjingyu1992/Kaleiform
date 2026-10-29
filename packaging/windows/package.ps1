@@ -59,11 +59,15 @@ Write-Output "Kaleiform $Version for Windows $Arch ($Target)"
 if (-not $SkipBuild) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
   # proc-macros are unaffected.
-  $flagVar = 'CARGO_TARGET_' + ($Target.ToUpper() -replace '-', '_') + '_RUSTFLAGS'
-  [Environment]::SetEnvironmentVariable($flagVar, '-C target-feature=+crt-static')
+  $rustFlags = @('-C', 'target-feature=+crt-static', '-C', 'strip=debuginfo', "--remap-path-prefix=$Root=.")
+  foreach ($toolDir in @($env:CARGO_HOME, $env:RUSTUP_HOME, (Join-Path $env:USERPROFILE '.cargo'), (Join-Path $env:USERPROFILE '.rustup'))) {
+    if ($toolDir) { $rustFlags += "--remap-path-prefix=$toolDir=rust-tools" }
+  }
+  # A TOML/JSON array preserves paths containing spaces; a RUSTFLAGS string would split them.
+  $rustConfig = "target.$Target.rustflags=" + (ConvertTo-Json -InputObject $rustFlags -Compress)
   # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded.
   $env:VECTORCRAFT_REQUIRE_WINRES = '1'
-  Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p vectorcraft -p vectorcraft-cli --target $Target }
+  Invoke-Native "cargo build ($Target)" { cargo --config $rustConfig build --release --locked -p vectorcraft -p vectorcraft-cli --target $Target }
 }
 
 $Bin = Join-Path $TargetDir "$Target\release"
@@ -88,6 +92,37 @@ $Stage = Join-Path $TargetDir "windows-package\$Arch"
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item (Join-Path $Bin 'vectorcraft.exe'), (Join-Path $Bin 'vectorcraft-cli.exe') $Stage
+
+# The portable archive and MSI must carry the same notices and third-party licences.
+$Docs = Join-Path $Stage 'docs'
+$Licenses = Join-Path $Docs 'licenses'
+New-Item -ItemType Directory -Force -Path $Licenses | Out-Null
+foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'ASSETS.md', 'ACKNOWLEDGEMENTS.md', 'COPYRIGHT', 'UPSTREAM.md') {
+  $p = Join-Path $Root $f
+  if (Test-Path $p) { Copy-Item $p $Docs }
+}
+foreach ($license in @(
+  @('vendor\linesweeper\LICENSE-MIT', 'LICENSE-linesweeper-MIT'),
+  @('vendor\linesweeper\LICENSE-APACHE', 'LICENSE-linesweeper-APACHE'),
+  @('vendor\wgpu-hal\LICENSE.MIT', 'LICENSE-wgpu-hal-MIT'),
+  @('vendor\wgpu-hal\LICENSE.APACHE', 'LICENSE-wgpu-hal-APACHE'),
+  @('assets\icons\LICENSE-lucide.txt', 'LICENSE-lucide.txt')
+)) { Copy-Item (Join-Path $Root $license[0]) (Join-Path $Licenses $license[1]) }
+Copy-Item (Join-Path $Root 'assets\fonts\OFL-*.txt') $Licenses
+if ($env:CRAFT_FONTS_DIR) {
+  foreach ($ofl in Get-ChildItem -Path (Join-Path $env:CRAFT_FONTS_DIR 'fonts\*\OFL.txt') -ErrorAction SilentlyContinue) {
+    Copy-Item $ofl.FullName (Join-Path $Docs "OFL-$($ofl.Directory.Name).txt")
+  }
+}
+if ($env:RUST_LICENSES_DIR) { Copy-Item $env:RUST_LICENSES_DIR (Join-Path $Licenses 'rust-dependencies') -Recurse }
+
+$HostArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+if ($Arch -ne 'arm64' -or $HostArch -eq 'arm64') {
+  $cliVersion = (& (Join-Path $Stage 'vectorcraft-cli.exe') --version | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $cliVersion -ne "vectorcraft-cli $Version") { throw "Stale or invalid CLI: $cliVersion" }
+  $appVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $Stage 'vectorcraft.exe')).ProductVersion
+  if ($appVersion -ne $Version) { throw "Stale or invalid desktop version: $appVersion (expected $Version)" }
+}
 
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'vectorcraft.exe') (Join-Path $Stage 'vectorcraft-cli.exe')
 
@@ -147,6 +182,7 @@ $Portable = Join-Path $TargetDir "windows-package\vectorcraft-$Version-windows-$
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 Copy-Item (Join-Path $Stage '*.exe') $Portable
+Copy-Item $Docs (Join-Path $Portable 'docs') -Recurse
 foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE') {
   $p = Join-Path $Root $f
   if (Test-Path $p) { Copy-Item $p $Portable }
@@ -170,3 +206,10 @@ if ($Arch -ne 'arm64' -or $HostArch -eq 'arm64') {
   Write-Output "skipping vectorcraft-cli --version: an $Arch build doesn't run on this $HostArch machine"
 }
 Get-Item $Msi, $Zip | Format-Table Name, Length
+$Checksum = Join-Path $Dist "vectorcraft-$Version-windows-$Arch.sha256"
+$lines = foreach ($file in $Msi, $Zip) {
+  $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+  "$hash  $([IO.Path]::GetFileName($file))"
+}
+[IO.File]::WriteAllLines($Checksum, [string[]]$lines, [Text.UTF8Encoding]::new($false))
+Write-Output "Checksums: $Checksum"

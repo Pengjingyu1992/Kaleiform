@@ -55,6 +55,8 @@ copy_docs() {
   cp "$ROOT/NOTICE" "$dest/NOTICE"
   cp "$ROOT/vendor/linesweeper/LICENSE-MIT" "$dest/licenses/LICENSE-linesweeper-MIT"
   cp "$ROOT/vendor/linesweeper/LICENSE-APACHE" "$dest/licenses/LICENSE-linesweeper-APACHE"
+  cp "$ROOT/vendor/wgpu-hal/LICENSE.MIT" "$dest/licenses/LICENSE-wgpu-hal-MIT"
+  cp "$ROOT/vendor/wgpu-hal/LICENSE.APACHE" "$dest/licenses/LICENSE-wgpu-hal-APACHE"
   cp "$ROOT"/assets/fonts/OFL-*.txt "$ROOT/assets/icons/LICENSE-lucide.txt" "$dest/licenses/"
   if [ -n "${RUST_LICENSES_DIR:-}" ]; then
     cp -R "$RUST_LICENSES_DIR" "$dest/licenses/rust-dependencies"
