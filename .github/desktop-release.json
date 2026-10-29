@@ -1,0 +1,10 @@
+{
+  "version": "0.7.0-kaleiform.17",
+  "source_sha": "e759c2f90d42236ed416710124909461b80b7a3a",
+  "checks": {
+    "Windows x64 packages": 40894732255,
+    "Linux packages": 40894732338,
+    "CI": 40894732504,
+    "Packaging lint": 40894732122
+  }
+}

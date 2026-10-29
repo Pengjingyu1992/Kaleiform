@@ -1,0 +1,43 @@
+name: Publish approved Windows and Linux preview
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/desktop-release.json', '.github/scripts/publish-desktop.py', '.github/scripts/test_publish_desktop.py', '.github/workflows/desktop-release.yml']
+  workflow_run:
+    workflows: ['Windows x64 packages', 'Linux packages', 'CI', 'Packaging lint']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: approved-desktop-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Pengjingyu1992/Kaleiform' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DESKTOP_TRIGGER_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test publication boundaries
+        run: python -B -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Check pinned builds and publish without replacing Mac assets
+        run: python -B .github/scripts/publish-desktop.py
