@@ -38,6 +38,8 @@ jobs:
             fonts-noto-cjk dbus-x11 xdg-utils zsync
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Verified packaging tool
         run: |
           mkdir -p "$RUNNER_TEMP/linux-tools"

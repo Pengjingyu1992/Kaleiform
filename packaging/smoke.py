@@ -23,6 +23,11 @@ def run(bindir, desktop, work):
     suffix = ".exe" if os.name == "nt" else ""
     cli = bindir / f"vectorcraft-cli{suffix}"
     app = bindir / f"vectorcraft{suffix}"
+    runtime_env = dict(os.environ)
+    if os.name == "nt":
+        # Installed builds must not accidentally load DLLs from Visual Studio/Rust SDK paths.
+        system = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        runtime_env["PATH"] = os.pathsep.join((str(bindir), str(system / "System32"), str(system)))
     native = work / "smoke.vectorcraft"
     svg, raster, pdf = (work / f"smoke.{ext}" for ext in ("svg", "png", "pdf"))
     subprocess.run([
@@ -30,11 +35,11 @@ def run(bindir, desktop, work):
         "--cmd", "shape.rectangle", "--params", '{"x":10,"y":10,"width":100,"height":50}',
         "--cmd", "paint.setFill", "--params", '{"color":"#3366ff"}',
         "--export", str(native), "--export", str(svg), "--export", str(raster), "--export", str(pdf),
-    ], check=True, stdout=subprocess.DEVNULL)
+    ], check=True, stdout=subprocess.DEVNULL, env=runtime_env, cwd=work)
     assert "3366ff" in svg.read_text(), "SVG lost the rectangle's fill"
     assert pdf.read_bytes().startswith(b"%PDF-"), "Invalid PDF export"
     png(raster, (240, 120))
-    reopened = subprocess.check_output([str(cli), "run", "--in", str(native), "--cmd", "document.inspect"], text=True)
+    reopened = subprocess.check_output([str(cli), "run", "--in", str(native), "--cmd", "document.inspect"], text=True, env=runtime_env, cwd=work)
     info = json.loads(reopened.splitlines()[-1])
     assert info["result"]["artboards"][0]["width"] == 240, info
     print("CLI: draw, SVG/PNG/PDF export and native document reopen passed", flush=True)
@@ -45,9 +50,9 @@ def run(bindir, desktop, work):
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
-    env = dict(os.environ, VECTORCRAFT_NO_PREFS="1")
+    env = dict(runtime_env, VECTORCRAFT_NO_PREFS="1")
     with (work / "desktop.log").open("w+") as log:
-        proc = subprocess.Popen([str(app), "--control", str(port), str(native)], env=env, stdout=log, stderr=log)
+        proc = subprocess.Popen([str(app), "--control", str(port), str(native)], env=env, stdout=log, stderr=log, cwd=work)
         try:
             deadline = time.monotonic() + 45
             while True:
@@ -93,6 +98,24 @@ def run(bindir, desktop, work):
                 assert count(call("document.inspect")) == before
                 command("edit.redo")
                 assert count(call("document.inspect")) == before + 1
+                saved = work / "desktop-saved.vectorcraft"
+                call("app.save", {"path": str(saved)})
+                exported = [work / f"desktop-export.{ext}" for ext in ("svg", "png", "pdf")]
+                for path in exported:
+                    call("app.export", {"path": str(path), "format": path.suffix[1:]})
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    if not call("ui.inspect")["background"] and all(path.exists() for path in [saved, *exported]):
+                        break
+                    time.sleep(.1)
+                assert saved.exists() and all(path.exists() for path in exported), "Desktop save/export did not finish"
+                assert "3366ff" in exported[0].read_text()
+                png(exported[1], (240, 120))
+                assert exported[2].read_bytes().startswith(b"%PDF-")
+                reopened = subprocess.check_output([str(cli), "run", "--in", str(saved), "--cmd", "document.inspect"], text=True, env=runtime_env, cwd=work)
+                assert count(json.loads(reopened.splitlines()[-1])["result"]) == before + 1
+                # Keep an unsaved edit for the caption-close confirmation check below.
+                command("paint.setFill", {"color": "#f29b55"})
                 call("ui.render", {"path": str(work / "artboard.png")})
                 png(work / "artboard.png", (240, 120))
                 call("ui.screenshot", {"path": str(work / "desktop.png")})
@@ -135,7 +158,7 @@ def run(bindir, desktop, work):
                     assert state["ui"]["dialog"]["kind"] == "saveChanges", state["ui"]["dialog"]
                     call("ui.dialog.cancel")
                 print("Desktop: shared workspace, light/dark, narrow inspector, new-dialog cancel and unsaved caption close passed", flush=True)
-                print("Desktop: file launch, Chinese UI, draw, undo/redo, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
+                print("Desktop: file launch, Chinese UI, draw, undo/redo, save/reopen, SVG/PNG/PDF export, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
         except Exception:
             log.flush()
             log.seek(0)

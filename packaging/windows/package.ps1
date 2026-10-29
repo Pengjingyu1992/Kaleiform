@@ -59,12 +59,7 @@ Write-Output "Kaleiform $Version for Windows $Arch ($Target)"
 if (-not $SkipBuild) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
   # proc-macros are unaffected.
-  $rustFlags = @('-C', 'target-feature=+crt-static', '-C', 'strip=debuginfo', "--remap-path-prefix=$Root=.")
-  foreach ($toolDir in @($env:CARGO_HOME, $env:RUSTUP_HOME, (Join-Path $env:USERPROFILE '.cargo'), (Join-Path $env:USERPROFILE '.rustup'))) {
-    if ($toolDir) { $rustFlags += "--remap-path-prefix=$toolDir=rust-tools" }
-  }
-  # A TOML/JSON array preserves paths containing spaces; a RUSTFLAGS string would split them.
-  $rustConfig = "target.$Target.rustflags=" + (ConvertTo-Json -InputObject $rustFlags -Compress)
+  $rustConfig = & (Join-Path $PSScriptRoot 'rust-config.ps1') -Target $Target
   # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded.
   $env:VECTORCRAFT_REQUIRE_WINRES = '1'
   Invoke-Native "cargo build ($Target)" { cargo --config $rustConfig build --release --locked -p vectorcraft -p vectorcraft-cli --target $Target }

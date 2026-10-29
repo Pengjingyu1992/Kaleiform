@@ -86,7 +86,7 @@
 
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\vectorcraft.exe" Value="[#VectorcraftExe]" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\VectorCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
-        <ProgId Id="Vectorcraft.Document" Description="Kaleiform document" Icon="VectorcraftIcon.ico">
+        <ProgId Id="Vectorcraft.Document" Description="Kaleiform document" Icon="VectorcraftExe">
           <Extension Id="vectorcraft" ContentType="application/x-vectorcraft">
             <Verb Id="open" Command="Open" TargetFile="VectorcraftExe" Argument="&quot;%1&quot;" />
           </Extension>

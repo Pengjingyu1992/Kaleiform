@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "4"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
       RUST_TEST_THREADS: "1"
@@ -39,10 +39,12 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           key: windows-x64-desktop
+          cache-on-failure: true
       - name: Test the shared UI and native desktop code
         run: |
           New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
-          cargo test --locked -p vectorcraft-ui-egui -p vectorcraft --lib --bins 2>&1 | Tee-Object dist/windows-qa/unit.log
+          $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
+          cargo --config $rustConfig test --release --target x86_64-pc-windows-msvc --locked -p vectorcraft-ui-egui -p vectorcraft --lib --bins 2>&1 | Tee-Object dist/windows-qa/unit.log
           if ($LASTEXITCODE -ne 0) { throw 'Windows UI/desktop tests failed' }
       - name: Install WiX
         run: |
@@ -61,7 +63,7 @@ jobs:
         if: failure()
         run: |
           foreach ($log in Get-ChildItem dist/windows-qa/*.log -ErrorAction SilentlyContinue) {
-            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error|FAILED|panicked|AssertionError|Exception|RuntimeError' } | Select-Object -Last 8 | ForEach-Object {
+            Get-Content $log.FullName -Tail 100 | Where-Object { $_ -match 'error(?:\[[A-Z0-9]+\])?[\s:]|\bFAILED\b|panicked|AssertionError|Exception|RuntimeError' -and $_ -notmatch '^\s*(Compiling|test result: ok\.)' } | Select-Object -Last 8 | ForEach-Object {
               $message = "$_".Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
               Write-Output "::error::$message"
             }

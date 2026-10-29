@@ -21,8 +21,8 @@ def check(path):
     executables = set()
     with zipfile.ZipFile(path) as archive:
         for entry in archive.infolist():
-            name = PurePosixPath(entry.filename)
-            if name.is_absolute() or ".." in name.parts or any(p in {".git", ".env", ".ssh", ".aws", "__pycache__"} for p in name.parts):
+            name = PurePosixPath(entry.filename.replace("\\", "/"))
+            if name.is_absolute() or re.match(r"^[A-Za-z]:", str(name)) or ".." in name.parts or any(p in {".git", ".env", ".ssh", ".aws", "__pycache__"} for p in name.parts):
                 raise ValueError("Unsafe path or local configuration in Windows archive")
             if name.suffix.lower() in {".pdb", ".log", ".dmp", ".tmp"}:
                 raise ValueError("Debug data or runtime files in Windows archive")

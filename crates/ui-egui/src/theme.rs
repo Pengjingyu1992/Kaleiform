@@ -501,7 +501,7 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
             t.app_bar = Color32::from_rgba_unmultiplied(surface, surface, surface, 220);
             t.surface = Color32::from_rgba_unmultiplied(panel, panel, panel, 230);
         }
-        t.glass_tint = rgb(panel);
+        t.glass_tint = if t.glass { Color32::from_rgba_unmultiplied(panel, panel, panel, if t.dark { 205 } else { 210 }) } else { rgb(panel) };
         t.tab_strip = rgb(panel);
         t.pasteboard = rgb(if t.dark { 28 } else { 210 });
         t.ruler = rgb(if t.dark { 35 } else { 239 });
@@ -632,6 +632,7 @@ mod tests {
             assert_eq!(t.radius, 6);
             assert_eq!((t.surface.a(), t.app_bar.a(), t.input.a(), t.pasteboard.a()), (255, 255, 255, 255));
             assert_eq!(t.accent, Color32::from_rgb(0, 122, 255));
+            assert!(t.glass_tint.a() < 255, "floating panels retain the in-app canvas blur");
             panels.insert(t.panel.to_array());
         }
         assert_eq!(panels.len(), 4, "brightness must affect all four desktop themes");
