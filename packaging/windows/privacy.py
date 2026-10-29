@@ -28,12 +28,15 @@ def check(path):
     files, identities, roots = set(), set(), set()
     with zipfile.ZipFile(path) as archive:
         for entry in archive.infolist():
-            name = PurePosixPath(entry.filename.replace("\\", "/"))
+            normalized = entry.filename.replace("\\", "/")
+            name = PurePosixPath(normalized)
             if name.is_absolute() or re.match(r"^[A-Za-z]:", str(name)) or ".." in name.parts or any(p.lower() in {".git", ".env", ".ssh", ".aws", "__pycache__"} for p in name.parts):
                 raise ValueError("Unsafe path or local configuration in Windows archive")
             if name.suffix.lower() in {".pdb", ".log", ".dmp", ".tmp"}:
                 raise ValueError("Debug data or runtime files in Windows archive")
-            if entry.is_dir():
+            if entry.is_dir() or normalized.endswith("/"):
+                if entry.file_size:
+                    raise ValueError("Unexpected data in Windows directory entry")
                 continue
             if len(name.parts) < 2:
                 raise ValueError("Windows payload files must share one package directory")

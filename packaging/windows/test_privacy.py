@@ -45,6 +45,14 @@ class WindowsPayloadChecks(unittest.TestCase):
         self.archive()
         check(self.path)
 
+    def test_windows_directory_separators(self):
+        with zipfile.ZipFile(self.path, 'w') as archive:
+            archive.writestr('Kaleiform\\', b'')
+            archive.writestr('Kaleiform\\docs\\', b'')
+            for name, data in self.files.items():
+                archive.writestr('Kaleiform\\' + name.replace('/', '\\'), data)
+        check(self.path)
+
     def test_missing_notice_is_rejected(self):
         del self.files['docs/NOTICE']
         self.rejected()
@@ -64,6 +72,9 @@ class WindowsPayloadChecks(unittest.TestCase):
 
     def test_extra_executable_is_rejected(self):
         self.rejected((('Kaleiform/docs/vectorcraft.exe', b'MZsynthetic'),))
+
+    def test_directory_payload_is_rejected(self):
+        self.rejected((('Kaleiform/hidden/', b'synthetic hidden payload'),))
 
     def test_debug_and_local_config_are_rejected(self):
         for name in ('Kaleiform/app.pdb', 'Kaleiform/.GIT/config'):
