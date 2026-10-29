@@ -2,9 +2,9 @@
 
 Linux 版使用与 macOS 相同的 Rust 绘图引擎和中文界面，保留 `vectorcraft` 二进制、
 `ai.storyteller.vectorcraft` 桌面标识及旧文档扩展名以兼容既有文件和设置。
-这是早期预览版；在 [预览 6 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.6)
+这是早期预览版；在 [桌面预览 17 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)
 下载 Linux x86_64 包及同名 `.sha256` 校验清单。原 Mac 资产和校验清单保持原样。
-本次构建、最小环境安装及 X11/Wayland 功能结果见 [Linux 验收记录](qa-linux-2026-10-13.md)。
+本次与 Mac 工作区对齐、安装运行与导出结果见[桌面验收记录](qa-desktop-2026-10-29.md)；先前 X11/Wayland 扩展结果见 [Linux 验收记录](qa-linux-2026-10-13.md)。
 
 ## 安装
 
@@ -15,8 +15,8 @@ Debian、其他桌面环境和显卡组合需要各自验证，不能只凭 glib
 取得安装包及同版 `.sha256` 清单后，先在该目录验证：
 
 ```sh
-sha256sum --check --ignore-missing vectorcraft-0.7.0-kaleiform.6-linux-x86_64.sha256
-sudo apt install ./vectorcraft-0.7.0-kaleiform.6-linux-x86_64.deb
+sha256sum --check --ignore-missing vectorcraft-0.7.0-kaleiform.17-linux-x86_64.sha256
+sudo apt install ./vectorcraft-0.7.0-kaleiform.17-linux-x86_64.deb
 ```
 
 安装后在应用菜单启动 **虹构 / Kaleiform**，或运行 `vectorcraft`。
@@ -27,15 +27,15 @@ sudo apt install ./vectorcraft-0.7.0-kaleiform.6-linux-x86_64.deb
 便携目录无需 root 权限：
 
 ```sh
-tar -xzf vectorcraft-0.7.0-kaleiform.6-linux-x86_64.tar.gz
-./vectorcraft-0.7.0-kaleiform.6-linux-x86_64/bin/vectorcraft
+tar -xzf vectorcraft-0.7.0-kaleiform.17-linux-x86_64.tar.gz
+./vectorcraft-0.7.0-kaleiform.17-linux-x86_64/bin/vectorcraft
 ```
 
 AppImage 可执行后运行；没有 FUSE 的系统可以提取运行：
 
 ```sh
-chmod +x vectorcraft-0.7.0-kaleiform.6-linux-x86_64.AppImage
-APPIMAGE_EXTRACT_AND_RUN=1 ./vectorcraft-0.7.0-kaleiform.6-linux-x86_64.AppImage
+chmod +x vectorcraft-0.7.0-kaleiform.17-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./vectorcraft-0.7.0-kaleiform.17-linux-x86_64.AppImage
 ```
 
 便携目录和 AppImage 同样需要系统的图形运行库：xkbcommon（含 X11 模块）、X11 或 Wayland，
@@ -84,13 +84,19 @@ LIBGL_ALWAYS_SOFTWARE=1 WGPU_BACKEND=vulkan xvfb-run -a \
 
 `.github/workflows/linux.yml` 在 Ubuntu 22.04 构建包，在独立最小 Ubuntu 容器中安装并验收 deb、
 卸载，再验收便携包。
-发布流程也会对安装后的桌面运行功能检查。执行 `cargo xtask ci` 仍是源码质量门槛；
+发布流程也会对安装后的桌面运行功能检查。执行 `RUST_TEST_THREADS=1 cargo xtask ci` 仍是源码质量门槛；
 构建成功、窗口启动和实际功能验证应分别记录。
+
+## 本次独立桌面发布
+
+本次经授权的发布固定 `6e500dc` 与 Windows、Linux、源码 CI、打包检查四项成功任务，
+全部通过后才上传到独立桌面标签；附源码归档、BUILD-INFO 与校验清单，不移动原 Mac 标签或 latest 标记。
+常规代码提交只生成构建产物，不会自动发布其他源码版本。
 
 ## 向已有 Release 追加 Linux 包
 
 在 GitHub Actions 的 `Linux packages` 中手动运行 main 分支，`release_tag` 留空仅构建；
-填写与工作区版本一致的现有 tag（例如 `v0.7.0-kaleiform.6`）才会发布。
+填写与工作区版本一致的现有 tag（例如 `v0.7.0-kaleiform.17`）才会发布。
 发布流程额外生成 AppImage/zsync，检查工具 SHA-256、所有包的校验和、AppImage 的 CLI 和
 二进制一致性及包内隐私，然后由独立 job 上传 Linux 文件。
 

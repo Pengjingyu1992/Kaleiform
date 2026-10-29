@@ -8,6 +8,9 @@ macOS 继续使用系统菜单和原生窗口材质。Windows/Linux 的窗口底
 
 ## 获取试用构建
 
+在[桌面预览 17 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)
+下载 MSI、便携 ZIP 及 Windows `.sha256` 清单。它使用独立标签，保留已有 Mac 附件与 latest 标记。
+
 在 [Windows x64 packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
 的构建页，先登录 GitHub，再下载 Artifacts 中的 `kaleiform-windows-x64`。它在原生测试、
 PE/版本、SHA-256 和隐私检查通过后保存；安装版与便携版的运行验收是另外两个任务，
@@ -19,8 +22,9 @@ PE/版本、SHA-256 和隐私检查通过后保存；安装版与便携版的运
 - `vectorcraft-0.7.0-kaleiform.17-windows-x64.sha256`：以上两个文件的 SHA-256 清单。
 
 使用 PowerShell `Get-FileHash 文件名 -Algorithm SHA256` 核对清单后安装或解压。
-当前试用构建没有配置 Authenticode 证书，属于未签名预览包。构建流程不会自动发布 Release，
-也不会替换已有 Mac 或 Linux 发布资产。
+当前试用构建没有配置 Authenticode 证书，属于未签名预览包。常规构建保存 Actions 产物；
+本次经授权的独立发布固定源码、Windows/Linux/源码 CI 与打包检查记录，全部成功后才上传，
+不替换任何已有发布资产。
 
 MSI 安装到 Program Files 下的 Kaleiform 文件夹，提供开始菜单入口、CLI，以及
 `.vectorcraft`、`.drawcraft` 和 `.vctemplate` 的打开关联。不会注册 SVG/PDF 的默认应用。
@@ -55,4 +59,5 @@ CLI 与 MSI 客户端有独立超时，每个运行步骤最多 5 分钟、每�
 阶段记录会显示在任务的 Annotations 中。单机全部验收入口 `-Phase All` 仍可用，但仅限一次性测试机器。
 
 这些自动检查不代表所有 Windows 显卡、输入法、数位板和多显示器 DPI 组合都已实测。
+本轮原生结果见[通过的 Windows 验收](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260548)。
 ARM64 和实验性的 [Windows 7 入口](windows7.md) 不在本次 x64 交付验收范围内。

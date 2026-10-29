@@ -28,11 +28,11 @@ SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行�
 
 本机 `RUST_TEST_THREADS=1 cargo xtask ci` 的 fmt、严格 Clippy、test、assets、brands、layers、wasm
 七项全部通过：4,787 项测试通过、0 失败、5 项按已有标注忽略；20 个 WASM 安全模块检查通过。
-提交 `b7995cc` 的[主分支源码 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241062)
-也通过全部质量门槛；[打包语法检查](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241238)
-和 [Affinity 文件回归](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241209)通过。
+提交 `6e500dc` 的[主分支源码 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260402)
+也通过全部质量门槛；[打包语法检查](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260558)
+和 [Affinity 文件回归](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260636)通过。
 
-提交 `b7995cc` 的 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40870241071)
+提交 `6e500dc` 的 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260424)
 成功生成 DEB、RPM、AppImage、便携压缩包和校验清单。在最小 Ubuntu 22.04 容器中安装 DEB，
 执行真实桌面与 CLI 检查、验证 MIME 类型、卸载；另检查便携包及 AppImage 的 CLI，比较二进制，
 执行产物隐私扫描和 SHA-256 校验。RPM 在本轮仅验证生成，未进行 Fedora 安装验收。
@@ -54,6 +54,16 @@ SVG/PNG/PDF 后台导出、新建取消和关闭未保存提示通过。运行�
 Windows 会忽略最大化窗口的尺寸请求。修正为先还原再请求尺寸，并拒绝非数值、非有限或超界尺寸；
 新增两项回归测试。验收会主动最大化再调整窗口，保留宽窄布局断言，失败时输出实际尺寸和窗口状态。
 日志只读取有界尾部，避免异常期间读取持续增长的日志；最终原生结果仍以修正后任务为准。
+
+修正提交 `6e500dc` 的 [Windows x64 验收](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/40903260548)
+全部成功：Windows 2022 的原生代码测试、PE/版本/隐私与许可证检查及 MSI/ZIP 生成；
+两台独立 Windows 2025 机器的 MSI 安装/关联/卸载、安装版与便携版 CLI、真实桌面的绘图、撤销重做、
+保存重开、SVG/PNG/PDF 导出、实际最大化后调整尺寸、浅深色、800×600 检查器、新建取消和未保存关闭提示。
+实际窗口截图和运行日志分别保存，不能把这些机器的结果扩大为所有 Win10/11 硬件组合。
+
+包内隐私/许可证边界另有 10 项合成测试；固定源码、构建来源及原资产保留的发布边界另有 10 项测试。
+发布请求指向该完整提交及上述四项成功任务，以独立 `desktop-v0.7.0-kaleiform.17` 标签上传，
+使用 `make_latest=false`，同名不同内容的附件会阻止上传；发布后复查每个既有 Release 的附件 ID、名称、大小和摘要。
 
 Windows 的安装与桌面结果以 [Windows x64 CI](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/windows.yml)
 成功任务及其 QA 产物为准，不能把 Linux 上的共享 UI 测试记作 Windows 原生运行。
