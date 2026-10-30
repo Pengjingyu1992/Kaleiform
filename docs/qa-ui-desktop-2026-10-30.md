@@ -34,6 +34,7 @@ Mac 参考来自 `theme.rs` 的 SF/PingFang 与 AppKit 路径，以及 `docs/mac
 - 本地 Linux 真实桌面扩展矩阵：414 项通过、0 失败；UI 专项回归：948 项通过、0 失败、1 项默认忽略。
 - 本轮已实际查看上述六张修正后 Linux 截图：中文标签不再缺字，分类没有残片；深浅主题、窄检查器及缩放后的关闭/创建按钮正常。
 - `RUST_TEST_THREADS=1 cargo xtask ci`：七项门禁全部通过，4,803 项测试通过、0 失败、5 项保留默认忽略，20 个 WASM 模块检查通过。Windows 原生构建结果在发布前另核对。
+- Linux 构建曾因上游 continuous 工具字节变化而被固定哈希拦截；构建工具改为官方稳定 1.9.1 及官方公布摘要。缓存与新下载都校验，校验失败不安装、不执行。
 - Windows 完整工作区测试改用常规 test profile，避免对数千项测试逐一进行 release ThinLTO，
   原有断言和覆盖范围保留；MSI、便携包运行及性能测量继续使用 release 二进制。
 

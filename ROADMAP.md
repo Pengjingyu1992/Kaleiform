@@ -131,6 +131,10 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Reproducible Linux tool download (2026-10-30, M14.165):** pins official AppImage tool 1.9.1
+  assets and SHA-256, verifies cached downloads and rejects mismatches before installation. The
+  same checked helper serves CI and local automatic downloads; two boundary regressions cover
+  corrupt caches and partial downloads. Existing platform/parity estimates are unchanged.
 - **Desktop typography and compact layouts (2026-10-30, M14.164):** Windows/Linux reuse licensed
   Inter UI weights with matched CJK baselines, preserve named variable-font axes and avoid partially
   clipped New Document categories. Transform reference controls follow actual field metrics;

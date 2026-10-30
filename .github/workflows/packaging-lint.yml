@@ -35,6 +35,8 @@ jobs:
           "$RUNNER_TEMP/actionlint" -color
       - name: shellcheck
         run: shellcheck packaging/*.sh packaging/*/*.sh
+      - name: Test packaging tool verification
+        run: python3 -B -m unittest discover -s packaging/linux -p 'test_*.py'
       - name: PowerShell
         shell: pwsh
         run: |

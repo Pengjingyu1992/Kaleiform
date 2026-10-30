@@ -55,12 +55,9 @@ jobs:
           echo "$RUNNER_TEMP/linux-tools" >> "$GITHUB_PATH"
       - name: Verified AppImage tool
         run: |
+          . packaging/linux/appimagetool.sh
           tool="$RUNNER_TEMP/linux-tools/appimagetool-x86_64.AppImage"
-          curl --fail --location --proto '=https' --tlsv1.2 -o "$tool" \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          # Pinned official GitHub release-asset SHA-256; upstream changes fail closed.
-          printf '%s  %s\n' 95cbe7cce9717fce90c484e34052ee7c7f1d7635b33c12525b4776826a7d29b6 "$tool" | sha256sum --check
-          chmod +x "$tool"
+          fetch_appimagetool "$tool" x86_64
           echo "APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
       - name: Build Linux packages
         env:
