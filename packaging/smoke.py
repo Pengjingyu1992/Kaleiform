@@ -182,6 +182,8 @@ def run(bindir, desktop, work, extended=False):
                 print("Desktop: shared workspace, light/dark, narrow inspector, new-dialog cancel and unsaved caption close passed", flush=True)
                 print("Desktop: file launch, Chinese UI, draw, undo/redo, save/reopen, SVG/PNG/PDF export, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
                 if extended:
+                    visual = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_visual.py"))
+                    visual["run"](call, work)
                     progress("Starting the extended desktop functional matrix")
                     matrix = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_functional.py"))
                     matrix["run"](call, work)

@@ -2,9 +2,9 @@
 
 Linux 版使用与 macOS 相同的 Rust 绘图引擎和中文界面，保留 `vectorcraft` 二进制、
 `ai.storyteller.vectorcraft` 桌面标识及旧文档扩展名以兼容既有文件和设置。
-这是早期预览版；在 [桌面预览 17 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)
+这是早期预览版；在 [桌面预览 18 Release](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)
 下载 Linux x86_64 包及同名 `.sha256` 校验清单。原 Mac 资产和校验清单保持原样。
-本次与 Mac 工作区对齐、安装运行与导出结果见[桌面验收记录](qa-desktop-2026-10-29.md)；先前 X11/Wayland 扩展结果见 [Linux 验收记录](qa-linux-2026-10-13.md)。
+本次中英文字体、窄窗口与缩放审查见 [UI 审查](qa-ui-desktop-2026-10-30.md)，完整功能与性能边界见[桌面验收记录](qa-desktop-2026-10-30.md)；先前 X11/Wayland 扩展结果见 [Linux 验收记录](qa-linux-2026-10-13.md)。
 
 ## 安装
 
@@ -15,8 +15,8 @@ Debian、其他桌面环境和显卡组合需要各自验证，不能只凭 glib
 取得安装包及同版 `.sha256` 清单后，先在该目录验证：
 
 ```sh
-sha256sum --check --ignore-missing vectorcraft-0.7.0-kaleiform.17-linux-x86_64.sha256
-sudo apt install ./vectorcraft-0.7.0-kaleiform.17-linux-x86_64.deb
+sha256sum --check --ignore-missing vectorcraft-0.7.0-kaleiform.18-linux-x86_64.sha256
+sudo apt install ./vectorcraft-0.7.0-kaleiform.18-linux-x86_64.deb
 ```
 
 安装后在应用菜单启动 **虹构 / Kaleiform**，或运行 `vectorcraft`。
@@ -27,15 +27,15 @@ sudo apt install ./vectorcraft-0.7.0-kaleiform.17-linux-x86_64.deb
 便携目录无需 root 权限：
 
 ```sh
-tar -xzf vectorcraft-0.7.0-kaleiform.17-linux-x86_64.tar.gz
-./vectorcraft-0.7.0-kaleiform.17-linux-x86_64/bin/vectorcraft
+tar -xzf vectorcraft-0.7.0-kaleiform.18-linux-x86_64.tar.gz
+./vectorcraft-0.7.0-kaleiform.18-linux-x86_64/bin/vectorcraft
 ```
 
 AppImage 可执行后运行；没有 FUSE 的系统可以提取运行：
 
 ```sh
-chmod +x vectorcraft-0.7.0-kaleiform.17-linux-x86_64.AppImage
-APPIMAGE_EXTRACT_AND_RUN=1 ./vectorcraft-0.7.0-kaleiform.17-linux-x86_64.AppImage
+chmod +x vectorcraft-0.7.0-kaleiform.18-linux-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./vectorcraft-0.7.0-kaleiform.18-linux-x86_64.AppImage
 ```
 
 便携目录和 AppImage 同样需要系统的图形运行库：xkbcommon（含 X11 模块）、X11 或 Wayland，

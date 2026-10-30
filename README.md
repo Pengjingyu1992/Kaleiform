@@ -17,7 +17,7 @@
 它不是从零编写的全新绘图引擎，也不是 VectorCraft / ArtCraft 的官方发行版。
 上游代码、作者和第三方资产的版权及许可声明均予以保留。
 
-**当前 macOS 预览版为 [`0.7.0-kaleiform.17`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.17)；Windows/Linux 提供[独立桌面预览 17](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
+**当前 macOS 预览版为 [`0.7.0-kaleiform.17`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.17)；Windows/Linux 提供[独立桌面预览 18](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 预览 12 在预览 11 的后台描摹、首帧渲染、界面轻量化和大选区响应优化基础上，增加密集图稿拖动缓存：高保真图像描摹和大量路径移动时，拖动期间使用有界透明预览，松手后一次性精确提交矢量变换。见 [复杂图案拖动说明](docs/dense-drag.md)、[性能第三轮](docs/performance-round3.md)、[界面质感第二轮](docs/polish-round2.md) 和 [稳定性第一轮](docs/stability-round1.md)。
 预览 15 发布新的 macOS 工作区与布局改进，并修正性能诊断快捷键在非 macOS 平台与文档设置冲突的问题。恢复副本支持勾选与确认后批量删除，属性面板快速操作增加“释放复合路径”，新建画布详情统一尺寸、出血和高级设置的对齐与间距。见[预览 15 发布说明](docs/release-preview15.md)和[工作区说明](docs/macos-workspace.md)。预览 14 保留为未公开候选，不改写已有标签；已发布安装包的版本以上方 Release 链接为准。
 预览 16 发布与叠绘的 PNG 拖拽互通：原图数据保留、透明效果输出、自动嵌入和独立摆放尺寸；普通画布移动越过源窗口边界后转为原生复制拖拽，源图保持原位。见[发布说明](docs/release-preview16.md)、[互通说明](docs/image-interchange.md)和[隐私边界](docs/privacy.md)。
@@ -25,7 +25,7 @@
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
 当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）**、**Windows 10/11 x64** 和 **Linux x86_64** 预览安装包。
-Windows 的 MSI/便携 ZIP、Linux 的 DEB/RPM/AppImage/便携包见[独立桌面预览 17](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)。
+Windows 的 MSI/便携 ZIP、Linux 的 DEB/RPM/AppImage/便携包见[独立桌面预览 18](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)。
 Windows 包未配置 Authenticode 签名；Linux 要求 glibc 2.35 以上。安装与验收边界见 [Windows 指南](docs/windows.md)及 [Linux 指南](docs/linux.md)。
 源码还保留 Windows ARM64、Linux ARM64、FreeBSD 和 Web 构建入口，
 这些平台尚未提供本项目经验证的正式安装包。
@@ -33,6 +33,7 @@ Windows 包未配置 Authenticode 签名；Linux 要求 glibc 2.35 以上。安�
 
 **Windows/Linux 工作区更新**：两端现已复用 macOS 预览 17 的紧凑文档标签、画布优先布局、
 属性检查器和新建窗口，保留 Windows/Linux 的窗口按钮与完整菜单。
+本轮进一步统一 Inter 界面字重、简体中文回退和紧凑布局，见 [UI/字体审查](docs/qa-ui-desktop-2026-10-30.md)。
 Windows x64 的 MSI/便携试用构建与安装验证见 [Windows 指南](docs/windows.md)，
 Linux 的持续构建见 [Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/workflows/linux.yml)。
 桌面预览使用独立发布标签和校验清单，保留全部既有 Mac 附件及 latest 标记；[本轮验收与边界](docs/qa-desktop-2026-10-29.md) 单独记录。
@@ -61,9 +62,9 @@ Linux 的持续构建见 [Linux packages](https://github.com/Pengjingyu1992/Kale
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。
    不需要关闭系统的全局安全检查。具体步骤及 ZIP 备选见 [安装指南](docs/installation.md)。
 
-Windows 用户从[桌面预览 17](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17) 下载 MSI 或 portable.zip，核对同页 Windows `.sha256` 后安装或解压；便携版运行 `vectorcraft.exe`。
+Windows 用户从[桌面预览 18](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18) 下载 MSI 或 portable.zip，核对同页 Windows `.sha256` 后安装或解压；便携版运行 `vectorcraft.exe`。
 
-Linux 用户从[同一桌面预览](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.17)下载对应格式及 `vectorcraft-0.7.0-kaleiform.17-linux-x86_64.sha256`，
+Linux 用户从[同一桌面预览](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)下载对应格式及 `vectorcraft-0.7.0-kaleiform.18-linux-x86_64.sha256`，
 按 [Linux 安装指南](docs/linux.md) 校验后安装。Linux 安装包已通过最小 Ubuntu 运行检查，
 Fedora/RPM 安装和真实硬件等验收边界见指南；原 Mac 文件及校验清单继续保留。
 

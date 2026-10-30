@@ -160,12 +160,13 @@ def main():
         manifest = assets / (prefix + '.sha256')
         manifest.write_text(''.join(f'{digest}  {filename}\n' for filename, digest in sorted(hashes.items())))
         hashes[manifest.name] = LINUX.sha256(manifest)
-        body = ('Windows 与 Linux 采用仓库 macOS 预览 17 的工作区、紧凑标签、检查器和中性浅深色主题。\n\n'
+        body = ('Windows 与 Linux 对齐仓库 Mac 工作区的简洁层级，优化中英文字体、文档标签和紧凑布局。\n\n'
                 '- Windows 10/11 x64：选择 MSI 或 portable.zip；当前为未签名预览包。\n'
                 '- Linux x86_64：选择 DEB、RPM、AppImage 或 tar.gz；最低 glibc 2.35。RPM 安装未在本轮实测。\n'
                 '- 原生 Windows 安装/便携 CLI 与桌面验收、Linux 最小安装运行及隐私检查均通过。\n'
                 '- 所有包附 SHA-256、许可证及来源记录；没有新增遥测或作品上传。\n'
-                '- 真机显卡、输入法、数位板、多显示器与大型文档性能仍有验收边界。\n'
+                '- 性能预算保留原阈值与失败记录；云端大型画布渲染仍有超标，不能视作全面性能通过。\n'
+                '- 真机显卡、输入法、数位板与多显示器仍有验收边界；本轮未重新实测 Mac 硬件。\n'
                 '- 此独立预览不替换任何原 Mac 附件，也不更改 latest 标记。\n\n'
                 f'源码：[{source}](https://github.com/{REPOSITORY}/commit/{source})\n\n'
                 + '\n'.join(f'- [{name}]({run["html_url"]})' for name, run in runs.items()))

@@ -348,11 +348,17 @@ impl Tokens {
 }
 
 pub const FONT_UI: &str = "ui";
+pub const FONT_UI_MEDIUM: &str = "ui-medium";
 pub const FONT_UI_SEMIBOLD: &str = "ui-semibold";
 pub const FONT_MONO: &str = "mono";
 
 pub fn semibold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FONT_UI_SEMIBOLD.into()))
+}
+
+/// Compact desktop chrome needs a quieter weight than section headings.
+pub fn medium(size: f32) -> FontId {
+    if cfg!(any(target_os = "windows", target_os = "linux")) { FontId::new(size, FontFamily::Name(FONT_UI_MEDIUM.into())) } else { semibold(size) }
 }
 
 pub fn emphasis(ctx: &egui::Context, size: f32) -> FontId {
@@ -367,17 +373,37 @@ pub fn install_fonts(ctx: &egui::Context) {
     let add = |f: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         f.font_data.insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
     };
-    add(&mut fonts, "SourceSans3", include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf"));
-    add(&mut fonts, "SourceSans3-Semibold", include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf"));
+    // Reuse the repository's licensed Inter faces on custom-titlebar desktops. The Mac keeps
+    // its native SF/PingFang stack; artwork fonts and the web's existing stack are unaffected.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let (regular, medium, semibold) = (
+        include_bytes!("../../../assets/fonts/Inter-Regular.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/Inter-Medium.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf").as_slice(),
+    );
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let (regular, medium, semibold) = (
+        include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf").as_slice(),
+    );
+    add(&mut fonts, "UI-Regular", regular);
+    add(&mut fonts, "UI-Medium", medium);
+    add(&mut fonts, "UI-Semibold", semibold);
+    add(&mut fonts, "UI-Symbols", include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf"));
     add(&mut fonts, "JetBrainsMono", include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"));
-    let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    let mut prop = vec!["SourceSans3".to_string()];
+    let mut fallback: Vec<String> = vec!["UI-Symbols".into()];
+    fallback.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
+    let mut prop = vec!["UI-Regular".to_string()];
     prop.extend(fallback.clone());
     fonts.families.insert(FontFamily::Proportional, prop);
-    let mut semi = vec!["SourceSans3-Semibold".to_string()];
+    let mut med = vec!["UI-Medium".to_string()];
+    med.extend(fallback.clone());
+    fonts.families.insert(FontFamily::Name(FONT_UI_MEDIUM.into()), med);
+    let mut semi = vec!["UI-Semibold".to_string()];
     semi.extend(fallback.clone());
     fonts.families.insert(FontFamily::Name(FONT_UI_SEMIBOLD.into()), semi);
-    let mut ui = vec!["SourceSans3".to_string()];
+    let mut ui = vec!["UI-Regular".to_string()];
     ui.extend(fallback.clone());
     fonts.families.insert(FontFamily::Name(FONT_UI.into()), ui);
     let mut mono = vec!["JetBrainsMono".to_string()];

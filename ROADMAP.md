@@ -131,6 +131,13 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Desktop typography and compact layouts (2026-10-30, M14.164):** Windows/Linux reuse licensed
+  Inter UI weights with matched CJK baselines, preserve named variable-font axes and avoid partially
+  clipped New Document categories. Transform reference controls follow actual field metrics;
+  native screenshot evidence includes light/dark, narrow layouts and 150%/200% UI scaling.
+  Native document decoding streams common node variants while retaining arbitrary JSON field order.
+  See [UI audit](docs/qa-ui-desktop-2026-10-30.md); native hardware and rendering budgets remain open.
+
 - **Desktop functional coverage (2026-10-30, M14.163):** adds native pointer tests for every
   tool-drawer button and core workspace controls, UI-command invariant sweeps, and a shared
   panel/preference/effect/export desktop matrix. Fixes missing caption semantics and a stale

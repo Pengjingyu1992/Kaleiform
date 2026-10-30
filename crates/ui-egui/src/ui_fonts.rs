@@ -34,22 +34,23 @@ pub(crate) struct UiFonts {
 impl UiFonts {
     /// After a frame is laid out: add the fallback fonts found since the last frame, and look for
     /// fonts covering the characters this frame painted that the UI fonts lack.
-    pub(crate) fn frame(&mut self, ctx: &egui::Context) {
+    pub(crate) fn frame(&mut self, ctx: &egui::Context, root: LayerId) {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(faces) = self.pending.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.pending = None;
             self.install(ctx, &faces);
         }
-        let missing = self.missing(ctx);
+        let missing = self.missing(ctx, root);
         if missing.is_empty() {
             return;
         }
+        let language = crate::i18n::current().code();
         let find = move || {
             let mut faces: Vec<FallbackFace> = vec![];
             for (family, c) in missing {
                 // The face is looked up at the weight the character was painted in, so a semibold
                 // heading gets a semibold CJK face rather than the family's regular one.
-                if let Some(f) = FontDb::global().face_covering_weighted(c, family_weight(&family))
+                if let Some(f) = fallback_face(FontDb::global(), c, family_weight(&family), language)
                     && !faces.iter().any(|(fam, x)| *fam == family && x.id() == f.id())
                 {
                     faces.push((family, f));
@@ -79,7 +80,7 @@ impl UiFonts {
 
     /// Characters painted this frame that the UI fonts lack and haven't been looked for, now
     /// marked seen. None while a search is running.
-    fn missing(&mut self, ctx: &egui::Context) -> Vec<(FontFamily, char)> {
+    fn missing(&mut self, ctx: &egui::Context, root: LayerId) -> Vec<(FontFamily, char)> {
         #[cfg(not(target_arch = "wasm32"))]
         if self.pending.is_some() {
             return vec![];
@@ -87,6 +88,10 @@ impl UiFonts {
         let mut layers: Vec<LayerId> = ctx.memory(|m| m.layer_ids().collect());
         if !layers.contains(&LayerId::background()) {
             layers.push(LayerId::background());
+        }
+        // Native root panels need not appear in Memory's list of floating areas.
+        if !layers.contains(&root) {
+            layers.push(root);
         }
         let mut chars = HashSet::new();
         let seen = &self.seen;
@@ -116,7 +121,9 @@ impl UiFonts {
     /// Add each face only to the family that requested its weight.
     fn install(&mut self, ctx: &egui::Context, faces: &[FallbackFace]) {
         for (family, face) in faces {
-            let name = format!("{} {} #{}", face.family, face.style, face.face_index());
+            // egui ignores add_font when its name already exists, including new family links.
+            // A fallback discovered later for another UI weight therefore needs its own name.
+            let name = format!("{} {} #{} ({family})", face.family, face.style, face.face_index());
             if !self.added.insert((family.clone(), name.clone())) {
                 continue;
             }
@@ -124,7 +131,10 @@ impl UiFonts {
             // face it loads for the session) instead of copied: one handle is leaked per font added.
             let face: &'static FontFace = Box::leak(Box::new(face.clone()));
             // Align fallback metrics with the Latin UI baseline without changing the point size.
-            let tweak = latin_face().map_or_else(FontTweak::default, |latin| baseline_tweak(face, &latin));
+            let mut tweak = latin_face().map_or_else(FontTweak::default, |latin| baseline_tweak(face, &latin));
+            // Named instances share bytes: retain their axes so a requested semibold does not
+            // silently render at the variable font's default weight.
+            tweak.coords = egui::epaint::text::VariationCoords::new(face.variations().iter().map(|(tag, value)| (tag, *value)));
             let data = FontData { index: face.face_index(), ..FontData::from_static(face.file_data()) }.tweak(tweak);
             let families = vec![InsertFontFamily { family: family.clone(), priority: FontPriority::Lowest }];
             ctx.add_font(FontInsert { name, data, families });
@@ -141,6 +151,28 @@ impl UiFonts {
             self.install(ctx, &faces);
         }
     }
+}
+
+fn fallback_face(db: &FontDb, c: char, weight: f32, language: &str) -> Option<Arc<FontFace>> {
+    if language == "zh-hans" && cfg!(any(target_os = "windows", target_os = "linux")) {
+        // A generic CJK fallback can choose the Japanese face of a collection on Linux.
+        // Use local simplified-Chinese UI forms first; never bundle proprietary OS fonts.
+        let family = if cfg!(target_os = "windows") { "Microsoft YaHei UI" } else { "Noto Sans CJK SC" };
+        let style = if weight >= 600.0 {
+            "Bold"
+        } else if weight >= 500.0 {
+            "Medium"
+        } else {
+            "Regular"
+        };
+        if let Some(face) = db.face(family, style)
+            && face.family.eq_ignore_ascii_case(family)
+            && face.covers(c)
+        {
+            return Some(face);
+        }
+    }
+    db.face_covering_weighted(c, weight)
 }
 
 /// Call `f` with the text of `shape` and the shapes it holds.
@@ -185,14 +217,28 @@ fn latin_face() -> Option<Arc<FontFace>> {
     METRICS
         .get_or_init(|| {
             let db = vectorcraft_text::FontDb::with_font_dirs(Vec::new());
-            db.add_font(include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf").to_vec());
-            db.face("Source Sans 3", "Regular")
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                db.add_font(include_bytes!("../../../assets/fonts/Inter-Regular.ttf").to_vec());
+                db.face("Inter", "Regular")
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+            {
+                db.add_font(include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf").to_vec());
+                db.face("Source Sans 3", "Regular")
+            }
         })
         .clone()
 }
 
 fn family_weight(family: &FontFamily) -> f32 {
-    if *family == FontFamily::Name(crate::theme::FONT_UI_SEMIBOLD.into()) { 600.0 } else { 400.0 }
+    if *family == FontFamily::Name(crate::theme::FONT_UI_SEMIBOLD.into()) {
+        600.0
+    } else if *family == FontFamily::Name(crate::theme::FONT_UI_MEDIUM.into()) {
+        500.0
+    } else {
+        400.0
+    }
 }
 
 pub(crate) fn craft_font_data(font: &vectorcraft_text::CraftFont) -> FontData {
@@ -214,11 +260,12 @@ mod tests {
         ctx.run_ui(Default::default(), |ui| {
             ui.label(egui::RichText::new("\u{10FFFD}").font(FontId::proportional(26.0)));
             ui.label(egui::RichText::new("\u{10FFFD}").font(crate::theme::semibold(12.0)));
-            let missing = fonts.missing(ui.ctx());
-            assert_eq!(missing.len(), 2);
+            ui.label(egui::RichText::new("\u{10FFFD}").font(FontId::new(12.0, FontFamily::Name(crate::theme::FONT_UI_MEDIUM.into()))));
+            let missing = fonts.missing(ui.ctx(), ui.layer_id());
+            assert_eq!(missing.len(), 3);
             let mut weights: Vec<_> = missing.iter().map(|(family, _)| family_weight(family) as u32).collect();
             weights.sort_unstable();
-            assert_eq!(weights, [400, 600]);
+            assert_eq!(weights, [400, 500, 600]);
         })
         .textures_delta
         .clear();
@@ -228,7 +275,7 @@ mod tests {
     fn frame(ctx: &egui::Context, fonts: &mut UiFonts, text: &str) {
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.label(text);
-            fonts.frame(ui.ctx());
+            fonts.frame(ui.ctx(), ui.layer_id());
         });
         out.textures_delta.clear();
     }
@@ -244,6 +291,61 @@ mod tests {
         let mut fonts = UiFonts::default();
         frame(&ctx, &mut fonts, "Layer 1 — Café");
         assert!(fonts.pending.is_none() && fonts.added.is_empty());
+    }
+
+    #[test]
+    fn root_panel_titles_request_their_own_cjk_weight() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut fonts = UiFonts::default();
+        let root = LayerId::new(egui::Order::Background, egui::Id::new("native-root-panel"));
+        ctx.run_ui(Default::default(), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().layer_id(root), |ui| {
+                ui.label(egui::RichText::new("品牌画板").font(FontId::new(12.0, FontFamily::Name(crate::theme::FONT_UI_MEDIUM.into()))));
+            });
+            fonts.frame(ui.ctx(), root);
+        })
+        .textures_delta
+        .clear();
+        for c in "品牌画板".chars() {
+            assert!(fonts.seen.contains(&(FontFamily::Name(crate::theme::FONT_UI_MEDIUM.into()), c)), "root title was not scanned: {c}");
+        }
+        fonts.finish(&ctx);
+    }
+
+    #[test]
+    fn a_shared_fallback_can_be_added_to_another_family_in_a_later_frame() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let mut fonts = UiFonts::default();
+        let face = FontDb::global().face("Source Sans 3", "Regular").unwrap();
+        let families = [FontFamily::Name(crate::theme::FONT_UI_SEMIBOLD.into()), FontFamily::Name(crate::theme::FONT_UI_MEDIUM.into())];
+        for family in &families {
+            fonts.install(&ctx, &[(family.clone(), face.clone())]);
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        }
+        for family in &families {
+            assert!(
+                ctx.fonts(|f| f.definitions().families.get(family).unwrap().iter().any(|name| name.starts_with("Source Sans 3 Regular #"))),
+                "later family lost its link to the shared face: {family}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    fn simplified_chinese_ui_prefers_the_installed_locale_face() {
+        let db = FontDb::global();
+        let family = if cfg!(target_os = "windows") { "Microsoft YaHei UI" } else { "Noto Sans CJK SC" };
+        if !db.has_family(family) {
+            return; // Minimal CI hosts need not have a CJK system font.
+        }
+        for weight in [400.0, 500.0, 600.0] {
+            let face = fallback_face(db, '构', weight, "zh-hans").unwrap();
+            assert_eq!(face.family, family);
+            assert!(face.covers('构'));
+        }
     }
 
     #[test]

@@ -49,7 +49,7 @@ pub(crate) fn show(app: &mut VectorcraftApp, ui: &mut Ui, rect: Rect) {
         return;
     }
     let active = app.session.active_index().filter(|_| app.ui.home.is_none());
-    let font = theme::semibold(if app.session.prefs.large_tabs { 13.0 } else { 12.0 });
+    let font = theme::medium(if app.session.prefs.large_tabs { 13.0 } else { 12.0 });
     let titles: Vec<_> = app
         .session
         .documents()

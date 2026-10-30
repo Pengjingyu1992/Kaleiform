@@ -47,7 +47,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
           $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
-          cargo --config $rustConfig test --workspace --release --target x86_64-pc-windows-msvc --locked 2>&1 | Tee-Object dist/windows-qa/unit.log
+          # Test-profile binaries avoid ThinLTO for thousands of workspace test cases. The MSI,
+          # portable runtime matrix and performance checks below still use release binaries.
+          cargo --config $rustConfig test --workspace --target x86_64-pc-windows-msvc --locked 2>&1 | Tee-Object dist/windows-qa/unit.log
           if ($LASTEXITCODE -ne 0) { throw 'Windows native workspace tests failed' }
       - name: Install WiX
         run: |

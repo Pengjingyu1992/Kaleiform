@@ -93,6 +93,11 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "view": app.view().map(|v| serde_json::to_value(v).unwrap_or_default()),
         "canvasRect": app.canvas_rect.map(|c| json!([c.left(), c.top(), c.width(), c.height()])),
         "window": [r.width(), r.height()],
+        "typography": {
+            "zoom": ctx.zoom_factor(),
+            "families": ctx.fonts(|fonts| fonts.definitions().families.iter().map(|(family, stack)| (family.to_string(), stack.clone())).collect::<std::collections::BTreeMap<_, _>>()),
+            "chineseReady": ctx.fonts_mut(|fonts| [egui::FontId::proportional(13.0), crate::theme::medium(13.0), crate::theme::semibold(13.0)].iter().all(|id| "虹构属性".chars().all(|c| fonts.has_glyph(id, c)))),
+        },
         "windowState": ctx.input(|i| json!({
             "maximized": i.viewport().maximized,
             "fullscreen": i.viewport().fullscreen,

@@ -443,6 +443,10 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     section_header(ui, tl!("Transform"));
     let fw = super::field_width(ui);
     let compact = ui.available_width() < 247.0;
+    // Two input rows plus their group padding. Font metrics differ between native stacks;
+    // centring against a fixed 62-point column displaced the reference grid with Inter.
+    let field_row = ui.fonts_mut(|fonts| fonts.row_height(&egui::FontId::proportional(12.5)) + 10.0).max(26.0);
+    let fields_height = 2.0 * field_row + 6.0;
     let mut fields_left = None;
     if compact {
         ui.horizontal(|ui| {
@@ -454,9 +458,9 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         if !compact {
-            ui.allocate_ui_with_layout(egui::vec2(23.0, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.set_min_height(62.0);
-                ui.add_space(19.5);
+            ui.allocate_ui_with_layout(egui::vec2(23.0, fields_height), egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_min_height(fields_height);
+                ui.add_space((fields_height - 23.0) / 2.0);
                 if let Some(i) = widgets::reference_point(ui, refi) {
                     ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
                 }
@@ -487,9 +491,9 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
             fields_left.get_or_insert(group.response.rect.left());
         }
         if !compact {
-            ui.allocate_ui_with_layout(egui::vec2(24.0, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.set_min_height(62.0);
-                ui.add_space(20.0);
+            ui.allocate_ui_with_layout(egui::vec2(24.0, fields_height), egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_min_height(fields_height);
+                ui.add_space((fields_height - 24.0) / 2.0);
                 super::transform::constrain_link(app, ui);
             });
         }

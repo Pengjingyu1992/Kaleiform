@@ -299,17 +299,18 @@ fn num_field_impl(ui: &mut Ui, id: impl std::hash::Hash + std::fmt::Debug, value
         buf = shown.clone();
     }
     take_dialog_focus(ui, id, &buf);
+    let inset = field_inset();
     let (rect, resp) = ui
         .allocate_ui_with_layout(vec2(width, 26.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(width);
             let frame = if framed || editing { input_frame(ui, editing) } else { egui::Frame::NONE.stroke(Stroke::new(1.0, Color32::TRANSPARENT)) };
-            let framed = frame.inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            let framed = frame.inner_margin(egui::Margin::symmetric(inset, 4)).show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut buf)
                         .id(id)
                         .frame(egui::Frame::NONE)
-                        .desired_width(width - 14.0)
-                        .min_size(vec2(width - 14.0, 0.0))
+                        .desired_width(width - f32::from(inset * 2 + 2))
+                        .min_size(vec2(width - f32::from(inset * 2 + 2), 0.0))
                         .font(egui::FontId::proportional(12.5))
                         .text_color(t.text_strong),
                 )
@@ -444,6 +445,12 @@ fn select_all_on_focus(ui: &Ui, resp: &Response, text: &str) {
     }
 }
 
+// Keep the same usable width in unit, scalar and text inputs. Inter needs slightly more room
+// for fractional values and units inside the fixed desktop inspector columns.
+fn field_inset() -> i8 {
+    if cfg!(any(target_os = "windows", target_os = "linux")) { 4 } else { 6 }
+}
+
 /// The recessed text box of the panel fields showing `shown`, `rows` lines tall (1: single line),
 /// its text kept under `id` while it has focus. Returns the text (as edited), the text edit's
 /// response and the box.
@@ -452,16 +459,17 @@ fn recessed_text(ui: &mut Ui, id: egui::Id, shown: &str, width: f32, rows: usize
     let editing = ui.memory(|m| m.has_focus(id));
     let mut buf: String = if editing { ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| shown.to_string()) } else { shown.to_string() };
     let height = 26.0 + 16.0 * (rows.max(1) - 1) as f32;
+    let inset = field_inset();
     let (rect, resp) = ui
         .allocate_ui_with_layout(vec2(width, height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(width);
-            let framed = input_frame(ui, editing).inner_margin(egui::Margin::symmetric(6, 4)).show(ui, |ui| {
+            let framed = input_frame(ui, editing).inner_margin(egui::Margin::symmetric(inset, 4)).show(ui, |ui| {
                 let edit = if rows > 1 { egui::TextEdit::multiline(&mut buf).desired_rows(rows) } else { egui::TextEdit::singleline(&mut buf) };
                 ui.add(
                     edit.id(id)
                         .frame(egui::Frame::NONE)
-                        .desired_width(width - 14.0)
-                        .min_size(vec2(width - 14.0, 0.0))
+                        .desired_width(width - f32::from(inset * 2 + 2))
+                        .min_size(vec2(width - f32::from(inset * 2 + 2), 0.0))
                         .font(egui::FontId::proportional(12.5))
                         .text_color(t.text_strong),
                 )

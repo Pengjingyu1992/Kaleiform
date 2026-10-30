@@ -512,7 +512,8 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
     widgets::divider(ui);
     let t = crate::theme::Tokens::get(ui.ctx());
     ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let width = ((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0).max(1.0);
+        // Three independently pixel-rounded labels must not grow the parent past its edge.
+        let width = ((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0).floor().max(1.0);
         let counts = st.info.map(|(p, a, c)| [p, a, c]);
         let values = [0, 1, 2].map(|i| counts.map_or_else(|| "—".into(), |counts| counts[i].to_string()));
         let summary = crate::i18n::fmt(
@@ -530,7 +531,7 @@ pub(crate) fn show_bounded(app: &mut VectorcraftApp, ui: &mut Ui, height: f32) {
             ui.spinner();
             let stage =
                 if app.trace_job.cancelled() { tl!("Cancelling Image Trace…") } else { tl!(crate::trace_job::stage_label(app.trace_job.stage())) };
-            let width = (ui.available_width() - 22.0 - ui.spacing().item_spacing.x).max(1.0);
+            let width = (ui.available_width() - 22.0 - ui.spacing().item_spacing.x).floor().max(1.0);
             ui.add_sized(egui::vec2(width, 22.0), egui::Label::new(stage).truncate()).on_hover_text(stage);
             if widgets::icon_button_enabled(ui, "x", tl!("Cancel Image Trace"), false, !app.trace_job.cancelled(), 22.0).clicked() {
                 app.run("imageTrace.cancel", json!({})).ok();
@@ -684,7 +685,7 @@ mod tests {
                 }
                 let cancel = crate::toolbar::tests::widget_rects(&ctx, vec2(22.0, 22.0));
                 assert_eq!(cancel.len(), 1);
-                assert!(screen.contains_rect(cancel[0]));
+                assert!(screen.contains_rect(cancel[0]), "{brightness:?}/{scale}: cancel {:?} outside {screen:?}", cancel[0]);
                 let at = cancel[0].center();
                 for pressed in [true, false] {
                     ctx.run_ui(

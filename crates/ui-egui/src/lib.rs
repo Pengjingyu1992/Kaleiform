@@ -1216,7 +1216,7 @@ impl VectorcraftApp {
         if self.custom_titlebar {
             titlebar::resize_zones(ui);
         }
-        self.ui_fonts.frame(&ctx);
+        self.ui_fonts.frame(&ctx, ui.layer_id());
         if self.mcp.requested_port.is_some() {
             ctx.request_repaint();
         }
