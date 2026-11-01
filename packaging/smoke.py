@@ -97,11 +97,14 @@ def run(bindir, desktop, work, extended=False):
                 f = conn.makefile("rwb")
 
                 def call(method, params=None):
+                    globals()["last_diagnostic_rpc"] = method
                     f.write(json.dumps({"id": 1, "method": method, "params": params or {}}).encode() + b"\n")
                     f.flush()
                     reply = json.loads(f.readline())
                     if not reply.get("ok") and method == "ui.screenshot" and os.name == "nt":
                         reply["testDesktop"] = windows_input_desktop()
+                        if hook := globals().get("capture_failure_diagnostic"):
+                            hook(proc, port, reply)
                     assert reply.get("ok"), reply
                     return reply["result"]
 
