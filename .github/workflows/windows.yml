@@ -1,125 +1,75 @@
-name: Windows capture candidate
+name: Windows display capture probe
 
-# Experimental source/runtime checks. This workflow is not a publication gate.
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  build:
-    runs-on: windows-2022
-    timeout-minutes: 40
-    env:
-      CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "4"
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      VECTORCRAFT_BUILD_SHA: ${{ github.sha }}
-      VECTORCRAFT_NO_PREFS: "1"
-      WGPU_BACKEND: dx12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-        with:
-          key: windows-x64-desktop
-          cache-workspace-crates: true
-          cache-on-failure: true
-      - name: Install WiX
-        run: |
-          dotnet tool install --global wix --version 5.0.2
-          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
-      - name: Build the experimental source packages
-        run: ./packaging/windows/package.ps1 -Arch x64
-      - name: Audit package privacy and checksums
-        run: ./packaging/windows/verify.ps1 -Phase Validate
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kaleiform-windows-capture-candidate
-          path: dist/release/*
-          if-no-files-found: error
-
   diagnose:
-    name: Candidate ${{ matrix.mode }} desktop (${{ matrix.trace }})
-    needs: build
+    name: Native display diagnosis (${{ matrix.display }})
     runs-on: windows-2025
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        mode: [installed, portable]
-        trace: [normal, diagnostic]
+        display: [original, wide]
     env:
       VECTORCRAFT_NO_PREFS: "1"
       WGPU_BACKEND: dx12
-      RUST_LOG: ${{ matrix.trace == 'diagnostic' && 'warn,vectorcraft=debug,vectorcraft_ui_egui=debug,egui_wgpu=trace' || '' }}
-      DIAGNOSTIC_RUN_ID: ${{ github.run_id }}
-      CAPTURE_DIAGNOSTIC_SOURCE_SHA: ${{ github.sha }}
+      DIAGNOSTIC_RUN_ID: "41297641585"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Check source run provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, re, subprocess
+          run_id = os.environ['DIAGNOSTIC_RUN_ID']
+          assert re.fullmatch(r'[1-9][0-9]*', run_id), 'Expected a numeric run id'
+          repository = os.environ['GITHUB_REPOSITORY']
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repository}/actions/runs/{run_id}']))
+          assert run['head_repository']['full_name'] == repository == 'Pengjingyu1992/Kaleiform'
+          assert run['event'] == 'push' and run['head_branch'] == 'main'
+          assert run['name'] == 'Windows x64 packages'
+          assert run['head_sha'] == '1825152b773bcd979d5abc6f99c9da39b42caa88'
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('CAPTURE_DIAGNOSTIC_SOURCE_SHA=' + run['head_sha'] + '\n')
+          print('Diagnosing immutable packages from main source ' + run['head_sha'])
       - uses: actions/download-artifact@v4
         with:
-          name: kaleiform-windows-capture-candidate
+          name: kaleiform-windows-x64
+          run-id: "41297641585"
+          github-token: ${{ github.token }}
           path: dist/release
-      - name: Validate the exact candidate packages
+      - name: Validate exact source packages
         run: ./packaging/windows/verify.ps1 -Phase Validate
       - name: Install the owned test application
-        if: matrix.mode == 'installed'
         run: ./packaging/windows/verify.ps1 -Phase Install
-      - name: Open portable package and check CLI
-        if: matrix.mode == 'portable'
-        run: ./packaging/windows/verify.ps1 -Phase PortableCli
-      - name: Check original desktop timing and diagnose any failure
-        if: matrix.trace == 'diagnostic'
+      - name: Diagnose the first capture failure with original test timing
         timeout-minutes: 14
-        env:
-          PACKAGE_MODE: ${{ matrix.mode }}
         run: |
-          if ($env:PACKAGE_MODE -eq 'installed') {
-            $binaryDirectory = Join-Path $env:ProgramFiles 'Kaleiform'
-          } else {
-            $apps = @(Get-ChildItem -Path dist/windows-qa/portable -Filter vectorcraft.exe -Recurse)
-            if ($apps.Count -ne 1) { throw 'Expected one portable candidate executable' }
-            $binaryDirectory = $apps[0].DirectoryName
-          }
-          python -B packaging/windows/diagnose_capture.py --bin-dir "$binaryDirectory" --output dist/windows-qa/diagnosis --mode baseline
-          if ($LASTEXITCODE -ne 0) { throw 'Candidate failed; inspect the new diagnostic summary' }
-      - name: Run the original native desktop acceptance
-        if: matrix.trace == 'normal'
-        timeout-minutes: 12
-        env:
-          PACKAGE_MODE: ${{ matrix.mode }}
-        run: |
-          if ($env:PACKAGE_MODE -eq 'installed') {
-            ./packaging/windows/verify.ps1 -Phase InstalledDesktop
-          } else {
-            ./packaging/windows/verify.ps1 -Phase PortableDesktop
-          }
-      - name: Surface original acceptance failures
-        if: failure()
-        run: ./packaging/windows/report.ps1
+          python -B packaging/windows/display_capture_probe.py --display ${{ matrix.display }} -- python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode baseline
+          if ($LASTEXITCODE -ne 0) { throw 'The diagnostic recorded a failure; see its summary' }
       - name: Uninstall this test installation
-        if: always() && matrix.mode == 'installed'
+        if: always()
         run: |
           if (Test-Path dist/windows-qa/installed.sha256) {
             ./packaging/windows/verify.ps1 -Phase Uninstall
           }
-      - name: Retain synthetic candidate evidence
+      - name: Retain synthetic diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-capture-candidate-${{ matrix.mode }}-${{ matrix.trace }}
+          name: kaleiform-display-capture-${{ matrix.display }}
           path: |
-            dist/windows-qa/**/*.png
-            dist/windows-qa/**/*.json
-            dist/windows-qa/**/*.log
+            dist/windows-qa/diagnosis/**/*.png
+            dist/windows-qa/diagnosis/**/*.json
+            dist/windows-qa/diagnosis/**/*.log
           if-no-files-found: ignore
