@@ -1,5 +1,5 @@
 name: Windows x64 packages
-run-name: Diagnose installed screenshot visibility with source 92c5091 binaries
+run-name: Isolate installed screenshot failure before and after visual scaling
 
 on:
   workflow_dispatch:
@@ -10,9 +10,13 @@ permissions:
 
 jobs:
   capture:
-    name: Installed screenshot visibility probe
+    name: Installed screenshot probe (${{ matrix.mode }})
     runs-on: windows-2025
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [basic, visual]
     env:
       VECTORCRAFT_NO_PREFS: "1"
       WGPU_BACKEND: dx12
@@ -34,7 +38,7 @@ jobs:
       - name: Reproduce basic, six visual captures and first panel capture
         timeout-minutes: 6
         run: |
-          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/probe
+          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/probe --mode ${{ matrix.mode }}
           if ($LASTEXITCODE -ne 0) { throw 'Owned-window screenshot probe failed' }
       - name: Uninstall this test installation
         if: always()
@@ -46,7 +50,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-windows-capture-probe
+          name: kaleiform-windows-capture-probe-${{ matrix.mode }}
           path: |
             dist/windows-qa/probe/**/*.png
             dist/windows-qa/probe/**/*.json

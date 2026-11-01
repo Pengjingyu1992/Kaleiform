@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import re
 import subprocess
 import time
 
@@ -68,6 +69,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--mode", choices=["basic", "visual"], default="visual")
     args = parser.parse_args()
     assert os.name == "nt"
     root = Path(__file__).resolve().parents[2]
@@ -84,14 +86,42 @@ def main():
 
     def probe(call, work):
         assert len(owned) == 1
+        results = []
+
+        def capture(phase, pin=False):
+            try:
+                if pin:
+                    notice("Owned window pinned", window(owned[0].pid, pin=True))
+                    call("ui.focus")
+                state = call("ui.inspect")
+                notice(
+                    "Frame state " + phase,
+                    {k: state.get(k) for k in ("window", "windowState", "perf", "canvasRaster")},
+                )
+                call("ui.screenshot", {"path": str(work / (phase + ".png"))})
+                result = {"phase": phase, "ok": True}
+            except Exception as error:
+                result = {
+                    "phase": phase,
+                    "ok": False,
+                    "error": type(error).__name__ + ": " + str(error)[:600],
+                }
+            results.append(result)
+            notice("Capture probe", result)
+            (work / "probe-results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+
+        capture("before-fixture")
 
         def command(name, params=None):
             return call("engine.execute", {"command": name, "params": params or {}})
 
         command("file.new", {"width": 320, "height": 240})
+        capture("new-document")
         a = command("shape.rectangle", {"x": 20, "y": 20, "width": 130, "height": 100})["id"]
         command("paint.setFill", {"color": "#3366ff"})
         b = command("shape.ellipse", {"x": 90, "y": 65, "width": 110, "height": 95})["id"]
+        command("paint.setFill", {"color": "#ff8833"})
+        capture("shapes")
         command(
             "text.create",
             {
@@ -102,6 +132,7 @@ def main():
                 "font": "Noto Sans CJK SC",
             },
         )
+        capture("text")
         command("select.set", {"ids": [a, b]})
         command("prefs.set", {"values": {"backgroundSave": False, "backgroundExport": False}})
         command("app.language", {"lang": "zh-hans"})
@@ -118,24 +149,15 @@ def main():
             json.dumps(call("ui.inspect"), ensure_ascii=False, indent=2), encoding="utf-8"
         )
         notice("Owned window before", window(owned[0].pid))
-        results = []
-        for phase, pin in [("before", False), ("after", True)]:
-            if pin:
-                notice("Owned window after", window(owned[0].pid, pin=True))
-                call("ui.focus")
-            try:
-                call("ui.screenshot", {"path": str(work / (phase + ".png"))})
-                result = {"phase": phase, "ok": True}
-            except Exception as error:
-                result = {"phase": phase, "ok": False, "error": str(error)[:400]}
-            results.append(result)
-            notice("Capture probe", result)
-        (work / "probe-results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+        capture("before")
+        capture("after", pin=True)
         assert results[-1]["ok"], "Owned-window visibility did not restore capture"
 
     def route(path, *values, **kwargs):
         if Path(path).name == "desktop_functional.py":
             return {"run": probe}
+        if Path(path).name == "desktop_visual.py" and args.mode == "basic":
+            return {"run": lambda call, work: notice("Diagnostic mode", "basic without visual zoom sequence")}
         return original_run_path(path, *values, **kwargs)
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -143,10 +165,23 @@ def main():
     runpy.run_path = route
     try:
         smoke["run"](args.bin_dir.resolve(), True, args.output.resolve(), True)
+    except Exception:
+        log = args.output / "desktop.log"
+        if log.exists():
+            tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-100:]
+            for line in [s for s in tail if re.search(r"panic|error|warn|device|DXGI|screenshot", s, re.I)][
+                -12:
+            ]:
+                notice("New probe app diagnostic", line[:600])
+        raise
     finally:
         runpy.run_path = original_run_path
         subprocess.Popen = original_popen
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        notice("Diagnostic exception", type(error).__name__ + ": " + str(error)[:800])
+        raise
