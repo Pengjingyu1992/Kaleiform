@@ -18,6 +18,22 @@ def progress(message):
     print(prefix + message, flush=True)
 
 
+def windows_input_desktop():
+    """Read CI desktop accessibility on a failed capture; never switch or unlock it."""
+    import ctypes
+    from ctypes import wintypes
+
+    api = ctypes.WinDLL("user32", use_last_error=True)
+    api.OpenInputDesktop.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    api.OpenInputDesktop.restype = wintypes.HANDLE
+    api.CloseDesktop.argtypes = [wintypes.HANDLE]
+    handle = api.OpenInputDesktop(0, False, 1)  # DESKTOP_READOBJECTS
+    error = ctypes.get_last_error() if not handle else 0
+    if handle:
+        api.CloseDesktop(handle)
+    return {"inputDesktopAccessible": bool(handle), "error": error}
+
+
 def png(path, expected=None):
     data = path.read_bytes()
     assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 100, path
@@ -84,6 +100,8 @@ def run(bindir, desktop, work, extended=False):
                     f.write(json.dumps({"id": 1, "method": method, "params": params or {}}).encode() + b"\n")
                     f.flush()
                     reply = json.loads(f.readline())
+                    if not reply.get("ok") and method == "ui.screenshot" and os.name == "nt":
+                        reply["testDesktop"] = windows_input_desktop()
                     assert reply.get("ok"), reply
                     return reply["result"]
 

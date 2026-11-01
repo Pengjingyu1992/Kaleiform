@@ -131,6 +131,13 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Bounded desktop capture recovery (2026-11-01, M14.169):** a control screenshot gets one
+  repeat attempt if no presented-frame event arrives, covering a command consumed during a
+  transient surface acquisition failure. The original eight-second deadline and real-frame
+  requirement remain; late or duplicate events cannot reply twice. Three deterministic
+  regressions cover dropped commands, success cancellation and the unchanged failure deadline.
+  Native Windows validation remains required; platform/parity estimates are unchanged.
+
 - **Low-latency local control replies (2026-11-01, M14.166):** buffers JSON-lines replies and
   disables Nagle on accepted loopback connections. A regression reproduces 54 formatting writes
   for two replies and requires two complete flushed records, preserving IDs, UTF-8 and junk

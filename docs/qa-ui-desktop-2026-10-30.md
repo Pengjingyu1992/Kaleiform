@@ -31,12 +31,17 @@ Mac 参考来自 `theme.rs` 的 SF/PingFang 与 AppKit 路径，以及 `docs/mac
 - 捕获脚本：`tests/desktop_visual.py`，由 Windows 安装/便携与 Linux DEB 的扩展桌面验收共同执行。
 - 截图命名：`ui-audit/properties-dark.png`、`properties-light.png`、`inspector-narrow.png`、
   `new-document-compact.png`、`new-document-1.5.png`、`new-document-2.0.png`；旁附 `ui.inspect` JSON。
-- 本地 Linux 真实桌面扩展矩阵：414 项通过、0 失败；UI 专项回归：948 项通过、0 失败、1 项默认忽略。
+- 本地 Linux 真实桌面扩展矩阵：414 项通过、0 失败；UI 专项回归：951 项通过、0 失败、1 项默认忽略。
 - 本轮已实际查看上述六张修正后 Linux 截图：中文标签不再缺字，分类没有残片；深浅主题、窄检查器及缩放后的关闭/创建按钮正常。
-- `RUST_TEST_THREADS=1 cargo xtask ci`：七项门禁全部通过，4,804 项测试通过、0 失败、5 项保留默认忽略，20 个 WASM 模块检查通过。Windows 原生构建结果在发布前另核对。
+- `RUST_TEST_THREADS=1 cargo xtask ci`：七项门禁全部通过，4,807 项测试通过、0 失败、5 项保留默认忽略，20 个 WASM 模块检查通过。源码 CI 与 Linux 包运行结果：[CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41268273440)、[Linux](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41268273395) 均通过。Windows 的最终同源结果在发布前另核对。
 - Linux 构建曾因上游 continuous 工具字节变化而被固定哈希拦截；构建工具改为官方稳定 1.9.1 及官方公布摘要。缓存与新下载都校验，校验失败不安装、不执行。
 - Windows 完整工作区测试改用常规 test profile，避免对数千项测试逐一进行 release ThinLTO，
   原有断言和覆盖范围保留；MSI、便携包运行及性能测量继续使用 release 二进制。
+- Windows `92c5091` 的便携运行通过，但安装版两次在面板截图阶段失败，未获发布批准。
+  复用相同校验安装包的定向诊断确认失败时窗口可见、未最小化且在前台；另外两个诊断宿主未复现，
+  不能把失败归因于缩放或遮挡。检查后端发现临时表面取帧失败可能消耗截图命令而没有截图事件；
+  控制截图增加一次有上限的重复请求，仍需真实呈现帧、仍按原来 8 秒截止，不置顶或恢复用户窗口。
+  三项确定性回归覆盖丢失命令后恢复、成功后取消重试、重复/迟到事件及原截止失败；后续以完整原生运行结果验收。
 
 ## 隐私与许可
 
@@ -44,6 +49,7 @@ Mac 参考来自 `theme.rs` 的 SF/PingFang 与 AppKit 路径，以及 `docs/mac
 不复制、下载或分发 Apple 的 SF、PingFang、系统图标或用户字体。Mac 仅在运行时读取其本机系统字体。
 验收仅生成原创合成图形和文字，不使用用户作品、真实最近文件、账号或偏好；运行时禁用偏好持久化。
 截图是测试证据，未嵌入应用，也不参与作品上传；没有新增遥测、网络服务或凭据绑定。
+本轮全部 1,665 个源码文件已扫描常见 GitHub/AWS 凭据和私钥头，未发现匹配；本轮变更文件未发现凭据或私人构建目录。
 最终包继续执行分发隐私门禁、许可证、路径扫描和 SHA-256 校验。Mac 已有安装包、Release 附件和 latest 标记保留。
 
 ## 验收边界

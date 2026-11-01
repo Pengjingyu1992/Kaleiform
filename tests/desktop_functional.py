@@ -76,7 +76,10 @@ def run(call, w):
                 "trace": traceback.format_exc(),
             }
             print("FAIL", name, str(e), flush=True)
-            notice("Desktop functional check failed: " + name, failure=True)
+            notice(
+                f"Desktop functional check failed: {name}: {type(e).__name__}: {str(e)[:600]}",
+                failure=True,
+            )
             try:
                 c.call("ui.dialog.cancel")
             except Exception:

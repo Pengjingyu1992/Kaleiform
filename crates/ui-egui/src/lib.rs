@@ -135,6 +135,8 @@ mod tests_saveext;
 #[cfg(test)]
 mod tests_screenmode;
 #[cfg(test)]
+mod tests_screenshots;
+#[cfg(test)]
 mod tests_scrub;
 #[cfg(test)]
 mod tests_selectall;
@@ -358,7 +360,9 @@ pub struct VectorcraftApp {
     control_rx: Option<Receiver<ControlRequest>>,
     /// (token, path, reply, deadline ms): a window that isn't presented never delivers its frame.
     pending_screenshots: Vec<(u64, Option<String>, Sender<ControlResponse>, f64)>,
-    queued_screenshots: Vec<(u64, f64, u32)>,
+    // Token, next attempt time, settled frames, remaining attempts. A transient surface
+    // acquisition failure can consume egui's screenshot command without returning an event.
+    queued_screenshots: Vec<(u64, f64, u32, u8)>,
     screenshot_token: u64,
     /// Synthetic input events (from the control channel) injected one step per frame.
     pub synthetic: Vec<egui::Event>,
@@ -720,7 +724,7 @@ impl VectorcraftApp {
                     self.screenshot_token += 1;
                     let token = self.screenshot_token;
                     let settle = ctx.global_style().animation_time as f64 * 2000.0 + 80.0;
-                    self.queued_screenshots.push((token, now_ms() + settle, 0));
+                    self.queued_screenshots.push((token, now_ms() + settle, 0, 2));
                     self.pending_screenshots.push((token, path, reply, now_ms() + settle + 8000.0));
                 }
             }
@@ -729,15 +733,29 @@ impl VectorcraftApp {
     }
 
     fn issue_screenshots(&mut self, ctx: &egui::Context) {
-        let now = now_ms();
-        self.queued_screenshots.retain_mut(|(token, at, frames)| {
-            *frames += 1;
+        self.issue_screenshots_at(ctx, now_ms());
+    }
+
+    fn issue_screenshots_at(&mut self, ctx: &egui::Context, now: f64) {
+        let pending = &self.pending_screenshots;
+        self.queued_screenshots.retain_mut(|(token, at, frames, attempts)| {
+            if !pending.iter().any(|(t, ..)| t == token) {
+                return false;
+            }
+            *frames = frames.saturating_add(1);
             if now >= *at && *frames >= 3 {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
-                false
-            } else {
-                true
+                *attempts = attempts.saturating_sub(1);
+                if *attempts == 0 {
+                    return false;
+                }
+                // One bounded retry, under the original deadline; reuse the token so a late
+                // first capture still completes the request exactly once. Never restore or
+                // raise a user's window, and never report a render as a presented screenshot.
+                *at = now + 1000.0;
+                *frames = 0;
             }
+            true
         });
         if !self.queued_screenshots.is_empty() || !self.pending_screenshots.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -745,6 +763,10 @@ impl VectorcraftApp {
     }
 
     fn collect_screenshots(&mut self, ctx: &egui::Context) {
+        self.collect_screenshots_at(ctx, now_ms());
+    }
+
+    fn collect_screenshots_at(&mut self, ctx: &egui::Context, now: f64) {
         if self.pending_screenshots.is_empty() {
             return;
         }
@@ -767,7 +789,6 @@ impl VectorcraftApp {
                 let _ = reply.send(control::save_screenshot(self, &image, path.as_deref()));
             }
         }
-        let now = now_ms();
         self.pending_screenshots.retain(|(_, _, reply, deadline)| {
             if now < *deadline {
                 return true;
