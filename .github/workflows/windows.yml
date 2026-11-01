@@ -1,4 +1,4 @@
-name: Windows display capture probe
+name: Windows capture stage probe
 
 on:
   workflow_dispatch:
@@ -9,16 +9,32 @@ permissions:
 
 jobs:
   diagnose:
-    name: Native display diagnosis (${{ matrix.display }})
+    name: Native stage diagnosis (${{ matrix.display }}, ${{ matrix.presentation }}, ${{ matrix.scope }})
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        display: [original, wide]
+        include:
+          - display: original
+            scope: first-panel
+            presentation: Hwnd
+          - display: wide
+            scope: first-panel
+            presentation: Hwnd
+          - display: original
+            scope: first-panel
+            presentation: Visual
+          - display: original
+            scope: full
+            presentation: Visual
+          - display: wide
+            scope: full
+            presentation: Hwnd
     env:
       VECTORCRAFT_NO_PREFS: "1"
       WGPU_BACKEND: dx12
+      WGPU_DX12_PRESENTATION_SYSTEM: ${{ matrix.presentation }}
       DIAGNOSTIC_RUN_ID: "41297641585"
     steps:
       - uses: actions/checkout@v4
@@ -53,9 +69,10 @@ jobs:
       - name: Install the owned test application
         run: ./packaging/windows/verify.ps1 -Phase Install
       - name: Diagnose the first capture failure with original test timing
-        timeout-minutes: 14
+        # Diagnostic measurement only; the main native acceptance keeps its original budget.
+        timeout-minutes: ${{ matrix.scope == 'full' && 25 || 8 }}
         run: |
-          python -B packaging/windows/display_capture_probe.py --display ${{ matrix.display }} -- python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode baseline
+          python -B packaging/windows/display_capture_probe.py --display ${{ matrix.display }} -- python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode baseline --scope ${{ matrix.scope }}
           if ($LASTEXITCODE -ne 0) { throw 'The diagnostic recorded a failure; see its summary' }
       - name: Uninstall this test installation
         if: always()
@@ -67,7 +84,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-display-capture-${{ matrix.display }}
+          name: kaleiform-stage-capture-${{ matrix.display }}-${{ matrix.presentation }}-${{ matrix.scope }}
           path: |
             dist/windows-qa/diagnosis/**/*.png
             dist/windows-qa/diagnosis/**/*.json

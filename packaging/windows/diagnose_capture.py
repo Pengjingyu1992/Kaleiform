@@ -17,6 +17,10 @@ class CapturedFailure(BaseException):
     pass
 
 
+class FocusCompleted(BaseException):
+    pass
+
+
 def power_request(flags):
     api = ctypes.WinDLL("kernel32", use_last_error=True)
     api.SetThreadExecutionState.argtypes = [wintypes.DWORD]
@@ -103,6 +107,7 @@ def main():
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mode", choices=["baseline", "awake"], required=True)
+    parser.add_argument("--scope", choices=["full", "first-panel"], default="full")
     args = parser.parse_args()
     assert os.name == "nt"
     args.output = args.output.resolve()
@@ -116,8 +121,20 @@ def main():
     # Instrument the trusted checked-out runner in memory, only for this manual diagnosis.
     # The release acceptance runner has no hook or recovery-path changes.
     source = source.replace(
-        function, function + '\n                    globals()["last_diagnostic_rpc"] = method'
+        function,
+        function
+        + '\n                    globals()["last_diagnostic_rpc"] = {"method": method, '
+        + '"command": params.get("command") if isinstance(params, dict) else None, "started": time.monotonic()}',
     )
+    reply_marker = "                    reply = json.loads(f.readline())"
+    assert source.count(reply_marker) == 1, "Control reply marker moved"
+    source = source.replace(
+        reply_marker,
+        reply_marker + '\n                    globals()["last_diagnostic_rpc"]["replied"] = reply.get("ok")',
+    )
+    matrix_marker = 'matrix["run"](call, work)'
+    assert source.count(matrix_marker) == 1, "Matrix invocation moved"
+    source = source.replace(matrix_marker, 'matrix["run"](capture_probe_wrap(call), work)')
     source = source.replace(
         marker,
         '                    if not reply.get("ok") and method == "ui.screenshot":\n'
@@ -128,7 +145,9 @@ def main():
     run = smoke["run"]
     summary = {
         "mode": args.mode,
+        "scope": args.scope,
         "frameWait": os.environ.get("WGPU_DX12_USE_FRAME_LATENCY_WAITABLE_OBJECT"),
+        "presentation": os.environ.get("WGPU_DX12_PRESENTATION_SYSTEM"),
         "binarySourceRun": os.environ.get("DIAGNOSTIC_RUN_ID"),
         "binarySourceSha": os.environ.get("CAPTURE_DIAGNOSTIC_SOURCE_SHA"),
         "harnessSourceSha": os.environ.get("GITHUB_SHA"),
@@ -136,6 +155,28 @@ def main():
         "recovery": [],
     }
     previous_power = None
+
+    def wrap_matrix(original):
+        focused_done = False
+
+        def call(method, params=None):
+            nonlocal focused_done
+            if focused_done:
+                # The first shot's PNG assertion and check record have now completed.
+                raise FocusCompleted()
+            result = original(method, params)
+            if args.scope == "first-panel" and method == "ui.screenshot":
+                summary["focusedCapture"] = {k: result.get(k) for k in ("width", "height")}
+                summary["focusedCapture"]["name"] = Path(params["path"]).name
+                current = original("ui.inspect")
+                summary["focusedState"] = {k: current.get(k) for k in ("window", "windowState", "perf")}
+                summary["focusedState"]["geometry"] = current.get("ui", {}).get("window")
+                focused_done = True
+            return result
+
+        return call
+
+    run.__globals__["capture_probe_wrap"] = wrap_matrix
 
     def state(port):
         value = client(port, "ui.inspect")
@@ -229,6 +270,8 @@ def main():
         results = json.loads((args.output / "functional-results.json").read_text())
         summary["functionalChecks"] = len(results)
         summary["functionalFailures"] = sum(row["status"] != "pass" for row in results)
+    except FocusCompleted:
+        summary["outcome"] = "first-matrix-panel-captured-only"
     except CapturedFailure:
         summary["outcome"] = "first-capture-failure-diagnosed"
         exit_code = 2
@@ -238,6 +281,21 @@ def main():
         summary["lastRpc"] = run.__globals__.get("last_diagnostic_rpc")
         exit_code = 1
     finally:
+        last = dict(run.__globals__.get("last_diagnostic_rpc") or {})
+        if "started" in last:
+            last["ageSeconds"] = round(time.monotonic() - last.pop("started"), 3)
+        summary["lastRpc"] = last
+        progress = args.output / "functional-results.json"
+        if progress.exists() and progress.stat().st_size <= 2 * 1024 * 1024:
+            try:
+                rows = json.loads(progress.read_text(encoding="utf-8"))
+                summary["completedChecks"] = len(rows)
+                summary["completedFailures"] = sum(row["status"] != "pass" for row in rows)
+                summary["lastChecks"] = [
+                    {k: row.get(k) for k in ("name", "status", "seconds")} for row in rows[-3:]
+                ]
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                summary["progressError"] = type(error).__name__
         if previous_power is not None:
             power_request(previous_power | 0x80000000)
         log = args.output / "desktop.log"
