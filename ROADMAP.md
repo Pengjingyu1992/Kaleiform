@@ -131,6 +131,16 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Native desktop matrix scheduling (M14.182):** four checks on the same Windows
+  packages reach the old batch deadline without completed-case failures. Allow 40 minutes
+  for the full synthetic matrix and 50 including installation/cleanup on software DX12;
+  retain every per-operation deadline and assertion, and require actual completion before
+  publication. A fresh diagnostic measures existing RPC timing without recording arguments.
+  Independent workspace tests, opt-in checks and package builds run in parallel while all
+  jobs retain the workflow-wide publication verdict. Package path filters also cover each
+  other to form exact-source validation cohorts. One structured performance annotation
+  includes all ten original metrics and retains the existing failure result.
+
 - **DX12 frame acquisition deadlines (2026-11-01, M14.179):** a timed-out wait for a
   presentation slot returns `SurfaceError::Timeout` before another buffer is acquired,
   preventing unchecked presentation work from delaying readback callbacks. The one-frame
@@ -467,6 +477,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M14.161 | Preview 17 privacy review and macOS publication | Audited M14.160 arm64 packages, pinned wgpu-hal provenance, strict signing and exact-source/download verification; prior assets preserved | Existing M14 estimate unchanged |
 | M14.159 | Preview 16 privacy review and macOS publication | Exact-source arm64 packages for M14.158; original PNG metadata and temporary exchange retention documented, existing release assets preserved | Existing M14 estimate unchanged |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
+| M14.182 | Complete native desktop matrices on software GPU hosts | Increase the batch resource limit while preserving per-operation deadlines, all cases and publication requirements; record synthetic RPC timing without argument values | Existing M14 estimate unchanged |
 | M14.179 | DX12 frame acquisition and native resize/readback regression | Timed-out frame waits return `SurfaceError::Timeout`; installed/portable standard candidate checks cover 414 cases plus 12 resize captures; final publication keeps exact-source checks | Existing M14 estimate unchanged |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |

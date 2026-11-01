@@ -46,11 +46,9 @@ def main():
     (args.output / "performance.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     if os.environ.get("GITHUB_ACTIONS") == "true":
         print("::notice::Performance environment: " + report.splitlines()[0], flush=True)
-        for row in rows:
-            print(
-                f"::notice::Performance {row['operation']}: {row['measured_ms']} ms / {row['budget_ms']} ms ({row['status']})",
-                flush=True,
-            )
+        # GitHub accepts only ten notices per step. A single structured annotation keeps
+        # the environment line from hiding the tenth measurement (dense segment dragging).
+        print("::notice::Performance measurements: " + json.dumps(rows), flush=True)
         if failed:
             print(
                 "::warning::Performance acceptance failed; see the recorded original budgets. Functional checks are separate.",

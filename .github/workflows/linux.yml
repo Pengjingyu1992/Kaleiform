@@ -3,9 +3,9 @@ name: Linux packages
 on:
   push:
     branches: [main, codex/windows-linux-desktop]
-    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml"]
+    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml", ".github/workflows/windows.yml"]
   pull_request:
-    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml"]
+    paths: ["apps/**", "crates/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/linux.yml", ".github/workflows/windows.yml"]
   workflow_dispatch:
     inputs:
       release_tag:
