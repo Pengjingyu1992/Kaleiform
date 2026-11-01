@@ -1,104 +1,18 @@
 name: Windows x64 packages
+run-name: Diagnose installed screenshot visibility with source 92c5091 binaries
 
 on:
-  push:
-    branches: [main, codex/windows-linux-desktop]
-    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/windows.yml"]
-  pull_request:
-    paths: ["apps/**", "crates/**", "vendor/**", "Cargo.*", "packaging/**", "tests/**", ".github/workflows/windows.yml"]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: windows-x64-${{ github.ref }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  packages:
-    name: Build and audit x64 packages
-    runs-on: windows-2022
-    timeout-minutes: 75
-    env:
-      CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "4"
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_PROFILE_TEST_DEBUG: "0"
-      RUST_TEST_THREADS: "1"
-      VECTORCRAFT_NO_PREFS: "1"
-      VECTORCRAFT_BUILD_SHA: ${{ github.sha }}
-      WGPU_BACKEND: dx12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Test distribution privacy rules
-        run: python -B -m unittest discover -s packaging/windows -p 'test_*.py'
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-        with:
-          key: windows-x64-desktop
-          cache-on-failure: true
-      - name: Test all native workspace libraries, commands, tools and desktop code
-        run: |
-          New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
-          $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
-          # Test-profile binaries avoid ThinLTO for thousands of workspace test cases. The MSI,
-          # portable runtime matrix and performance checks below still use release binaries.
-          cargo --config $rustConfig test --workspace --target x86_64-pc-windows-msvc --locked 2>&1 | Tee-Object dist/windows-qa/unit.log
-          if ($LASTEXITCODE -ne 0) { throw 'Windows native workspace tests failed' }
-      - name: Install WiX
-        run: |
-          dotnet tool install --global wix --version 5.0.2
-          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
-      - name: Measure opt-in trace, geometry, filters and dense dragging
-        continue-on-error: true
-        run: |
-          $rustConfig = & ./packaging/windows/rust-config.ps1 -Target x86_64-pc-windows-msvc
-          cargo --config $rustConfig test --release --target x86_64-pc-windows-msvc --locked -p vectorcraft-trace -p vectorcraft-pathops -p vectorcraft-effects -p vectorcraft-ui-egui -- --ignored --nocapture --test-threads=1 2>&1 | Tee-Object dist/windows-qa/optional-performance.log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output '::warning::An opt-in performance check failed; its original assertions and log are retained'
-            exit 1
-          }
-      - name: Build x64 MSI and portable package
-        run: ./packaging/windows/package.ps1 -Arch x64 *>&1 | Tee-Object dist/windows-qa/build.log
-      - name: Check package privacy and checksums
-        timeout-minutes: 5
-        run: ./packaging/windows/verify.ps1 -Phase Validate *>&1 | Tee-Object dist/windows-qa/static.log
-      - name: Measure existing 50000-path performance budgets
-        continue-on-error: true
-        run: python -B packaging/performance.py --cli target/windows-package/x64/vectorcraft-cli.exe --output dist/windows-qa/performance
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kaleiform-windows-x64
-          path: dist/release/*
-          if-no-files-found: error
-      - name: Surface failures for review
-        if: failure()
-        run: ./packaging/windows/report.ps1
-      - name: Retain build and privacy logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaleiform-windows-x64-build-qa
-          path: |
-            dist/windows-qa/**/*.log
-            dist/windows-qa/**/*.json
-          if-no-files-found: ignore
-
-  runtime:
-    name: ${{ matrix.mode }} desktop
-    needs: packages
+  capture:
+    name: Installed screenshot visibility probe
     runs-on: windows-2025
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [installed, portable]
+    timeout-minutes: 15
     env:
       VECTORCRAFT_NO_PREFS: "1"
       WGPU_BACKEND: dx12
@@ -110,50 +24,31 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: kaleiform-windows-x64
+          run-id: 41268273377
+          github-token: ${{ github.token }}
           path: dist/release
-      - name: Verify downloaded packages
-        timeout-minutes: 5
+      - name: Verify unchanged source packages
+        run: ./packaging/windows/verify.ps1 -Phase Validate
+      - name: Install the owned test application
+        run: ./packaging/windows/verify.ps1 -Phase Install
+      - name: Reproduce basic, six visual captures and first panel capture
+        timeout-minutes: 6
         run: |
-          New-Item -ItemType Directory -Force dist/windows-qa | Out-Null
-          ./packaging/windows/verify.ps1 -Phase Validate *>&1 | Tee-Object dist/windows-qa/static.log
-      - name: Install MSI and check document associations
-        id: install
-        if: matrix.mode == 'installed'
-        timeout-minutes: 5
-        run: ./packaging/windows/verify.ps1 -Phase Install *>&1 | Tee-Object dist/windows-qa/install-phase.log
-      - name: Exercise installed CLI
-        if: matrix.mode == 'installed'
-        timeout-minutes: 5
-        run: ./packaging/windows/verify.ps1 -Phase InstalledCli *>&1 | Tee-Object dist/windows-qa/cli.log
-      - name: Exercise installed desktop
-        if: matrix.mode == 'installed'
-        timeout-minutes: 12
-        run: ./packaging/windows/verify.ps1 -Phase InstalledDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
+          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/probe
+          if ($LASTEXITCODE -ne 0) { throw 'Owned-window screenshot probe failed' }
       - name: Uninstall this test installation
-        if: always() && matrix.mode == 'installed'
-        timeout-minutes: 5
+        if: always()
         run: |
           if (Test-Path dist/windows-qa/installed.sha256) {
-            ./packaging/windows/verify.ps1 -Phase Uninstall *>&1 | Tee-Object dist/windows-qa/uninstall-phase.log
+            ./packaging/windows/verify.ps1 -Phase Uninstall
           }
-      - name: Exercise portable CLI
-        if: matrix.mode == 'portable'
-        timeout-minutes: 5
-        run: ./packaging/windows/verify.ps1 -Phase PortableCli *>&1 | Tee-Object dist/windows-qa/cli.log
-      - name: Exercise portable desktop
-        if: matrix.mode == 'portable'
-        timeout-minutes: 12
-        run: ./packaging/windows/verify.ps1 -Phase PortableDesktop *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
-      - name: Surface failures for review
-        if: failure()
-        run: ./packaging/windows/report.ps1
-      - name: Retain synthetic screenshots and runtime logs
+      - name: Retain newly generated synthetic diagnostic captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-windows-x64-${{ matrix.mode }}-qa
+          name: kaleiform-windows-capture-probe
           path: |
-            dist/windows-qa/**/*.png
-            dist/windows-qa/**/*.log
-            dist/windows-qa/**/*.json
+            dist/windows-qa/probe/**/*.png
+            dist/windows-qa/probe/**/*.json
+            dist/windows-qa/probe/**/*.log
           if-no-files-found: ignore
