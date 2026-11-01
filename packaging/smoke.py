@@ -27,11 +27,62 @@ def windows_input_desktop():
     api.OpenInputDesktop.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     api.OpenInputDesktop.restype = wintypes.HANDLE
     api.CloseDesktop.argtypes = [wintypes.HANDLE]
+    api.GetThreadDesktop.argtypes = [wintypes.DWORD]
+    api.GetThreadDesktop.restype = wintypes.HANDLE
+    api.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    kernel = ctypes.WinDLL("kernel32")
+    kernel.GetCurrentThreadId.restype = wintypes.DWORD
     handle = api.OpenInputDesktop(0, False, 1)  # DESKTOP_READOBJECTS
     error = ctypes.get_last_error() if not handle else 0
+    same_desktop = None
+
+    def session_state():
+        import struct
+        wts = ctypes.WinDLL("wtsapi32", use_last_error=True)
+        wts.WTSQuerySessionInformationW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD)]
+        wts.WTSFreeMemory.argtypes = [ctypes.c_void_p]
+        wts.WTSFreeMemory.restype = None
+        kernel.ProcessIdToSessionId.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        session = wintypes.DWORD()
+        if not kernel.ProcessIdToSessionId(os.getpid(), ctypes.byref(session)):
+            return None
+        buffer, length = ctypes.c_void_p(), wintypes.DWORD()
+        if not wts.WTSQuerySessionInformationW(None, session.value, 25, ctypes.byref(buffer), ctypes.byref(length)):
+            return None
+        try:
+            if not buffer or length.value < 20:
+                return None
+            # Only the x64 WTSINFOEX header: do not read user/domain/station names.
+            header = ctypes.string_at(buffer, 20)
+            level = struct.unpack_from("<I", header)[0]
+            identifier, state, lock_flag = struct.unpack_from("<iii", header, 8)
+            if level != 1 or identifier != session.value or not 0 <= state <= 9 or lock_flag not in (-1, 0, 1):
+                return None
+            # Windows 8+: 0 locked, 1 unlocked; -1 unknown. No session is switched/unlocked.
+            return {"connectionState": state, "lockFlag": lock_flag}
+        finally:
+            wts.WTSFreeMemory(buffer)
+
+    def name(desktop):
+        length = wintypes.DWORD()
+        api.GetUserObjectInformationW(desktop, 2, None, 0, ctypes.byref(length))  # UOI_NAME
+        if not ctypes.sizeof(ctypes.c_wchar) <= length.value <= 4096:
+            return None
+        text = ctypes.create_unicode_buffer(length.value // ctypes.sizeof(ctypes.c_wchar))
+        if not api.GetUserObjectInformationW(desktop, 2, text, length.value, ctypes.byref(length)):
+            return None
+        return text.value
+
     if handle:
-        api.CloseDesktop(handle)
-    return {"inputDesktopAccessible": bool(handle), "error": error}
+        try:
+            current = api.GetThreadDesktop(kernel.GetCurrentThreadId())
+            input_name, thread_name = name(handle), name(current) if current else None
+            if input_name is not None and thread_name is not None:
+                same_desktop = input_name.casefold() == thread_name.casefold()
+        finally:
+            api.CloseDesktop(handle)
+    # Desktop names remain local; only their equality is diagnostic evidence.
+    return {"inputDesktopAccessible": bool(handle), "testThreadOnInputDesktop": same_desktop, "session": session_state(), "error": error}
 
 
 def png(path, expected=None):

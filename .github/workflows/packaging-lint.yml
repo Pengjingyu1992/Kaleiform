@@ -5,9 +5,9 @@ name: Packaging lint
 on:
   push:
     branches: [main, release]
-    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**", "apps/**", "crates/**", "vendor/**", "Cargo.*", "tests/**"]
   pull_request:
-    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**", "apps/**", "crates/**", "vendor/**", "Cargo.*", "tests/**"]
   workflow_dispatch:
 
 permissions:

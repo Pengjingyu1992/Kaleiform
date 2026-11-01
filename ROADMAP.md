@@ -131,6 +131,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Complete desktop validation cohorts (2026-11-01, M14.172):** packaging lint also runs
+  for application, crate and test changes, so a desktop candidate can satisfy the existing
+  four-workflow source requirement. A manual diagnostic reuses checksummed main-run packages
+  with provenance checks and records new capture failures; it cannot approve a release.
+  Desktop/session state diagnostics contain booleans and flags, never account/desktop names.
+
 - **Windows screenshot readback pump (2026-11-01, M14.171):** services GPU mapping callbacks
   with a nonblocking poll only while a screenshot is pending on Windows. Device errors follow
   the existing graphics-loss/recovery path; the original capture deadline remains. Timeout
