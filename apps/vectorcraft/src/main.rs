@@ -96,12 +96,11 @@ impl eframe::App for App {
             && !self.graphics_lost
             && self.app.has_pending_screenshots()
             && let Some(render_state) = frame.wgpu_render_state()
-        {
             // Mapping callbacks need a poll even when presentation stops submitting work.
-            match render_state.device.poll(eframe::wgpu::PollType::Poll) {
-                Ok(status) => log::debug!("native capture GPU poll {status:?}"),
-                Err(error) => self.graphics_loss.report(ctx, format!("Screenshot readback polling failed: {error}")),
-            }
+            // In particular, keep DX12/WARP readbacks moving in otherwise idle windows.
+            && let Err(error) = render_state.device.poll(eframe::wgpu::PollType::Poll)
+        {
+            self.graphics_loss.report(ctx, format!("Screenshot readback polling failed: {error}"));
         }
         #[cfg(not(feature = "wgpu"))]
         let _ = frame;
@@ -545,13 +544,9 @@ fn main() -> std::process::ExitCode {
     #[cfg(feature = "wgpu")]
     let options = {
         let mut options = options;
-        // Compare Windows capture stability with wgpu's standard two-frame queue. Other
-        // hosts retain the one-frame queue (#444); adapter and vsync selection are unchanged.
-        options.wgpu_options.surface = if cfg!(target_os = "windows") {
-            eframe::egui_wgpu::SurfaceConfig::HIGH_THROUGHPUT
-        } else {
-            eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY
-        };
+        // One frame queued, not two: the canvas is rasterized on the CPU and the GPU only
+        // composites it, so the window answers the pointer a frame sooner (#444).
+        options.wgpu_options.surface = eframe::egui_wgpu::SurfaceConfig::LOW_LATENCY;
         // Only adapters that can show the window, in the order `gpu` gives (#306, #502).
         if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
             create.native_adapter_selector = Some(gpu::selector(power, startup.clone()));
