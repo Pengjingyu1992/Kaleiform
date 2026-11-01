@@ -1,31 +1,38 @@
-name: Windows native output probe
+name: Windows DXGI frame permit probe
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
-  desktop:
-    name: Native ${{ matrix.mode }} (${{ matrix.output }})
+  signal:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Measure frame permits across owned swap-chain resize
+        run: python -B packaging/windows/dxgi_signal_probe.py
+
+  latency:
     runs-on: windows-2025
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [installed, portable]
-        output: [direct, tee]
+    permissions:
+      contents: read
+      actions: read
     env:
-      VECTORCRAFT_NO_PREFS: "1"
+      VECTORCRAFT_NO_PREFS: '1'
       WGPU_BACKEND: dx12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Require the immutable main package build
+          python-version: '3.12'
+      - name: Verify immutable package provenance
         env:
           GH_TOKEN: ${{ github.token }}
         shell: python
@@ -35,77 +42,54 @@ jobs:
           assert repository == 'Pengjingyu1992/Kaleiform'
           base = f'repos/{repository}/actions/runs/41321138732'
           run = json.loads(subprocess.check_output(['gh', 'api', base]))
-          assert run['name'] == 'Windows x64 packages'
           assert run['head_repository']['full_name'] == repository
-          assert run['event'] == 'push' and run['head_branch'] == 'main'
+          assert run['name'] == 'Windows x64 packages' and run['event'] == 'push' and run['head_branch'] == 'main'
           assert run['head_sha'] == '80980e33e91973b82424d28fb400283c4103b3df'
           jobs = json.loads(subprocess.check_output(['gh', 'api', base + '/jobs']))['jobs']
           assert next(j for j in jobs if j['name'] == 'Build and audit x64 packages')['conclusion'] == 'success'
-          print('Provenance: main source809 package builder passed; original runtime failure remains recorded')
       - uses: actions/download-artifact@v4
         with:
           name: kaleiform-windows-x64
           run-id: 41321138732
           github-token: ${{ github.token }}
           path: dist/release
-      - name: Validate original package privacy and hashes
-        run: ./packaging/windows/verify.ps1 -Phase Validate
-      - name: Install and exercise the original installed CLI
-        if: matrix.mode == 'installed'
+      - name: Validate and install the owned application
         run: |
+          ./packaging/windows/verify.ps1 -Phase Validate
           ./packaging/windows/verify.ps1 -Phase Install
           ./packaging/windows/verify.ps1 -Phase InstalledCli
-      - name: Exercise the original portable CLI
-        if: matrix.mode == 'portable'
-        run: ./packaging/windows/verify.ps1 -Phase PortableCli
-      - name: Run the original desktop matrix with the selected output path
+      - name: Measure original RPC latency with unchanged acceptance limits
         timeout-minutes: 12
-        env:
-          PACKAGE_MODE: ${{ matrix.mode }}
-          OUTPUT_PROFILE: ${{ matrix.output }}
-        run: |
-          $phase = if ($env:PACKAGE_MODE -eq 'installed') { 'InstalledDesktop' } else { 'PortableDesktop' }
-          if ($env:OUTPUT_PROFILE -eq 'tee') {
-            ./packaging/windows/verify.ps1 -Phase $phase *>&1 | Tee-Object dist/windows-qa/desktop-phase.log
-          } else {
-            ./packaging/windows/verify.ps1 -Phase $phase
-          }
-      - name: Report this fresh synthetic test outcome
+        run: python -B packaging/windows/control_latency_probe.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/latency
+      - name: Report the fresh latency measurements
         if: always()
         shell: python
         run: |
-          import json, pathlib, re
-          for path in pathlib.Path('dist/windows-qa').rglob('functional-results.json'):
+          import json, pathlib
+          path = pathlib.Path('dist/windows-qa/latency/control-latency.json')
+          if path.exists():
+              data = json.loads(path.read_text())
+              data['byMethod'] = dict(sorted(data['byMethod'].items(), key=lambda item: item[1]['totalSeconds'], reverse=True)[:8])
+              print('::warning::Fresh native RPC latency: ' + json.dumps(data))
+          else:
+              print('::warning::The native process did not retain latency metrics before termination')
+          path = pathlib.Path('dist/windows-qa/latency/functional-results.json')
+          if path.exists():
               rows = json.loads(path.read_text(encoding='utf-8'))
-              summary = {'completed': len(rows), 'failed': sum(r['status'] != 'pass' for r in rows),
-                         'last': [{k: r.get(k) for k in ('name', 'status', 'seconds')} for r in rows[-3:]]}
-              failures = [r for r in rows if r['status'] != 'pass']
-              summary['firstFailure'] = None if not failures else {
-                  'name': failures[0]['name'], 'seconds': failures[0]['seconds'],
-                  'code': re.findall(r'NoFrame|Timeout|DeviceLost', failures[0].get('error', ''))[:3]}
-              print('::notice::Fresh synthetic outcome: ' + json.dumps(summary))
-          for path in pathlib.Path('dist/windows-qa').rglob('desktop.log'):
-              with path.open('rb') as stream:
-                  stream.seek(0, 2)
-                  stream.seek(max(0, stream.tell() - 1024 * 1024))
-                  text = stream.read(1024 * 1024).decode('utf-8', errors='replace')
-              print('::notice::Fresh surface timeout count (bounded log tail): ' + str(text.count('Dropped frame with error: Timeout')))
-      - name: Surface original failures
-        if: failure()
-        run: ./packaging/windows/report.ps1
+              print('::notice::Fresh original matrix progress: ' + json.dumps({'completed': len(rows), 'failed': sum(r['status'] != 'pass' for r in rows)}))
       - name: Uninstall the owned test application
-        if: always() && matrix.mode == 'installed'
+        if: always()
         run: |
           if (Test-Path dist/windows-qa/installed.sha256) {
             ./packaging/windows/verify.ps1 -Phase Uninstall
           }
-      - name: Retain fresh synthetic evidence
+      - name: Retain fresh synthetic measurements
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-native-output-${{ matrix.mode }}-${{ matrix.output }}
+          name: kaleiform-fresh-native-latency
           path: |
-            dist/windows-qa/**/*.png
-            dist/windows-qa/**/*.json
-            dist/windows-qa/**/*.log
+            dist/windows-qa/latency/**/*.json
+            dist/windows-qa/latency/**/*.log
+            dist/windows-qa/latency/**/*.png
           if-no-files-found: ignore
