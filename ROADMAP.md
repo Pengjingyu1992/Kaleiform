@@ -131,6 +131,11 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Low-latency local control replies (2026-11-01, M14.166):** buffers JSON-lines replies and
+  disables Nagle on accepted loopback connections. A regression reproduces 54 formatting writes
+  for two replies and requires two complete flushed records, preserving IDs, UTF-8 and junk
+  rejection. Desktop QA reports checkpoints and individual failures before a job timeout.
+
 - **Reproducible Linux tool download (2026-10-30, M14.165):** pins official AppImage tool 1.9.1
   assets and SHA-256, verifies cached downloads and rejects mismatches before installation. The
   same checked helper serves CI and local automatic downloads; two boundary regressions cover

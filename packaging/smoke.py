@@ -75,6 +75,7 @@ def run(bindir, desktop, work, extended=False):
                         raise RuntimeError("Desktop did not start within 45 seconds") from None
                     time.sleep(0.2)
             with conn:
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 progress("Desktop control channel connected")
                 conn.settimeout(20)
                 f = conn.makefile("rwb")

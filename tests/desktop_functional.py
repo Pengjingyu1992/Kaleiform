@@ -51,6 +51,13 @@ class Client:
 def run(call, w):
     c = Client(call, w)
     checks = []
+    started = time.monotonic()
+
+    def notice(message, failure=False):
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(("::error::" if failure else "::notice::") + message, flush=True)
+
     (w / "screenshots").mkdir(exist_ok=True)
     (w / "formats").mkdir(exist_ok=True)
     (w / "effects").mkdir(exist_ok=True)
@@ -69,6 +76,7 @@ def run(call, w):
                 "trace": traceback.format_exc(),
             }
             print("FAIL", name, str(e), flush=True)
+            notice("Desktop functional check failed: " + name, failure=True)
             try:
                 c.call("ui.dialog.cancel")
             except Exception:
@@ -77,6 +85,8 @@ def run(call, w):
         (w / "functional-results.json").write_text(
             json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        if len(checks) % 20 == 0:
+            notice(f"Desktop checkpoint {len(checks)}: {name}; elapsed {time.monotonic() - started:.1f}s")
         return r
 
     def shot(name):
@@ -95,7 +105,13 @@ def run(call, w):
         c.cmd("paint.setFill", {"color": "#ff8833"})
         t = c.cmd(
             "text.create",
-            {"x": 25, "y": 200, "text": "虹构 Desktop QA — 中文 ABC 123", "size": 16, "font": "Noto Sans CJK SC"},
+            {
+                "x": 25,
+                "y": 200,
+                "text": "虹构 Desktop QA — 中文 ABC 123",
+                "size": 16,
+                "font": "Noto Sans CJK SC",
+            },
         )["id"]
         c.cmd("select.set", {"ids": [a, b]})
         return a, b, t
@@ -181,7 +197,9 @@ def run(call, w):
                 for value in values:
                     c.cmd("prefs.set", {"key": p["key"], "value": value})
                     actual = c.cmd("prefs.get", {"key": p["key"]})
-                    assert actual == value or (kind in ["integer", "number"] and abs(actual - value) < 1e-6), (
+                    assert actual == value or (
+                        kind in ["integer", "number"] and abs(actual - value) < 1e-6
+                    ), (
                         p["key"],
                         value,
                         actual,
@@ -380,7 +398,9 @@ def run(call, w):
 
     checks.extend(trace_matrix(c, w))
     checks.extend(jpeg_matrix(c, w))
-    (w / "functional-results.json").write_text(json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8")
+    (w / "functional-results.json").write_text(
+        json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     failures = [r for r in checks if r["status"] != "pass"]
     if os.environ.get("GITHUB_ACTIONS") == "true":
         print(
@@ -455,7 +475,9 @@ def jpeg_matrix(c, w):
         for method in ("baseline", "optimized", "progressive")
         for quality in (40, 100)
     ]
-    variants += [{"colorModel": "cmyk", "method": "progressive", "quality": 80, "scans": n} for n in (3, 4, 5)]
+    variants += [
+        {"colorModel": "cmyk", "method": "progressive", "quality": 80, "scans": n} for n in (3, 4, 5)
+    ]
     for index, options in enumerate(variants):
         opened = False
         try:
@@ -497,10 +519,15 @@ def jpeg_matrix(c, w):
         except AssertionError:
             rejected = True
         unchanged = (
-            count == len(c.call("ui.inspect")["documents"]) and before == c.cmd("document.serialize")["dataBase64"]
+            count == len(c.call("ui.inspect")["documents"])
+            and before == c.cmd("document.serialize")["dataBase64"]
         )
-        results.append({"name": "damaged JPEG " + command, "status": "pass" if rejected and unchanged else "fail"})
-    print("JPEG:", len(results), "checks;", sum(r["status"] == "fail" for r in results), "failures", flush=True)
+        results.append(
+            {"name": "damaged JPEG " + command, "status": "pass" if rejected and unchanged else "fail"}
+        )
+    print(
+        "JPEG:", len(results), "checks;", sum(r["status"] == "fail" for r in results), "failures", flush=True
+    )
     return results
 
 
@@ -560,7 +587,9 @@ def trace_matrix(c, w):
         while len(c.call("document.inspect")["history"]) > history:
             c.cmd("edit.undo")
         results.append(r)
-        (root / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        (root / "results.json").write_text(
+            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     presets = c.cmd("imageTrace.presets")["presets"]
     cases = []
@@ -579,9 +608,13 @@ def trace_matrix(c, w):
             )
         )
     for threshold in [1, 64, 128, 192, 254]:
-        cases.append(("threshold-" + str(threshold), {"params": {"threshold": threshold, "ignoreWhite": True}}))
+        cases.append(
+            ("threshold-" + str(threshold), {"params": {"threshold": threshold, "ignoreWhite": True}})
+        )
     for method in ["abutting", "overlapping"]:
-        cases.append(("method-" + method, {"params": {"mode": "color", "method": method, "ignoreWhite": True}}))
+        cases.append(
+            ("method-" + method, {"params": {"mode": "color", "method": method, "ignoreWhite": True}})
+        )
     for name, params in cases:
 
         def tracing(name=name, params=params):
@@ -649,5 +682,7 @@ def trace_matrix(c, w):
         assert snapshot() == before
 
     check("release and two undos", release)
-    print("Trace:", len(results), "checks;", sum(r["status"] == "fail" for r in results), "failures", flush=True)
+    print(
+        "Trace:", len(results), "checks;", sum(r["status"] == "fail" for r in results), "failures", flush=True
+    )
     return results
