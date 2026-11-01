@@ -17,11 +17,11 @@
 它不是从零编写的全新绘图引擎，也不是 VectorCraft / ArtCraft 的官方发行版。
 上游代码、作者和第三方资产的版权及许可声明均予以保留。
 
-**当前 macOS 预览版为 [`0.7.0-kaleiform.17`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.17)；Windows/Linux 提供[独立桌面预览 18](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
+**当前已公开的 macOS 预览版为 [`0.7.0-kaleiform.16`](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/v0.7.0-kaleiform.16)，预览 17 仍为草稿；Windows/Linux 提供[独立桌面预览 18](https://github.com/Pengjingyu1992/Kaleiform/releases/tag/desktop-v0.7.0-kaleiform.18)。** 适合体验、学习与参与开发；重要作品请保留原件并经常另存。
 预览 12 在预览 11 的后台描摹、首帧渲染、界面轻量化和大选区响应优化基础上，增加密集图稿拖动缓存：高保真图像描摹和大量路径移动时，拖动期间使用有界透明预览，松手后一次性精确提交矢量变换。见 [复杂图案拖动说明](docs/dense-drag.md)、[性能第三轮](docs/performance-round3.md)、[界面质感第二轮](docs/polish-round2.md) 和 [稳定性第一轮](docs/stability-round1.md)。
 预览 15 发布新的 macOS 工作区与布局改进，并修正性能诊断快捷键在非 macOS 平台与文档设置冲突的问题。恢复副本支持勾选与确认后批量删除，属性面板快速操作增加“释放复合路径”，新建画布详情统一尺寸、出血和高级设置的对齐与间距。见[预览 15 发布说明](docs/release-preview15.md)和[工作区说明](docs/macos-workspace.md)。预览 14 保留为未公开候选，不改写已有标签；已发布安装包的版本以上方 Release 链接为准。
 预览 16 发布与叠绘的 PNG 拖拽互通：原图数据保留、透明效果输出、自动嵌入和独立摆放尺寸；普通画布移动越过源窗口边界后转为原生复制拖拽，源图保持原位。见[发布说明](docs/release-preview16.md)、[互通说明](docs/image-interchange.md)和[隐私边界](docs/privacy.md)。
-预览 17 发布原生 macOS 外观和色彩显示修正：界面采用 AppKit 语义颜色，窄窗口检查器使用内嵌材质；Metal 显示表面在缩放、重建后保持 sRGB 标记，PNG 与 RGB/灰度 JPEG 的显示解码处理嵌入 ICC。原图字节和 PNG 互通保持不变，不代表新增广色域或 16 位编辑。见[预览 17 发布说明](docs/release-preview17.md)及[色彩说明](docs/native-appearance-color.md)。
+预览 17 源码加入原生 macOS 外观和色彩显示修正（Mac 安装包尚未公开发布）：界面采用 AppKit 语义颜色，窄窗口检查器使用内嵌材质；Metal 显示表面在缩放、重建后保持 sRGB 标记，PNG 与 RGB/灰度 JPEG 的显示解码处理嵌入 ICC。原图字节和 PNG 互通保持不变，不代表新增广色域或 16 位编辑。见[预览 17 发布说明](docs/release-preview17.md)及[色彩说明](docs/native-appearance-color.md)。
 本版已同步至官方固定提交 `21355945`，包含官方 `v0.7.0` 之后的改动，
 并加入默认动作翻译、浮出面板布局和偏移路径保护。同步范围见 [集成说明](docs/upstream-integration-2026-10-10.md)。
 当前提供 **macOS Apple Silicon（M1 / M2 / M3 / M4 等）**、**Windows 10/11 x64** 和 **Linux x86_64** 预览安装包。
@@ -56,7 +56,7 @@ Linux 的持续构建见 [Linux packages](https://github.com/Pengjingyu1992/Kale
 ## 下载与安装
 
 1. 打开 [Releases](https://github.com/Pengjingyu1992/Kaleiform/releases)，选择最新的虹构预览版。
-2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.12-macos-arm64.dmg`。
+2. Apple Silicon Mac 下载 `kaleiform-0.7.0-kaleiform.16-macos-arm64.dmg`。
 3. 打开 DMG，将 **虹构.app** 拖入 **Applications / 应用程序**，从应用程序文件夹启动。
 4. 本版只有 ad-hoc 本地签名，**没有 Apple Developer ID 签名或公证**。如果 macOS 拦截，
    先核对下载来源和 SHA-256，再按系统提示前往“系统设置 → 隐私与安全性 → 仍要打开”。

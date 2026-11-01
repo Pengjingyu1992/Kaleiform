@@ -33,7 +33,7 @@ Mac 参考来自 `theme.rs` 的 SF/PingFang 与 AppKit 路径，以及 `docs/mac
   `new-document-compact.png`、`new-document-1.5.png`、`new-document-2.0.png`；旁附 `ui.inspect` JSON。
 - 本地 Linux 真实桌面扩展矩阵：414 项通过、0 失败；UI 专项回归：951 项通过、0 失败、1 项默认忽略。
 - 本轮已实际查看上述六张修正后 Linux 截图：中文标签不再缺字，分类没有残片；深浅主题、窄检查器及缩放后的关闭/创建按钮正常。
-- `RUST_TEST_THREADS=1 cargo xtask ci`：七项门禁全部通过，4,807 项测试通过、0 失败、5 项保留默认忽略，20 个 WASM 模块检查通过。源码 CI 与 Linux 包运行结果：[CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41268273440)、[Linux](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41268273395) 均通过。Windows 的最终同源结果在发布前另核对。
+- `RUST_TEST_THREADS=1 cargo xtask ci`：七项门禁全部通过，4,807 项测试通过、0 失败、5 项保留默认忽略，20 个 WASM 模块检查通过。最终 Windows、Linux、源码 CI 与打包结果见下方同源验收。
 - Linux 构建曾因上游 continuous 工具字节变化而被固定哈希拦截；构建工具改为官方稳定 1.9.1 及官方公布摘要。缓存与新下载都校验，校验失败不安装、不执行。
 - Windows 完整工作区测试改用常规 test profile，避免对数千项测试逐一进行 release ThinLTO，
   原有断言和覆盖范围保留；MSI、便携包运行及性能测量继续使用 release 二进制。
@@ -73,7 +73,32 @@ main `80980e3` 的 Windows 构建、完整工作区测试、release 专项性能
 不额外发送请求，不记录文件路径、文本、参数值或作品内容；诊断任务不能代替正式发布门禁。
 最终源码的本地 Linux 六种界面已重新捕获并逐张查看：中文标签、数值单位、窄分类及高缩放下固定操作栏均正常。
 性能步骤用一条结构化摘要记录全部十项指标，避免 GitHub 单步提示条数限制截掉最后一项；原预算、退出码和完整报告保持原值。
-新的 main 同源 Windows 全矩阵结果仍待验证，预览 18 尚未发布。
+最终 main 同源全矩阵结果与发布批准记录见下方。
+
+### 最终同源验收与性能
+
+最终应用源码为 [`5e34458`](https://github.com/Pengjingyu1992/Kaleiform/commit/5e3445817239c783e8e2d7537f9e04f7ce51769b)，四项发布必需检查 [Windows x64 packages](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41330343067)、[Linux packages](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41330343026)、[CI](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41330342959)、[Packaging lint](https://github.com/Pengjingyu1992/Kaleiform/actions/runs/41330343030) 全部通过。
+Windows 完整工作区测试和 release 专项性能测试通过；标准安装版与便携版各通过原有 414 项扩展检查、六种界面捕获及随后 12 次反复缩放/截图回归。
+便携组首次在 40 分钟达到批处理时限，基础 343 项记录为零失败；按同一成品、同一断言和时限复跑后才批准发布，首次记录保留在工作流历史。
+Linux 最小 Ubuntu 22.04 中的 DEB 安装、414 项桌面检查、卸载、便携包及 AppImage 检查通过。
+本地又从该最终源码构建并逐张查看六张 Linux 界面截图，中文标签、数值单位、窄分类和固定操作栏均正常。
+
+以下为同一源码在各自云主机上的 5 万路径单次测量，单位毫秒。主机条件不同，不能作为平台速度排名。
+原预算和超标记录保留；专项测试通过不代表这些大型文档预算全部通过。
+全部十项指标均已从工作流的结构化摘要核对，完整报告保留在各自工作流产物中。
+
+| 项目 | 原预算 | Linux | Windows |
+|---|---:|---:|---:|
+| 适合画板渲染（2880×1800） | 100.0 | 226.63（超标） | 207.93（超标） |
+| 平移后重绘 | 100.0 | 225.38（超标） | 216.37（超标） |
+| 400% 缩放渲染 | 16.0 | 75.75（超标） | 75.22（超标） |
+| 单次命中测试 | 2.0 | 0.9 | 1.29 |
+| 原生文档保存 | 300.0 | 152.34 | 103.25 |
+| 原生文档打开 | 300.0 | 221.49 | 285.3 |
+| SVG 导出 | 500.0 | 351.84 | 546.68（超标） |
+| 1,000 路径联集 | 150.0 | 64.62 | 67.76 |
+| 5,000 锚点路径手柄拖动 | 8.0 | 5.75 | 3.47 |
+| 5,000 锚点路径线段拖动 | 8.0 | 5.63 | 3.62 |
 
 ## 隐私与许可
 

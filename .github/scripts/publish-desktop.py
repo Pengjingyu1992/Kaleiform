@@ -153,7 +153,7 @@ def main():
         hashes[archive.name] = LINUX.sha256(archive)
         build = assets / (prefix + '-BUILD-INFO.json')
         info = {'source_sha': source, 'version': request['version'], 'windows_authenticode_signed': False,
-                'workflows': {name: {'id': request['checks'][name], 'url': run['html_url'], 'conclusion': run['conclusion']} for name, run in runs.items()},
+                'workflows': {name: {'id': request['checks'][name], 'url': run['html_url'], 'conclusion': run['conclusion'], 'run_attempt': run.get('run_attempt', 1)} for name, run in runs.items()},
                 'payload_sha256': hashes}
         build.write_text(json.dumps(info, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
         hashes[build.name] = LINUX.sha256(build)
@@ -162,10 +162,12 @@ def main():
         hashes[manifest.name] = LINUX.sha256(manifest)
         body = ('Windows 与 Linux 对齐仓库 Mac 工作区的简洁层级，优化中英文字体、文档标签和紧凑布局。\n\n'
                 '- Windows 10/11 x64：选择 MSI 或 portable.zip；当前为未签名预览包。\n'
+                '- 修正 Windows DX12 帧等待超时处理；安装版和便携版各通过 414 项扩展检查及额外 12 次缩放截图。\n'
                 '- Linux x86_64：选择 DEB、RPM、AppImage 或 tar.gz；最低 glibc 2.35。RPM 安装未在本轮实测。\n'
                 '- 原生 Windows 安装/便携 CLI 与桌面验收、Linux 最小安装运行及隐私检查均通过。\n'
                 '- 所有包附 SHA-256、许可证及来源记录；没有新增遥测或作品上传。\n'
                 '- 性能预算保留原阈值与失败记录；云端大型画布渲染仍有超标，不能视作全面性能通过。\n'
+                '- Linux 六种界面已人工复核；Windows 截图下载受云环境网络策略限制，尚未逐张人工复核。\n'
                 '- 真机显卡、输入法、数位板与多显示器仍有验收边界；本轮未重新实测 Mac 硬件。\n'
                 '- 此独立预览不替换任何原 Mac 附件，也不更改 latest 标记。\n\n'
                 f'源码：[{source}](https://github.com/{REPOSITORY}/commit/{source})\n\n'
