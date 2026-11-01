@@ -102,6 +102,8 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
             "maximized": i.viewport().maximized,
             "fullscreen": i.viewport().fullscreen,
             "minimized": i.viewport().minimized,
+            "occluded": i.viewport().occluded,
+            "focused": i.viewport().focused,
         })),
         "documents": app.session.documents().iter().map(|d| json!({"title": d.title(), "dirty": d.is_dirty()})).collect::<Vec<_>>(),
         "activeDocument": app.session.active_index(),

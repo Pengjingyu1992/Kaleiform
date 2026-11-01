@@ -131,6 +131,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 
 ## Shipped so far
 
+- **Windows screenshot readback pump (2026-11-01, M14.171):** services GPU mapping callbacks
+  with a nonblocking poll only while a screenshot is pending on Windows. Device errors follow
+  the existing graphics-loss/recovery path; the original capture deadline remains. Timeout
+  replies include a stable code and viewport/frame diagnostics without paths or pixel data.
+  Native Windows acceptance is required before this candidate can be published.
+
 - **Bounded desktop capture recovery (2026-11-01, M14.169):** a control screenshot gets one
   repeat attempt if no presented-frame event arrives, covering a command consumed during a
   transient surface acquisition failure. The original eight-second deadline and real-frame

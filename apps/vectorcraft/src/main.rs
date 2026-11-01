@@ -90,7 +90,20 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(feature = "wgpu")]
+        if cfg!(target_os = "windows")
+            && !self.graphics_lost
+            && self.app.has_pending_screenshots()
+            && let Some(render_state) = frame.wgpu_render_state()
+            // Mapping callbacks need a poll even when presentation stops submitting work.
+            // In particular, keep DX12/WARP readbacks moving in otherwise idle windows.
+            && let Err(error) = render_state.device.poll(eframe::wgpu::PollType::Poll)
+        {
+            self.graphics_loss.report(ctx, format!("Screenshot readback polling failed: {error}"));
+        }
+        #[cfg(not(feature = "wgpu"))]
+        let _ = frame;
         #[cfg(target_os = "macos")]
         self.sync_material(ctx);
         self.frames = ctx.cumulative_frame_nr();

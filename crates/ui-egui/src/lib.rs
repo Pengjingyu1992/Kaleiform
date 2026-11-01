@@ -732,6 +732,11 @@ impl VectorcraftApp {
         self.control_rx = Some(rx);
     }
 
+    /// Native hosts can service mapping callbacks without blocking while a capture is pending.
+    pub fn has_pending_screenshots(&self) -> bool {
+        !self.pending_screenshots.is_empty()
+    }
+
     fn issue_screenshots(&mut self, ctx: &egui::Context) {
         self.issue_screenshots_at(ctx, now_ms());
     }
@@ -789,13 +794,20 @@ impl VectorcraftApp {
                 let _ = reply.send(control::save_screenshot(self, &image, path.as_deref()));
             }
         }
-        self.pending_screenshots.retain(|(_, _, reply, deadline)| {
+        let viewport = ctx.input(|i| {
+            let viewport = i.viewport();
+            serde_json::json!({"minimized": viewport.minimized, "occluded": viewport.occluded, "focused": viewport.focused})
+        });
+        let frame = ctx.cumulative_frame_nr();
+        self.pending_screenshots.retain(|(token, _, reply, deadline)| {
             if now < *deadline {
                 return true;
             }
             let _ = reply.send(serde_json::json!({
                 "ok": false,
-                "error": "no frame was presented (screen locked, window minimized or fully covered); ui.render still renders the artboard"
+                "error": "no frame was presented (screen locked, window minimized/covered or GPU readback stalled); ui.render still renders the artboard",
+                "code": "screenshot_timeout",
+                "diagnostics": {"token": token, "frame": frame, "viewport": viewport}
             }));
             false
         });
