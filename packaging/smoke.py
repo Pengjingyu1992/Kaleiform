@@ -257,6 +257,16 @@ def run(bindir, desktop, work, extended=False):
                     progress("Starting the extended desktop functional matrix")
                     matrix = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_functional.py"))
                     matrix["run"](call, work)
+                    if os.name == "nt":
+                        # Exercise acquisition/readback after repeated swap-chain reconfiguration.
+                        # Keep the actual screenshot deadline and PNG assertions unchanged.
+                        for index, (width, height) in enumerate([(1440, 900), (950, 700), (800, 600), (1440, 900)] * 3):
+                            resize(width, height)
+                            path = work / f"resize-capture-{index:02}.png"
+                            captured = call("ui.screenshot", {"path": str(path)})
+                            png(path, (captured["width"], captured["height"]))
+                            assert abs(captured["width"] * height - captured["height"] * width) <= max(width, height), "Capture has stale surface dimensions"
+                        progress("Twelve repeated Windows resize/capture checks passed")
         except Exception:
             log.flush()
             # A driver can log repeatedly while the desktop is failing. Keep diagnostics

@@ -749,6 +749,7 @@ impl VectorcraftApp {
             }
             *frames = frames.saturating_add(1);
             if now >= *at && *frames >= 3 {
+                log::debug!("native capture requested token={token} frame={} pass={}", ctx.cumulative_frame_nr(), ctx.cumulative_pass_nr());
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
                 *attempts = attempts.saturating_sub(1);
                 if *attempts == 0 {
@@ -789,6 +790,7 @@ impl VectorcraftApp {
                 .collect()
         });
         for (token, image) in events {
+            log::debug!("native capture event token={token} frame={}", ctx.cumulative_frame_nr());
             if let Some(i) = self.pending_screenshots.iter().position(|(t, ..)| *t == token) {
                 let (_, path, reply, _) = self.pending_screenshots.remove(i);
                 let _ = reply.send(control::save_screenshot(self, &image, path.as_deref()));

@@ -1,5 +1,12 @@
 # `wgpu_hal`: a cross-platform unsafe graphics abstraction
 
+## Kaleiform local DX12 correction
+
+When waiting for a frame-latency slot times out, surface acquisition returns
+`SurfaceError::Timeout` before acquiring another buffer. Treating `Ok(false)`
+as a successful wait can oversubmit presentation work and delay readback callbacks.
+The normal one-frame queue, adapter selection and other backends are unchanged.
+
 This crate defines a set of traits abstracting over modern graphics APIs,
 with implementations ("backends") for Vulkan, Metal, Direct3D, and GL.
 
