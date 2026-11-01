@@ -2,6 +2,7 @@
 
 import argparse
 import ctypes
+from collections import Counter
 from ctypes import wintypes
 import json
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 import re
 import socket
 import time
+import threading
 
 
 class CapturedFailure(BaseException):
@@ -68,7 +70,13 @@ def owned_window(pid):
         kernel = ctypes.WinDLL("kernel32")
         kernel.GetTickCount64.restype = ctypes.c_ulonglong
         idle = (kernel.GetTickCount64() - last_input.dwTime) & 0xFFFFFFFF
+    api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    outer = wintypes.RECT()
+    assert api.GetWindowRect(handle, ctypes.byref(outer))
+    api.GetSystemMetrics.argtypes = [ctypes.c_int]
     return {
+        "windowRect": [outer.left, outer.top, outer.right, outer.bottom],
+        "screenPixels": [api.GetSystemMetrics(0), api.GetSystemMetrics(1)],
         "visible": bool(api.IsWindowVisible(handle)),
         "minimized": bool(api.IsIconic(handle)),
         "foreground": api.GetForegroundWindow() == handle,
@@ -120,6 +128,7 @@ def main():
     run = smoke["run"]
     summary = {
         "mode": args.mode,
+        "frameWait": os.environ.get("WGPU_DX12_USE_FRAME_LATENCY_WAITABLE_OBJECT"),
         "binarySourceRun": os.environ.get("DIAGNOSTIC_RUN_ID"),
         "binarySourceSha": os.environ.get("CAPTURE_DIAGNOSTIC_SOURCE_SHA"),
         "harnessSourceSha": os.environ.get("GITHUB_SHA"),
@@ -134,7 +143,7 @@ def main():
             k: value.get(k) for k in ("window", "windowState", "perf", "canvasRaster", "graphicsAdapter")
         }
         result["status"] = str(value.get("ui", {}).get("status", ""))[:600]
-        result["typography"] = value.get("typography")
+        result["typography"] = {k: value.get("typography", {}).get(k) for k in ("zoom", "chineseReady")}
         return result
 
     def diagnose(process, port, reply):
@@ -162,7 +171,7 @@ def main():
                 result = {
                     "phase": label,
                     "ok": False,
-                    "error": type(error).__name__ + ": " + str(error)[:600],
+                    "error": type(error).__name__ + ": " + str(error)[:160],
                 }
             result["seconds"] = round(time.monotonic() - start, 3)
             summary["recovery"].append(result)
@@ -185,6 +194,28 @@ def main():
             summary["finalNativeWindow"] = owned_window(process.pid)
         except Exception as error:
             summary["laterError"] = type(error).__name__ + ": " + str(error)[:600]
+        # A separate local RPC can wake the event loop independently of egui's timers.
+        # This happens only after the unchanged suite has failed; it is diagnosis, not acceptance.
+        stop_ticks = threading.Event()
+        ticks = []
+
+        def tick_control():
+            while not stop_ticks.is_set():
+                try:
+                    client(port, "ui.inspect")
+                    ticks.append(True)
+                except Exception:
+                    ticks.append(False)
+                stop_ticks.wait(0.1)
+
+        tick_thread = threading.Thread(target=tick_control, daemon=True)
+        tick_thread.start()
+        try:
+            attempt("with-independent-repaint-requests", False)
+        finally:
+            stop_ticks.set()
+            tick_thread.join(timeout=16)
+        summary["independentRepaintRequests"] = {"total": len(ticks), "successful": sum(ticks)}
         raise CapturedFailure()
 
     run.__globals__["capture_failure_diagnostic"] = diagnose
@@ -211,6 +242,20 @@ def main():
             power_request(previous_power | 0x80000000)
         log = args.output / "desktop.log"
         if log.exists():
+            counts = Counter()
+            with log.open(encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    for label, pattern in (
+                        ("occluded", "Skipping frame due to occlusion"),
+                        ("timeout", "Dropped frame with error: Timeout"),
+                        ("outdated", "Dropped frame with error: Outdated"),
+                        ("lost", "Dropped frame with error: Lost"),
+                        ("mapFailure", "Failed to map buffer"),
+                        ("rangeFailure", "Failed to get mapped range"),
+                    ):
+                        if pattern in line:
+                            counts[label] += 1
+            summary["surfaceStatusCounts"] = dict(counts)
             with log.open("rb") as stream:
                 stream.seek(0, os.SEEK_END)
                 stream.seek(max(0, stream.tell() - 16384))

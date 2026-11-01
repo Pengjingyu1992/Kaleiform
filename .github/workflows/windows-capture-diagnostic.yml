@@ -7,7 +7,7 @@ on:
         description: "Trusted main Windows package run to diagnose without rebuilding"
         required: true
         type: string
-        default: "41274900560"
+        default: "41297641585"
 
 permissions:
   contents: read
@@ -15,16 +15,18 @@ permissions:
 
 jobs:
   diagnose:
-    name: Native capture diagnosis (${{ matrix.mode }})
+    name: Native present diagnosis (${{ matrix.wait }})
     runs-on: windows-2025
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        mode: [baseline, awake]
+        wait: [Wait, DontWait, None]
     env:
       VECTORCRAFT_NO_PREFS: "1"
       WGPU_BACKEND: dx12
+      WGPU_DX12_USE_FRAME_LATENCY_WAITABLE_OBJECT: ${{ matrix.wait }}
+      RUST_LOG: "warn,egui_wgpu=trace"
       DIAGNOSTIC_RUN_ID: ${{ inputs.source_run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +63,7 @@ jobs:
       - name: Diagnose the first capture failure with original test timing
         timeout-minutes: 14
         run: |
-          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode ${{ matrix.mode }}
+          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode baseline
           if ($LASTEXITCODE -ne 0) { throw 'The diagnostic recorded a failure; see its summary' }
       - name: Uninstall this test installation
         if: always()
@@ -73,7 +75,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kaleiform-capture-diagnosis-${{ matrix.mode }}
+          name: kaleiform-present-diagnosis-${{ matrix.wait }}
           path: |
             dist/windows-qa/diagnosis/**/*.png
             dist/windows-qa/diagnosis/**/*.json
