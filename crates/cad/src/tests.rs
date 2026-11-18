@@ -175,6 +175,28 @@ fn lines_are_lwpolylines_curves_splines_and_fills_hatches() {
 }
 
 #[test]
+fn modern_dxf_layout_uses_the_plot_settings_codes() {
+    let doc = shapes_doc();
+    for version in [DxfVersion::R2000, DxfVersion::R2018] {
+        let out = export(&doc, &DxfOptions { version, ..opts(&doc) }).unwrap();
+        let objects = section(&pairs(&out.bytes), "OBJECTS");
+        let layouts: Vec<_> = objects.iter().filter(|o| kind(o) == "LAYOUT").collect();
+        assert_eq!(layouts.len(), 2);
+        for (layout, flags) in layouts.into_iter().zip(["1712", "688"]) {
+            let settings_end = layout.iter().position(|(code, value)| *code == 100 && value == "AcDbLayout").unwrap();
+            let settings = &layout[..settings_end];
+            assert_eq!(get(settings, 70), Some(flags));
+            assert_eq!(get(settings, 148), Some("0"));
+            assert_eq!(get(settings, 149), Some("0"));
+            assert_eq!(get(settings, 158), None);
+            assert_eq!(get(settings, 78), version.true_color().then_some("300"));
+        }
+        let placeholder = objects.iter().find(|o| kind(o) == "ACDBPLACEHOLDER").unwrap();
+        assert_eq!(get(placeholder, 100), None);
+    }
+}
+
+#[test]
 fn colours_map_to_the_index_palette_or_true_colour() {
     let d = shapes_doc();
     let style = |o: &DxfOutput, i: usize| {

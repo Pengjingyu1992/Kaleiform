@@ -26,6 +26,13 @@ fn open(bytes: &[u8]) -> Document {
     import(bytes).unwrap()
 }
 
+#[test]
+fn triangular_clip_with_page_bounds_is_retained() {
+    let content = "0 0 m 100 0 l 0 100 l h W n 1 0 0 rg 0 0 100 100 re f";
+    let doc = open(&one_page(content, "", &[]));
+    assert!(all(&doc).iter().any(|n| matches!(n.kind, NodeKind::Group { clip: true, .. })));
+}
+
 fn open_with(bytes: &[u8], f: impl FnOnce(&mut ImportOptions)) -> ImportReport {
     let mut o = ImportOptions::default();
     f(&mut o);

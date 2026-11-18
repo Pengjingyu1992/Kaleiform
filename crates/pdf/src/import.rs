@@ -1536,14 +1536,9 @@ impl<'a> Device<'a> for Builder<'_> {
                 (*isolate, *knockout) = (i, k);
             }
         }
-        let bb = clip_path.path.bounding_box();
-        // Clips that contain the whole page do nothing visible; don't create groups for them.
-        let redundant = clip_path.path.elements().len() <= 6
-            && bb.x0 <= self.page.x0 + 0.01
-            && bb.y0 <= self.page.y0 + 0.01
-            && bb.x1 >= self.page.x1 - 0.01
-            && bb.y1 >= self.page.y1 - 0.01
-            && self.page.area() > 0.0;
+        // Only a rectangle covering the page is redundant. A triangle can have the same bounds.
+        let redundant =
+            self.page.area() > 0.0 && vectorcraft_geom::path::axis_aligned_rect(&clip_path.path).is_some_and(|rect| rect.contains_rect(self.page));
         let kind = if redundant { FrameKind::Skip } else { FrameKind::Clip(Box::new(self.clip_node(&clip_path.path, fill_rule(clip_path.fill)))) };
         self.stack.push(Frame::new(kind));
     }

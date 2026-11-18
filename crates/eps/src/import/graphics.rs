@@ -320,9 +320,7 @@ impl Out {
     /// A new clip of `path` inside `clips`; `None` for a rectangle around the whole page, which
     /// clips nothing.
     fn clip(&mut self, path: BezPath, rule: FillRule) -> Option<Arc<Clip>> {
-        let lines = path.elements().iter().all(|e| !matches!(e, PathEl::QuadTo(..) | PathEl::CurveTo(..)));
-        let around = path.bounding_box().inflate(0.5, 0.5);
-        if lines && path.elements().len() <= 6 && around.contains(self.frame.origin()) && around.contains(Point::new(self.frame.x1, self.frame.y1)) {
+        if vectorcraft_geom::path::axis_aligned_rect(&path).is_some_and(|rect| rect.contains_rect(self.frame)) {
             return None;
         }
         self.next_clip += 1;

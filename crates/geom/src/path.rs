@@ -7,6 +7,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::EPS;
 
+/// Bounds of a single axis-aligned rectangular contour, closed explicitly or by filling.
+/// Curves, extra contours and diagonal edges can cut away art inside their bounds.
+pub fn axis_aligned_rect(path: &BezPath) -> Option<Rect> {
+    let [PathEl::MoveTo(a), PathEl::LineTo(b), PathEl::LineTo(c), PathEl::LineTo(d), tail @ ..] = path.elements() else {
+        return None;
+    };
+    match tail {
+        [] | [PathEl::ClosePath] => {}
+        [PathEl::LineTo(end)] | [PathEl::LineTo(end), PathEl::ClosePath] if end == a => {}
+        _ => return None,
+    }
+    let rect = Rect::from_points(*a, *c);
+    if !a.is_finite() || !c.is_finite() || rect.width() == 0.0 || rect.height() == 0.0 {
+        return None;
+    }
+    let horizontal = Point::new(c.x, a.y);
+    let vertical = Point::new(a.x, c.y);
+    ((*b == horizontal && *d == vertical) || (*b == vertical && *d == horizontal)).then_some(rect)
+}
+
 /// Fill rule for paths and compound paths.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FillRule {

@@ -209,11 +209,25 @@ impl SaveOptions {
         Ok(())
     }
 
-    /// The defaults for saving `doc` to disk: pretty when small (see [`PRETTY_MAX_OBJECTS`]).
+    /// The defaults for saving `doc` to disk: indent small documents, write dense artwork compactly.
     pub fn for_doc(doc: &Document) -> Self {
-        let objects: usize = doc.layers.iter().map(|l| l.count()).sum();
-        Self { pretty: objects <= PRETTY_MAX_OBJECTS, ..Self::default() }
+        let mut objects = PRETTY_MAX_OBJECTS;
+        let mut anchors = PRETTY_MAX_ANCHORS;
+        let roots = doc.layers.iter().chain(doc.symbols.iter().map(|s| &s.art)).chain(doc.patterns.iter().flat_map(|p| &p.art));
+        let pretty = roots.into_iter().all(|n| fits_pretty_budget(n, &mut objects, &mut anchors));
+        Self { pretty, ..Self::default() }
     }
+}
+
+fn fits_pretty_budget(n: &vectorcraft_doc::Node, objects: &mut usize, anchors: &mut usize) -> bool {
+    let (Some(next_objects), Some(next_anchors)) = (objects.checked_sub(1), anchors.checked_sub(n.path_data().map_or(0, |path| path.anchor_count())))
+    else {
+        return false;
+    };
+    *objects = next_objects;
+    *anchors = next_anchors;
+    n.children().into_iter().flatten().all(|child| fits_pretty_budget(child, objects, anchors))
+        && n.mask.as_ref().is_none_or(|mask| fits_pretty_budget(&mask.art, objects, anchors))
 }
 
 /// Serialize a document (pretty = human-diffable) in the current version. Editing-mode working
@@ -225,6 +239,9 @@ pub fn save(doc: &Document, pretty: bool) -> Vec<u8> {
 /// Documents up to this many objects are saved pretty-printed (readable, diffable); larger ones
 /// compact, where indentation would multiply the file size and slow opening down.
 pub const PRETTY_MAX_OBJECTS: usize = 2000;
+
+/// Indenting every anchor makes traced art large even when only a few paths contain it.
+const PRETTY_MAX_ANCHORS: usize = 5_000;
 
 /// Serialize for saving to disk: pretty when small, compact when large.
 pub fn save_file(doc: &Document) -> Vec<u8> {
@@ -553,6 +570,28 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_paths_save_compactly_and_reopen_with_the_same_anchors() {
+        use vectorcraft_doc::{Appearance, Node};
+        use vectorcraft_geom::{BezPath, PathData, Point};
+
+        let mut doc = Document::new(100.0, 100.0);
+        assert!(save_file(&doc).starts_with(b"{\n"));
+        let mut outline = BezPath::new();
+        outline.move_to(Point::ZERO);
+        for i in 1..=PRETTY_MAX_ANCHORS {
+            outline.line_to((i as f64, (i % 2) as f64));
+        }
+        let id = doc.alloc_id();
+        let path = PathData::from_bezpath(&outline);
+        assert!(path.anchor_count() > PRETTY_MAX_ANCHORS);
+        let group = doc.layers.first_mut().unwrap();
+        std::sync::Arc::make_mut(group).children_mut().unwrap().push(std::sync::Arc::new(Node::path(id, path.clone(), Appearance::default())));
+        let bytes = save_file(&doc);
+        assert!(bytes.starts_with(b"{\""));
+        assert_eq!(load(&bytes).unwrap().node(id).unwrap().path_data(), Some(&path));
+    }
 
     #[test]
     fn files_from_before_the_rename_still_open() {

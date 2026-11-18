@@ -210,6 +210,17 @@ fn clips_nest_only_so_deep() {
 }
 
 #[test]
+fn clip_with_page_bounds_can_still_cut_away_art() {
+    for clip in ["0 0 moveto 100 0 lineto 0 100 lineto closepath clip", "0.25 0 99.75 100 rectclip"] {
+        let r = read(&format!("{clip} newpath 0 0 100 100 rectfill"));
+        let o = objects(&r.document);
+        let NodeKind::Group { children, clip: true } = &o[0].kind else { panic!("lost the clip: {clip}") };
+        assert_eq!(children.len(), 2);
+        assert!(matches!(children[0].kind, NodeKind::Path { clipping: true, .. }));
+    }
+}
+
+#[test]
 fn shadings_become_gradients() {
     let axial =
         "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >>";

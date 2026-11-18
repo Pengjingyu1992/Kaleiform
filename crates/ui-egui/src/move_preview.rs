@@ -1,5 +1,8 @@
 //! Ordered, transparent display surfaces for dense Selection-tool translations.
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use egui::{Color32, Pos2};
 use vectorcraft_color::BlendMode;
@@ -109,11 +112,19 @@ impl Scene {
             return None;
         }
         let roots: Vec<_> = nodes.iter().map(|n| n.id).collect();
-        let bounds = nodes.iter().fold(None, |b, n| union_opt(b, vectorcraft_render::painted_bounds(n)))?;
-        let selected: HashSet<_> = roots.iter().copied().collect();
+        let mut bounds = None;
+        let root_bounds: HashMap<_, _> = nodes
+            .iter()
+            .map(|n| {
+                let rect = vectorcraft_render::painted_bounds(n);
+                bounds = union_opt(bounds, rect);
+                (n.id, rect)
+            })
+            .collect();
+        let bounds = bounds?;
         let mut holders = HashSet::new();
-        fn gather(n: &Node, selected: &HashSet<NodeId>, holders: &mut HashSet<NodeId>) -> bool {
-            if selected.contains(&n.id) {
+        fn gather(n: &Node, selected: &HashMap<NodeId, Option<Rect>>, holders: &mut HashSet<NodeId>) -> bool {
+            if selected.contains_key(&n.id) {
                 return true;
             }
             let mut has = false;
@@ -126,10 +137,15 @@ impl Scene {
             has
         }
         for n in &source.layers {
-            gather(n, &selected, &mut holders);
+            gather(n, &root_bounds, &mut holders);
         }
         let mut chunks: Vec<(bool, Vec<Arc<Node>>)> = Vec::new();
-        fn split(n: &Arc<Node>, selected: &HashSet<NodeId>, holders: &HashSet<NodeId>, chunks: &mut Vec<(bool, Vec<Arc<Node>>)>) -> Option<()> {
+        fn split(
+            n: &Arc<Node>,
+            selected: &HashMap<NodeId, Option<Rect>>,
+            holders: &HashSet<NodeId>,
+            chunks: &mut Vec<(bool, Vec<Arc<Node>>)>,
+        ) -> Option<()> {
             if !n.visible {
                 return Some(());
             }
@@ -145,7 +161,7 @@ impl Scene {
             if n.blend != BlendMode::Normal || (!n.isolate && n.blends_through()) || n.wrap.is_some() {
                 return None;
             }
-            let moving = selected.contains(&n.id);
+            let moving = selected.contains_key(&n.id);
             if let Some((last, nodes)) = chunks.last_mut()
                 && *last == moving
             {
@@ -159,7 +175,7 @@ impl Scene {
             Some(())
         }
         for n in &source.layers {
-            split(n, &selected, &holders, &mut chunks)?;
+            split(n, &root_bounds, &holders, &mut chunks)?;
         }
         if !chunks.iter().any(|(moving, _)| *moving) {
             return None;
@@ -167,7 +183,7 @@ impl Scene {
         let parts = chunks
             .into_iter()
             .map(|(moving, nodes)| {
-                let bounds = moving.then(|| nodes.iter().fold(None, |b, n| union_opt(b, vectorcraft_render::painted_bounds(n)))).flatten();
+                let bounds = moving.then(|| nodes.iter().fold(None, |b, n| union_opt(b, root_bounds.get(&n.id).copied().flatten()))).flatten();
                 let mut doc = source.as_ref().clone();
                 doc.layers = nodes;
                 Part { moving, doc, bounds }
