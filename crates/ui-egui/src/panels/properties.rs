@@ -443,10 +443,6 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
     section_header(ui, tl!("Transform"));
     let fw = super::field_width(ui);
     let compact = ui.available_width() < 247.0;
-    // Two input rows plus their group padding. Font metrics differ between native stacks;
-    // centring against a fixed 62-point column displaced the reference grid with Inter.
-    let field_row = ui.fonts_mut(|fonts| fonts.row_height(&egui::FontId::proportional(12.5)) + 10.0).max(26.0);
-    let fields_height = 2.0 * field_row + 6.0;
     let mut fields_left = None;
     if compact {
         ui.horizontal(|ui| {
@@ -457,15 +453,8 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
         });
     }
     ui.horizontal(|ui| {
-        if !compact {
-            ui.allocate_ui_with_layout(egui::vec2(23.0, fields_height), egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.set_min_height(fields_height);
-                ui.add_space((fields_height - 23.0) / 2.0);
-                if let Some(i) = widgets::reference_point(ui, refi) {
-                    ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
-                }
-            });
-        }
+        let reference = (!compact).then(|| ui.allocate_space(egui::vec2(23.0, 0.0)).1);
+        let mut fields_rect = egui::Rect::NOTHING;
         let link = app.session.prefs.constrain_proportions;
         for values in [[("X:", "x", "tx", rp.x), ("Y:", "y", "ty", rp.y)], [("W:", "width", "tw", b.width()), ("H:", "height", "th", b.height())]] {
             let group = widgets::input_frame(ui, false).inner_margin(egui::Margin::symmetric(3, 2)).show(ui, |ui| {
@@ -488,14 +477,21 @@ pub fn transform_section(app: &mut VectorcraftApp, ui: &mut Ui) {
                     }
                 });
             });
+            fields_rect = fields_rect.union(group.response.rect);
             fields_left.get_or_insert(group.response.rect.left());
         }
-        if !compact {
-            ui.allocate_ui_with_layout(egui::vec2(24.0, fields_height), egui::Layout::top_down(egui::Align::Center), |ui| {
-                ui.set_min_height(fields_height);
-                ui.add_space((fields_height - 24.0) / 2.0);
-                super::transform::constrain_link(app, ui);
-            });
+        if let Some(reference) = reference {
+            let link = ui.allocate_space(egui::vec2(24.0, 0.0)).1;
+            let centered = |slot: egui::Rect| {
+                let side = slot.width();
+                egui::Rect::from_center_size(egui::pos2(slot.center().x, fields_rect.center().y), egui::Vec2::splat(side))
+            };
+            let mut locator = ui.new_child(egui::UiBuilder::new().id_salt("transform-reference").max_rect(centered(reference)));
+            if let Some(i) = widgets::reference_point(&mut locator, refi) {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("refpt"), i));
+            }
+            let mut link_ui = ui.new_child(egui::UiBuilder::new().id_salt("transform-link").max_rect(centered(link)));
+            super::transform::constrain_link(app, &mut link_ui);
         }
     });
     let fw = super::field_width(ui);
