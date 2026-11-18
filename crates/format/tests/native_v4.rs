@@ -76,3 +76,35 @@ fn damaged_offsets_are_refused_not_a_crash() {
     assert!(load_file(json_only).is_err());
     let _ = Arc::new(());
 }
+
+#[test]
+fn json_boundary_rejects_extra_values_and_garbage_but_accepts_whitespace() {
+    let doc = Document::new(100.0, 100.0);
+    for version in 1..=4 {
+        let original = save_with(&doc, &SaveOptions { version, ..Default::default() }).unwrap();
+        let mut spaced = b" \r\n\t".to_vec();
+        spaced.extend_from_slice(&original);
+        spaced.extend_from_slice(b" \r\n\t");
+        assert!(load(&spaced).is_ok(), "version {version}");
+        for suffix in [b"{}".as_slice(), b"null", b"garbage", b"\0", b"\x0b", b" \n\0VCBLOBS"] {
+            let mut bad = original.clone();
+            bad.extend_from_slice(suffix);
+            assert!(load(&bad).is_err(), "version {version}, suffix {suffix:?}");
+        }
+    }
+}
+
+#[test]
+fn preview_and_document_read_the_same_binary_boundary() {
+    let d = doc_with_image("big", INLINE_MAX + 10);
+    let preview = b"\x89PNG\r\n\x1a\nsynthetic preview".to_vec();
+    let pdf = vec![b'%'; INLINE_MAX];
+    for compress in [false, true] {
+        let bytes = save_with(&d, &SaveOptions { compress, preview: Some(preview.clone()), pdf: Some(pdf.clone()), ..Default::default() }).unwrap();
+        assert_eq!(vectorcraft_format::preview(&bytes), Some(preview.clone()));
+        assert_eq!(pdf_content(&bytes), Some(pdf.clone()));
+        assert_eq!(load(&bytes).unwrap().images["big"].bytes, d.images["big"].bytes);
+    }
+    assert!(load(&[]).is_err());
+    assert!(load(b"  \n").is_err());
+}

@@ -285,8 +285,19 @@ fn presets(app: &VectorcraftApp, ui: &mut egui::Ui, d: &mut Dialog, strip: bool)
     let mut tab = None;
     ui.horizontal(|ui| {
         let width = (ui.available_width() - 30.0).max(40.0);
-        ui.allocate_ui(egui::vec2(width, 24.0), |ui| {
-            tab = egui::ScrollArea::horizontal().id_salt("newdoc-tabs").show(ui, |ui| widgets::tab_bar(ui, &names, cat)).inner;
+        let tabs_width =
+            names.iter().map(|name| ui.painter().layout_no_wrap(tl!(name).to_string(), theme::semibold(13.0), t.text).size().x).sum::<f32>()
+                + names.len().saturating_sub(1) as f32 * 18.0;
+        ui.allocate_ui(egui::vec2(width, 30.0), |ui| {
+            if tabs_width <= width {
+                tab = widgets::tab_bar(ui, &names, cat);
+            } else {
+                // A clipped strip left a fragment of the next translated category visible.
+                // Keep the active category readable; the adjacent menu exposes every category.
+                ui.add(
+                    egui::Label::new(egui::RichText::new(tl!(names.get(cat).copied().unwrap_or("Recent"))).font(theme::semibold(13.0))).truncate(),
+                );
+            }
         });
         let more = widgets::icon_button(ui, "chevron-down", tl!("Document Categories"), false, 24.0);
         if let Some(chosen) = egui::Popup::menu(&more)
@@ -987,6 +998,46 @@ mod tests {
         draw(&mut app, vec![]);
         assert_eq!(ctx.memory(|m| m.focused()), Some(invoker));
         assert!(app.session.documents().is_empty());
+    }
+
+    #[test]
+    fn category_names_never_paint_partially_clipped_in_compact_translated_dialogs() {
+        let previous = crate::i18n::current();
+        for code in ["en", "zh-hans", "fr"] {
+            crate::i18n::set_current(crate::i18n::Lang::from_code(code).unwrap());
+            for width in [640.0, 800.0, 1440.0] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                let mut app = VectorcraftApp::new(Session::new(), Default::default());
+                app.run("file.newDialog", json!({})).unwrap();
+                for category in ["Recent", "Print", "Social"] {
+                    set(&mut app, "category", json!(category));
+                    let mut out = egui::FullOutput::default();
+                    for _ in 0..4 {
+                        out = ctx.run_ui(
+                            egui::RawInput {
+                                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))),
+                                ..Default::default()
+                            },
+                            |ui| crate::dialogs::show(&mut app, ui.ctx()),
+                        );
+                        out.textures_delta.clear();
+                    }
+                    let mut shown = 0;
+                    for shape in &out.shapes {
+                        if let egui::Shape::Text(text) = &shape.shape
+                            && super::newdoc::category_names().any(|name| tl!(name) == text.galley.text())
+                        {
+                            let bounds = text.galley.rect.translate(text.pos.to_vec2());
+                            assert!(shape.clip_rect.expand(1.0).contains_rect(bounds), "{code}/{width}/{category}: {:?}", text.galley.text());
+                            shown += 1;
+                        }
+                    }
+                    assert!(shown > 0, "the active category stays visible");
+                }
+            }
+        }
+        crate::i18n::set_current(previous);
     }
 
     #[test]

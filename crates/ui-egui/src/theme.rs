@@ -24,6 +24,19 @@ pub struct HostAppearance {
     pub reduce_motion: bool,
 }
 
+/// Use the same neutral desktop surfaces as the Mac workspace when a host has no semantic
+/// colour provider. Keep the backing opaque; this does not claim compositor blur support.
+pub fn ensure_desktop_appearance(ctx: &egui::Context, brightness: Brightness, glass: bool) {
+    if ctx.data(|d| d.get_temp::<HostAppearance>(egui::Id::new("host-appearance"))).is_none() {
+        set_host_appearance(
+            ctx,
+            HostAppearance { accent: [0, 122, 255], colors: None, reduce_transparency: false, reduce_motion: false },
+            brightness,
+            glass,
+        );
+    }
+}
+
 pub fn set_host_appearance(ctx: &egui::Context, appearance: HostAppearance, brightness: Brightness, glass: bool) {
     let id = egui::Id::new("host-appearance");
     if ctx.data(|d| d.get_temp::<HostAppearance>(id)) == Some(appearance) {
@@ -335,11 +348,17 @@ impl Tokens {
 }
 
 pub const FONT_UI: &str = "ui";
+pub const FONT_UI_MEDIUM: &str = "ui-medium";
 pub const FONT_UI_SEMIBOLD: &str = "ui-semibold";
 pub const FONT_MONO: &str = "mono";
 
 pub fn semibold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FONT_UI_SEMIBOLD.into()))
+}
+
+/// Compact desktop chrome needs a quieter weight than section headings.
+pub fn medium(size: f32) -> FontId {
+    if cfg!(any(target_os = "windows", target_os = "linux")) { FontId::new(size, FontFamily::Name(FONT_UI_MEDIUM.into())) } else { semibold(size) }
 }
 
 pub fn emphasis(ctx: &egui::Context, size: f32) -> FontId {
@@ -354,17 +373,37 @@ pub fn install_fonts(ctx: &egui::Context) {
     let add = |f: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         f.font_data.insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
     };
-    add(&mut fonts, "SourceSans3", include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf"));
-    add(&mut fonts, "SourceSans3-Semibold", include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf"));
+    // Reuse the repository's licensed Inter faces on custom-titlebar desktops. The Mac keeps
+    // its native SF/PingFang stack; artwork fonts and the web's existing stack are unaffected.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let (regular, medium, semibold) = (
+        include_bytes!("../../../assets/fonts/Inter-Regular.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/Inter-Medium.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf").as_slice(),
+    );
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let (regular, medium, semibold) = (
+        include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf").as_slice(),
+        include_bytes!("../../../assets/fonts/SourceSans3-Semibold.ttf").as_slice(),
+    );
+    add(&mut fonts, "UI-Regular", regular);
+    add(&mut fonts, "UI-Medium", medium);
+    add(&mut fonts, "UI-Semibold", semibold);
+    add(&mut fonts, "UI-Symbols", include_bytes!("../../../assets/fonts/SourceSans3-Regular.ttf"));
     add(&mut fonts, "JetBrainsMono", include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"));
-    let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    let mut prop = vec!["SourceSans3".to_string()];
+    let mut fallback: Vec<String> = vec!["UI-Symbols".into()];
+    fallback.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
+    let mut prop = vec!["UI-Regular".to_string()];
     prop.extend(fallback.clone());
     fonts.families.insert(FontFamily::Proportional, prop);
-    let mut semi = vec!["SourceSans3-Semibold".to_string()];
+    let mut med = vec!["UI-Medium".to_string()];
+    med.extend(fallback.clone());
+    fonts.families.insert(FontFamily::Name(FONT_UI_MEDIUM.into()), med);
+    let mut semi = vec!["UI-Semibold".to_string()];
     semi.extend(fallback.clone());
     fonts.families.insert(FontFamily::Name(FONT_UI_SEMIBOLD.into()), semi);
-    let mut ui = vec!["SourceSans3".to_string()];
+    let mut ui = vec!["UI-Regular".to_string()];
     ui.extend(fallback.clone());
     fonts.families.insert(FontFamily::Name(FONT_UI.into()), ui);
     let mut mono = vec!["JetBrainsMono".to_string()];
@@ -471,7 +510,14 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
     }
     if let Some(host) = host {
         let rgb = |value| Color32::from_gray(value);
-        let (surface, panel, input, ink, secondary) = if t.dark { (38, 40, 30, 242, 190) } else { (244, 246, 255, 26, 85) };
+        // Keep all four app brightness choices distinct in the shared desktop fallback.
+        // Native semantic colours, when supplied, still override this palette below.
+        let (surface, panel, input, ink, secondary) = match b {
+            Brightness::Dark => (30, 32, 24, 242, 190),
+            Brightness::MediumDark => (42, 46, 36, 242, 190),
+            Brightness::MediumLight => (228, 232, 244, 26, 85),
+            Brightness::Light => (244, 246, 255, 26, 85),
+        };
         t.panel = rgb(panel);
         t.panel_darker = rgb(if t.dark { 30 } else { 235 });
         t.input = rgb(input);
@@ -481,7 +527,7 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
             t.app_bar = Color32::from_rgba_unmultiplied(surface, surface, surface, 220);
             t.surface = Color32::from_rgba_unmultiplied(panel, panel, panel, 230);
         }
-        t.glass_tint = rgb(panel);
+        t.glass_tint = if t.glass { Color32::from_rgba_unmultiplied(panel, panel, panel, if t.dark { 205 } else { 210 }) } else { rgb(panel) };
         t.tab_strip = rgb(panel);
         t.pasteboard = rgb(if t.dark { 28 } else { 210 });
         t.ruler = rgb(if t.dark { 35 } else { 239 });
@@ -600,6 +646,30 @@ pub fn apply_material(ctx: &egui::Context, b: Brightness, glass: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_fallback_keeps_chrome_opaque_and_preserves_host_accessibility() {
+        let ctx = egui::Context::default();
+        ensure_desktop_appearance(&ctx, Brightness::Dark, true);
+        let mut panels = std::collections::HashSet::new();
+        for brightness in Brightness::ALL {
+            apply_material(&ctx, brightness, true);
+            let t = Tokens::get(&ctx);
+            assert_eq!(t.radius, 6);
+            assert_eq!((t.surface.a(), t.app_bar.a(), t.input.a(), t.pasteboard.a()), (255, 255, 255, 255));
+            assert_eq!(t.accent, Color32::from_rgb(0, 122, 255));
+            assert!(t.glass_tint.a() < 255, "floating panels retain the in-app canvas blur");
+            panels.insert(t.panel.to_array());
+        }
+        assert_eq!(panels.len(), 4, "brightness must affect all four desktop themes");
+        let host = HostAppearance { accent: [255, 210, 30], colors: None, reduce_transparency: true, reduce_motion: true };
+        set_host_appearance(&ctx, host, Brightness::Light, true);
+        ensure_desktop_appearance(&ctx, Brightness::Light, true);
+        let t = Tokens::get(&ctx);
+        assert!(!t.glass);
+        assert_eq!(t.accent, Color32::from_rgb(255, 210, 30));
+        assert_eq!(ctx.global_style().animation_time, 0.0);
+    }
 
     #[test]
     fn host_accessibility_and_accent_keep_controls_legible_and_canvas_opaque() {

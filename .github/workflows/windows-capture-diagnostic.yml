@@ -1,0 +1,81 @@
+name: Windows capture diagnosis
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Trusted main Windows package run to diagnose without rebuilding"
+        required: true
+        type: string
+        default: "41274900560"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    name: Native capture diagnosis (${{ matrix.mode }})
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, awake]
+    env:
+      VECTORCRAFT_NO_PREFS: "1"
+      WGPU_BACKEND: dx12
+      DIAGNOSTIC_RUN_ID: ${{ inputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check source run provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, re, subprocess
+          run_id = os.environ['DIAGNOSTIC_RUN_ID']
+          assert re.fullmatch(r'[1-9][0-9]*', run_id), 'Expected a numeric run id'
+          repository = os.environ['GITHUB_REPOSITORY']
+          run = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repository}/actions/runs/{run_id}']))
+          assert run['head_repository']['full_name'] == repository == 'Pengjingyu1992/Kaleiform'
+          assert run['event'] == 'push' and run['head_branch'] == 'main'
+          assert run['name'] == 'Windows x64 packages'
+          assert re.fullmatch(r'[0-9a-f]{40}', run['head_sha'])
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('CAPTURE_DIAGNOSTIC_SOURCE_SHA=' + run['head_sha'] + '\n')
+          print('Diagnosing immutable packages from main source ' + run['head_sha'])
+      - uses: actions/download-artifact@v4
+        with:
+          name: kaleiform-windows-x64
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: dist/release
+      - name: Validate exact source packages
+        run: ./packaging/windows/verify.ps1 -Phase Validate
+      - name: Install the owned test application
+        run: ./packaging/windows/verify.ps1 -Phase Install
+      - name: Diagnose the first capture failure with original test timing
+        timeout-minutes: 14
+        run: |
+          python -B packaging/windows/diagnose_capture.py --bin-dir "$env:ProgramFiles\Kaleiform" --output dist/windows-qa/diagnosis --mode ${{ matrix.mode }}
+          if ($LASTEXITCODE -ne 0) { throw 'The diagnostic recorded a failure; see its summary' }
+      - name: Uninstall this test installation
+        if: always()
+        run: |
+          if (Test-Path dist/windows-qa/installed.sha256) {
+            ./packaging/windows/verify.ps1 -Phase Uninstall
+          }
+      - name: Retain synthetic diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaleiform-capture-diagnosis-${{ matrix.mode }}
+          path: |
+            dist/windows-qa/diagnosis/**/*.png
+            dist/windows-qa/diagnosis/**/*.json
+            dist/windows-qa/diagnosis/**/*.log
+          if-no-files-found: ignore

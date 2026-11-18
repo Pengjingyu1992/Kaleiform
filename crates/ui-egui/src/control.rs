@@ -93,6 +93,18 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "view": app.view().map(|v| serde_json::to_value(v).unwrap_or_default()),
         "canvasRect": app.canvas_rect.map(|c| json!([c.left(), c.top(), c.width(), c.height()])),
         "window": [r.width(), r.height()],
+        "typography": {
+            "zoom": ctx.zoom_factor(),
+            "families": ctx.fonts(|fonts| fonts.definitions().families.iter().map(|(family, stack)| (family.to_string(), stack.clone())).collect::<std::collections::BTreeMap<_, _>>()),
+            "chineseReady": ctx.fonts_mut(|fonts| [egui::FontId::proportional(13.0), crate::theme::medium(13.0), crate::theme::semibold(13.0)].iter().all(|id| "虹构属性".chars().all(|c| fonts.has_glyph(id, c)))),
+        },
+        "windowState": ctx.input(|i| json!({
+            "maximized": i.viewport().maximized,
+            "fullscreen": i.viewport().fullscreen,
+            "minimized": i.viewport().minimized,
+            "occluded": i.viewport().occluded,
+            "focused": i.viewport().focused,
+        })),
         "documents": app.session.documents().iter().map(|d| json!({"title": d.title(), "dirty": d.is_dirty()})).collect::<Vec<_>>(),
         "activeDocument": app.session.active_index(),
         "perf": {"frameMs": app.perf.frame_ms, "renderMs": app.perf.render_ms, "fps": app.perf.fps},
@@ -107,6 +119,7 @@ pub fn inspect(app: &VectorcraftApp, ctx: &egui::Context) -> Value {
         "workspace": {
             "enabled": crate::workspace::enabled(app),
             "inspectorOverlay": app.ui.inspector_overlay,
+            "customTitlebar": app.custom_titlebar,
             "performanceHud": app.ui.performance_hud,
         },
         "mcp": {
@@ -322,9 +335,16 @@ pub fn handle(app: &mut VectorcraftApp, ctx: &egui::Context, req: &ControlReques
             ok(Value::Null)
         }
         "ui.resize" => {
-            let w = p.get("width").and_then(Value::as_f64).unwrap_or(1440.0) as f32;
-            let h = p.get("height").and_then(Value::as_f64).unwrap_or(900.0) as f32;
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+            let w = p.get("width").map_or(Some(1440.0), Value::as_f64);
+            let h = p.get("height").map_or(Some(900.0), Value::as_f64);
+            let (Some(w), Some(h)) = (w, h) else { return err("width and height must be numbers") };
+            if ![w, h].iter().all(|n| n.is_finite() && (1.0..=16384.0).contains(n)) {
+                return err("width and height must be finite values between 1 and 16384 points");
+            }
+            // Small monitors open maximized. Windows ignores an inner-size request in that
+            // state, so an explicit control resize first restores the normal window.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w as f32, h as f32)));
             ok(Value::Null)
         }
         "ui.focus" => {

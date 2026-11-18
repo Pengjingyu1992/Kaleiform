@@ -79,6 +79,8 @@ mod tests_contextmenu;
 #[cfg(test)]
 mod tests_cut;
 #[cfg(test)]
+mod tests_desktop_qa;
+#[cfg(test)]
 mod tests_distortkeys;
 #[cfg(test)]
 mod tests_docsetup;
@@ -132,6 +134,8 @@ mod tests_save;
 mod tests_saveext;
 #[cfg(test)]
 mod tests_screenmode;
+#[cfg(test)]
+mod tests_screenshots;
 #[cfg(test)]
 mod tests_scrub;
 #[cfg(test)]
@@ -356,7 +360,9 @@ pub struct VectorcraftApp {
     control_rx: Option<Receiver<ControlRequest>>,
     /// (token, path, reply, deadline ms): a window that isn't presented never delivers its frame.
     pending_screenshots: Vec<(u64, Option<String>, Sender<ControlResponse>, f64)>,
-    queued_screenshots: Vec<(u64, f64, u32)>,
+    // Token, next attempt time, settled frames, remaining attempts. A transient surface
+    // acquisition failure can consume egui's screenshot command without returning an event.
+    queued_screenshots: Vec<(u64, f64, u32, u8)>,
     screenshot_token: u64,
     /// Synthetic input events (from the control channel) injected one step per frame.
     pub synthetic: Vec<egui::Event>,
@@ -718,7 +724,7 @@ impl VectorcraftApp {
                     self.screenshot_token += 1;
                     let token = self.screenshot_token;
                     let settle = ctx.global_style().animation_time as f64 * 2000.0 + 80.0;
-                    self.queued_screenshots.push((token, now_ms() + settle, 0));
+                    self.queued_screenshots.push((token, now_ms() + settle, 0, 2));
                     self.pending_screenshots.push((token, path, reply, now_ms() + settle + 8000.0));
                 }
             }
@@ -726,16 +732,36 @@ impl VectorcraftApp {
         self.control_rx = Some(rx);
     }
 
+    /// Native hosts can service mapping callbacks without blocking while a capture is pending.
+    pub fn has_pending_screenshots(&self) -> bool {
+        !self.pending_screenshots.is_empty()
+    }
+
     fn issue_screenshots(&mut self, ctx: &egui::Context) {
-        let now = now_ms();
-        self.queued_screenshots.retain_mut(|(token, at, frames)| {
-            *frames += 1;
-            if now >= *at && *frames >= 3 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
-                false
-            } else {
-                true
+        self.issue_screenshots_at(ctx, now_ms());
+    }
+
+    fn issue_screenshots_at(&mut self, ctx: &egui::Context, now: f64) {
+        let pending = &self.pending_screenshots;
+        self.queued_screenshots.retain_mut(|(token, at, frames, attempts)| {
+            if !pending.iter().any(|(t, ..)| t == token) {
+                return false;
             }
+            *frames = frames.saturating_add(1);
+            if now >= *at && *frames >= 3 {
+                log::debug!("native capture requested token={token} frame={} pass={}", ctx.cumulative_frame_nr(), ctx.cumulative_pass_nr());
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(*token)));
+                *attempts = attempts.saturating_sub(1);
+                if *attempts == 0 {
+                    return false;
+                }
+                // One bounded retry, under the original deadline; reuse the token so a late
+                // first capture still completes the request exactly once. Never restore or
+                // raise a user's window, and never report a render as a presented screenshot.
+                *at = now + 1000.0;
+                *frames = 0;
+            }
+            true
         });
         if !self.queued_screenshots.is_empty() || !self.pending_screenshots.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -743,6 +769,10 @@ impl VectorcraftApp {
     }
 
     fn collect_screenshots(&mut self, ctx: &egui::Context) {
+        self.collect_screenshots_at(ctx, now_ms());
+    }
+
+    fn collect_screenshots_at(&mut self, ctx: &egui::Context, now: f64) {
         if self.pending_screenshots.is_empty() {
             return;
         }
@@ -760,19 +790,26 @@ impl VectorcraftApp {
                 .collect()
         });
         for (token, image) in events {
+            log::debug!("native capture event token={token} frame={}", ctx.cumulative_frame_nr());
             if let Some(i) = self.pending_screenshots.iter().position(|(t, ..)| *t == token) {
                 let (_, path, reply, _) = self.pending_screenshots.remove(i);
                 let _ = reply.send(control::save_screenshot(self, &image, path.as_deref()));
             }
         }
-        let now = now_ms();
-        self.pending_screenshots.retain(|(_, _, reply, deadline)| {
+        let viewport = ctx.input(|i| {
+            let viewport = i.viewport();
+            serde_json::json!({"minimized": viewport.minimized, "occluded": viewport.occluded, "focused": viewport.focused})
+        });
+        let frame = ctx.cumulative_frame_nr();
+        self.pending_screenshots.retain(|(token, _, reply, deadline)| {
             if now < *deadline {
                 return true;
             }
             let _ = reply.send(serde_json::json!({
                 "ok": false,
-                "error": "no frame was presented (screen locked, window minimized or fully covered); ui.render still renders the artboard"
+                "error": "no frame was presented (screen locked, window minimized/covered or GPU readback stalled); ui.render still renders the artboard",
+                "code": "screenshot_timeout",
+                "diagnostics": {"token": token, "frame": frame, "viewport": viewport}
             }));
             false
         });
@@ -933,6 +970,9 @@ impl VectorcraftApp {
                     self.error(e);
                 }
             }
+        }
+        if self.custom_titlebar {
+            theme::ensure_desktop_appearance(ctx, self.ui.brightness, self.ui.glass);
         }
         if !self.styled || self.font_language != Some(self.ui_language().code()) {
             theme::install_fonts(ctx);
@@ -1211,7 +1251,7 @@ impl VectorcraftApp {
         if self.custom_titlebar {
             titlebar::resize_zones(ui);
         }
-        self.ui_fonts.frame(&ctx);
+        self.ui_fonts.frame(&ctx, ui.layer_id());
         if self.mcp.requested_port.is_some() {
             ctx.request_repaint();
         }

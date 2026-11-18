@@ -132,11 +132,10 @@ if has appimage; then
 
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
   if [ -z "$TOOL" ]; then
-    TOOL="$CARGO_TARGET_DIR/appimagetool-$ARCH.AppImage"
-    if [ ! -x "$TOOL" ]; then
-      curl -fsSL -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
-      chmod +x "$TOOL"
-    fi
+    # shellcheck source=appimagetool.sh
+    . "$HERE/appimagetool.sh"
+    TOOL="$CARGO_TARGET_DIR/appimagetool-$APPIMAGETOOL_VERSION-$ARCH.AppImage"
+    fetch_appimagetool "$TOOL" "$ARCH"
   fi
   # Absolute, because appimagetool runs in $DIST below (CARGO_TARGET_DIR or APPIMAGETOOL may be
   # relative, e.g. target/agent-<name>).

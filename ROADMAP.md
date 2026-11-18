@@ -69,8 +69,8 @@ since 2026-10-01.
 | **File interop** | ~85% | SVG/SVGZ, PDF and PDF-compatible `.ai`, EPS, DXF, EMF/WMF, raster formats, PSD export, Place and Links, Package, Print, clipboard flavours. Affinity documents (Affinity 1–3) open natively as editable art, checked against 51 pinned public files (33 current `.af`), with selected saved-thumbnail comparisons and every-board native/SVG/PDF/PSD checks for current files; Affinity export is missing and effects, adjustments and brushes don't import. Affinity isn't an Illustrator feature, so this doesn't raise the parity score. The editing copy inside an Illustrator EPS or `.ai` is read for its structure: layers, groups, names, hidden objects and type, colours, gradients, transparency, images and every artboard (see Out of scope for what it doesn't read yet); DWG has no open spec |
 | **Bundled content:** brush, symbol, style and swatch libraries | ~30% | Ours are original and generated in code, and far fewer than Illustrator ships; brush and symbol libraries are still missing |
 | **Performance** | gaps measured on Linux | Multithreaded, off-thread rendering and caches are in place. 2026-10-13 cloud runs of the 50k-path budgets still exceed fit/pan/400% zoom rendering and native-open budgets in all three runs; the final fixed release exceeds 8 of 10 budgets, while segment dragging exceeded its budget in the second run. See [Linux QA](docs/qa-linux-full-2026-10-13.md); broader hardware measurements and optimization remain |
-| **Robustness** | good, new | 4,696 tests pass after the Linux JPEG fixes, plus four opt-in timing tests run separately, property tests, no panics in shipped code (lints, the `guard` safety net, import fuzzing), Data Recovery. Linux functional QA adds cross-process clipboard, actual crash recovery and fixes blank/corrupt JPEG handling (M14.149). Missing: broader real-world corpora, Windows/browser and Linux hardware QA |
-| **Platforms and 1.0 polish** | ~60% | The macOS app and the web build work, and Finder opens every readable format with the macOS app (#295, #354); on macOS the menus are in the system menu bar, laid out as a Mac app's, with the in-window menus as a fallback (`--in-window-menus`; verified on Windows and by cross-compilation, not yet by hand on a Mac); hybrid-graphics laptops render on the power-saving GPU by default on Windows and macOS (#306), and Windows renders through DX12 before Vulkan (#545: Vulkan flickered black on an Intel GPU, DX12 and OpenGL didn't; verified by unit tests and the reporter's runs with `WGPU_BACKEND`), and Linux on the GPU the desktop runs on, since a Wayland compositor may refuse frames from the other one; a window that fails on its GPU while starting up starts again on the next one instead of crashing (#502; the dual-GPU Wayland case is verified by unit tests and cross-compilation, not on such hardware); web drops land in the document they were dropped on (#359); desktop drops carry no pointer position (winit 0.30), so a dropped document opens as a tab of its own and a picture or text is placed in the middle of the view, while the web places anything dropped on the canvas and opens what is dropped off it, as Illustrator does (#472); a web page that loses its WebGPU device or WebGL context restarts its graphics with the same documents (#369); on Linux/Wayland the clipboard reads the compositor's own (data-control) and copied image files paste, but files can't be dropped on the window under Wayland until eframe moves to winit 0.31 (#398; the Wayland side is verified by compilation only); on Linux the Paste menu checks the system clipboard on a background thread, so a clipboard owner that never answers no longer freezes the window, while Windows and macOS keep their quick in-line check (#510; the X11 hang verified by the contributor, here by headless tests); on KDE Plasma 6.3+ under Wayland, pens and pen displays reach the app only under XWayland (`WAYLAND_DISPLAY=`) or with KWin's `KWIN_WAYLAND_EMULATE_TABLET=1`, since winit 0.30 has no Wayland tablet input (#491, not verified on hardware); Linux preview package integration and installed functional checks are covered (M14.148); Windows packaging, accessibility and broader Linux hardware QA are pending; an experimental, unsupported Windows 7 x64 OpenGL build exists (community-contributed, not verified by maintainers) |
+| **Robustness** | good, new | 4,807 tests pass in the desktop validation, with five retained ignored tests, property tests, no panics in shipped code (lints, the `guard` safety net, import fuzzing), Data Recovery. Linux functional QA adds cross-process clipboard, actual crash recovery and fixes blank/corrupt JPEG handling (M14.149). Missing: broader real-world corpora, Windows/browser and Linux hardware QA |
+| **Platforms and 1.0 polish** | ~60% | The macOS app and the web build work, and Finder opens every readable format with the macOS app (#295, #354); on macOS the menus are in the system menu bar, laid out as a Mac app's, with the in-window menus as a fallback (`--in-window-menus`; verified on Windows and by cross-compilation, not yet by hand on a Mac); hybrid-graphics laptops render on the power-saving GPU by default on Windows and macOS (#306), and Windows renders through DX12 before Vulkan (#545: Vulkan flickered black on an Intel GPU, DX12 and OpenGL didn't; verified by unit tests and the reporter's runs with `WGPU_BACKEND`), and Linux on the GPU the desktop runs on, since a Wayland compositor may refuse frames from the other one; a window that fails on its GPU while starting up starts again on the next one instead of crashing (#502; the dual-GPU Wayland case is verified by unit tests and cross-compilation, not on such hardware); web drops land in the document they were dropped on (#359); desktop drops carry no pointer position (winit 0.30), so a dropped document opens as a tab of its own and a picture or text is placed in the middle of the view, while the web places anything dropped on the canvas and opens what is dropped off it, as Illustrator does (#472); a web page that loses its WebGPU device or WebGL context restarts its graphics with the same documents (#369); on Linux/Wayland the clipboard reads the compositor's own (data-control) and copied image files paste, but files can't be dropped on the window under Wayland until eframe moves to winit 0.31 (#398; the Wayland side is verified by compilation only); on Linux the Paste menu checks the system clipboard on a background thread, so a clipboard owner that never answers no longer freezes the window, while Windows and macOS keep their quick in-line check (#510; the X11 hang verified by the contributor, here by headless tests); on KDE Plasma 6.3+ under Wayland, pens and pen displays reach the app only under XWayland (`WAYLAND_DISPLAY=`) or with KWin's `KWIN_WAYLAND_EMULATE_TABLET=1`, since winit 0.30 has no Wayland tablet input (#491, not verified on hardware); Linux preview package integration and installed functional checks are covered (M14.148); Windows x64 MSI/portable install, CLI and desktop checks pass on isolated CI hosts (M14.162); the DX12 deadline correction and repeated resize/readback checks pass exact-source installed/portable acceptance (M14.179, M14.183); accessibility and broader Windows/Linux hardware QA are pending; an experimental, unsupported Windows 7 x64 OpenGL build exists (community-contributed, not verified by maintainers) |
 | **Agent automation** | beyond Illustrator | Every command, gesture and dialog is drivable over MCP, the CLI and the control channel |
 | **Scrubby numeric fields** | beyond Illustrator | As in Photoshop, dragging a numeric field's label (`W:`, `Opacity:`, the Character panel's icons) left or right steps its value live; one undo step per drag, Escape cancels (#400) |
 
@@ -138,6 +138,80 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
   On an M3 Pro, a 20,000-anchor sample shrank from 3.98 MB to 0.65 MB and reopened with identical
   layer data. See [dense drag verification](docs/dense-drag.md#验收).
 
+- **Approved desktop preview 18 (2026-11-02, M14.183):** publication metadata pins all four
+  successful main-source workflows at `5e34458`. Standard Windows installed/portable checks
+  each pass 414 cases and twelve repeated resize captures; final Linux captures are manually
+  reviewed. Original performance overruns and Windows visual/hardware limits remain explicit.
+  Existing Mac release assets and draft/latest states are preserved; feature scores stay unchanged.
+
+- **Native desktop matrix scheduling (M14.182):** four checks on the same Windows
+  packages reach the old batch deadline without completed-case failures. Allow 40 minutes
+  for the full synthetic matrix and 50 including installation/cleanup on software DX12;
+  retain every per-operation deadline and assertion, and require actual completion before
+  publication. A fresh diagnostic measures existing RPC timing without recording arguments.
+  Independent workspace tests, opt-in checks and package builds run in parallel while all
+  jobs retain the workflow-wide publication verdict. Package path filters also cover each
+  other to form exact-source validation cohorts. One structured performance annotation
+  includes all ten original metrics and retains the existing failure result.
+
+- **DX12 frame acquisition deadlines (2026-11-01, M14.179):** a timed-out wait for a
+  presentation slot returns `SurfaceError::Timeout` before another buffer is acquired,
+  preventing unchecked presentation work from delaying readback callbacks. The one-frame
+  queue and existing screenshot deadline remain. The candidate's installed and portable
+  standard desktop checks each pass the full 414 checks plus twelve repeated resize/capture
+  regressions; detailed graphics-log experiments reached their separate timeout. Final
+  publication still requires the four checks pinned to the main source commit.
+
+- **Complete desktop validation cohorts (2026-11-01, M14.172):** packaging lint also runs
+  for application, crate and test changes, so a desktop candidate can satisfy the existing
+  four-workflow source requirement. A manual diagnostic reuses checksummed main-run packages
+  with provenance checks and records new capture failures; it cannot approve a release.
+  Desktop/session state diagnostics contain booleans and flags, never account/desktop names.
+
+- **Windows screenshot readback pump (2026-11-01, M14.171):** services GPU mapping callbacks
+  with a nonblocking poll only while a screenshot is pending on Windows. Device errors follow
+  the existing graphics-loss/recovery path; the original capture deadline remains. Timeout
+  replies include a stable code and viewport/frame diagnostics without paths or pixel data.
+  Native Windows acceptance is required before this candidate can be published.
+
+- **Bounded desktop capture recovery (2026-11-01, M14.169):** a control screenshot gets one
+  repeat attempt if no presented-frame event arrives, covering a command consumed during a
+  transient surface acquisition failure. The original eight-second deadline and real-frame
+  requirement remain; late or duplicate events cannot reply twice. Three deterministic
+  regressions cover dropped commands, success cancellation and the unchanged failure deadline.
+  Native Windows validation remains required; platform/parity estimates are unchanged.
+
+- **Low-latency local control replies (2026-11-01, M14.166):** buffers JSON-lines replies and
+  disables Nagle on accepted loopback connections. A regression reproduces 54 formatting writes
+  for two replies and requires two complete flushed records, preserving IDs, UTF-8 and junk
+  rejection. Desktop QA reports checkpoints and individual failures before a job timeout.
+
+- **Reproducible Linux tool download (2026-10-30, M14.165):** pins official AppImage tool 1.9.1
+  assets and SHA-256, verifies cached downloads and rejects mismatches before installation. The
+  same checked helper serves CI and local automatic downloads; two boundary regressions cover
+  corrupt caches and partial downloads. Existing platform/parity estimates are unchanged.
+- **Desktop typography and compact layouts (2026-10-30, M14.164):** Windows/Linux reuse licensed
+  Inter UI weights with matched CJK baselines, preserve named variable-font axes and avoid partially
+  clipped New Document categories. Transform reference controls follow actual field metrics;
+  native screenshot evidence includes light/dark, narrow layouts and 150%/200% UI scaling.
+  Native document decoding streams common node variants while retaining arbitrary JSON field order.
+  See [UI audit](docs/qa-ui-desktop-2026-10-30.md); native hardware and rendering budgets remain open.
+
+- **Desktop functional coverage (2026-10-30, M14.163):** adds native pointer tests for every
+  tool-drawer button and core workspace controls, UI-command invariant sweeps, and a shared
+  panel/preference/effect/export desktop matrix. Fixes missing caption semantics and a stale
+  native Save As format default; native reads decode JSON once. Windows now runs all native
+  workspace tests; both package pipelines record unchanged performance budgets separately.
+  See [extended desktop QA](docs/qa-desktop-2026-10-30.md) for actual results and remaining gaps.
+- **Shared Windows/Linux desktop workspace (2026-10-29, M14.162):** reuses the preview 17
+  Mac workspace, compact tabs, inspector and neutral theme on custom-titlebar desktops, with
+  separate caption controls and a complete in-window menu row. Windows x64 MSI/portable checks
+  cover notices, native document associations, checksums and installed/portable desktop smoke.
+  Linux and Windows share the functional runner. See [desktop QA](docs/qa-desktop-2026-10-29.md).
+  Native runtime checks use fresh hosts; control resizes restore maximized windows before
+  requesting their size. Approved desktop publishing pins source and CI runs, preserves existing
+  assets and keeps the Mac latest marker.
+  Native hardware coverage and large-document performance remain open; no parity-score increase.
 - **Preview 17 packaging (2026-10-25, M14.161):** publishes M14.160's native macOS appearance,
   explicit sRGB Metal presentation and embedded image profile decoding with exact-source arm64
   packages, pinned vendor provenance, privacy checks and source/checksum metadata. Existing
@@ -404,7 +478,7 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M11 | Artboards & views (artboard panel/tool, Trim View, middle-button pan, print tiling and the status bar's artboard navigator done; multiple windows, presentation polish) | 🟡 | 15–25 |
 | M12 | Advanced color & art (CMYK/ICC, separations, Gradient Mesh, Live Paint, Image Trace, Graphs) | 🟡 Gradient Mesh, Live Paint, Image Trace (13 presets, 18 ms/1k² image; the Flat Logo mode places edges to a fraction of a pixel, restores sharp corners, snaps lines and circles, and refuses gradients), Recolor Artwork, colour management (ICC, soft proofing, separations preview), Graphs (all 9 tools, Graph Data/Type, regenerate in place) done; graph Design/Column/Marker designs pending | 6–10 |
 | M13 | Automation (Actions ✅ record/playback, persisted; variables, scripting, batch) | 🟡 | 18–27 |
-| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149), privacy-gated additive Linux publishing (M14.150); cached dense RGB moves added (M14.151); accessibility, Windows packaging and broader Linux hardware QA pending | 18–28 |
+| M14 | 1.0 polish (preferences, shortcut editor, workspaces, accessibility, packaging for all OSes) | 🟡 Preferences, shortcut editor (chords with Shift and a punctuation key fire as typed), workspaces, a custom title bar on Windows/Linux with a Home button, content-sized dialogs, menus that scroll when longer than the window and macOS native menu dismissal done (M14.8); Home recent thumbnails load in the background (M14.146); an experimental, unsupported Windows 7 x64 portable OpenGL build (not verified by maintainers); Linux preview package integration and installed smoke checks added (M14.148), functional regression with cross-process clipboard, crash recovery and JPEG hardening added (M14.149), privacy-gated additive Linux publishing (M14.150); cached dense RGB moves added (M14.151); shared Windows/Linux workspace and x64 Windows packaging checks added (M14.162); accessibility and broader Windows/Linux hardware QA pending | 18–28 |
 | M14.152 | macOS canvas-first workspace and local MCP management | Local `.13`: 52 pt app bar, 56 pt tools, four inspector tabs, narrow-window overlay, single status bar, host appearance and real bridge controls; authentication, scoped grants and tiled/GPU drawing remain separate work | Existing M14 estimate unchanged |
 | M14.153 | Screenshot-reported workspace and recovery fixes | Local `.14`: fullscreen titlebar button visibility, right-side view/panel controls, distinct preset selection, bounded bleed fields and selectable recovery copies with confirmed batch deletion; no engine format or rendering change | Existing M14 estimate unchanged |
 | M14.154 | Properties compound-path release quick action | Local `.14` follow-up: shows for selections containing compound paths, invokes the existing release command and preserves one-step undo | Existing M14 estimate unchanged |
@@ -414,9 +488,12 @@ grade by behaviour against `plan/illustrator/`, not by whether a menu item exist
 | M14.158 | macOS PNG interchange | Canvas moves crossing the source window become copy-drags with source rollback; original PNG copy-drag, transparent appearance output, embedded receiver placement; preview 16 macOS scope, existing maturity scores unchanged | Included |
 | M14.160 | Native macOS appearance and display colour | Semantic AppKit chrome, explicit sRGB Metal presentation, embedded image profiles; local validation, existing editing precision and platform scores retained | Existing M14 estimate unchanged |
 | M14.161 | Preview 17 privacy review and macOS publication | Audited M14.160 arm64 packages, pinned wgpu-hal provenance, strict signing and exact-source/download verification; prior assets preserved | Existing M14 estimate unchanged |
-| M14.184 | File fidelity and dense-artwork responsiveness | EPS/PDF clipping, DXF layout compatibility, compact native saves for dense paths, and reuse of drag preview bounds | Existing M14 estimate unchanged |
 | M14.159 | Preview 16 privacy review and macOS publication | Exact-source arm64 packages for M14.158; original PNG metadata and temporary exchange retention documented, existing release assets preserved | Existing M14 estimate unchanged |
 | — | Interaction fidelity pass (every tool's modifiers, Properties panel per context, isolation, nuance) | ⬜ | 60–90 |
+| M14.183 | Approve exact-source Windows/Linux desktop preview 18 | Four same-source checks and standard native acceptance pass; record original performance results and preserve Mac release states | Existing M14 estimate unchanged |
+| M14.184 | File fidelity and dense-artwork responsiveness | EPS/PDF clipping, DXF layout compatibility, compact native saves for dense paths, and reuse of drag preview bounds | Existing M14 estimate unchanged |
+| M14.182 | Complete native desktop matrices on software GPU hosts | Increase the batch resource limit while preserving per-operation deadlines, all cases and publication requirements; record synthetic RPC timing without argument values | Existing M14 estimate unchanged |
+| M14.179 | DX12 frame acquisition and native resize/readback regression | Timed-out frame waits return `SurfaceError::Timeout`; installed/portable standard candidate checks cover 414 cases plus 12 resize captures; final publication keeps exact-source checks | Existing M14 estimate unchanged |
 | — | Hardening at scale (big-file corpus, fuzzing, cross-platform + browser QA) | 🟡 | 50–80 |
 | | **Total to full parity** (one agent; re-derived from the [Parity estimate](#parity-estimate) table) | | **~320–500** |
 
@@ -458,7 +535,7 @@ about 1–1.5 agent-hours each, so the other rows (estimated on the older scale)
 | Libraries, Links, Package | 2 | 80% | the Libraries panel is local only (no cloud by design: libraries are files on this machine) and has no shared libraries, linked graphics or gradients and patterns as items yet; its graphics, colours and text styles are done (#745); Links and Package are done; placed VectorCraft documents are done (linked by default, vectors in every output, previews, Break Link, Expand, Edit Original, refresh on save) | 2–3 |
 | **Feature parity** | **103** | **~75%** | | **~210–330** |
 | Interaction-fidelity pass (side by side with Illustrator: every tool modifier, cursor, dialog, Properties context) | | | | 60–90 |
-| Hardening (big-file corpus, fuzzing, cross-platform and browser QA, accessibility, remaining packaging; Linux preview integration and functional regression added in M14.148–M14.149) | | | | 50–80 |
+| Hardening (big-file corpus, fuzzing, cross-platform and browser QA, accessibility, remaining packaging; Linux preview integration and functional regression added in M14.148–M14.149; DX12 timeout/readback regression added in M14.179) | | | | 50–80 |
 | **Full parity** | | **~56%** | | **~320–500** |
 
 With 4–6 agents working on disjoint crates (as the layering allows) the wall-clock time divides by roughly 3.5–4

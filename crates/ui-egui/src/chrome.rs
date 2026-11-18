@@ -903,8 +903,8 @@ mod tests {
     }
 
     #[test]
-    fn app_bar_home_aligns_with_the_macos_traffic_lights() {
-        for integrated in [false, true] {
+    fn app_bar_home_aligns_with_native_custom_and_legacy_chrome() {
+        for (integrated, custom) in [(false, false), (false, true), (true, false)] {
             for width in [800.0, 1440.0] {
                 for scale in [1.0, 1.5, 2.0] {
                     let ctx = egui::Context::default();
@@ -915,7 +915,7 @@ mod tests {
                     if integrated {
                         app.services.native_menu = Some(crate::native_menu::NativeMenu::new(Box::new(MenuBackend)));
                     }
-                    app.custom_titlebar = !integrated;
+                    app.custom_titlebar = custom;
                     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
                     for _ in 0..2 {
                         let mut input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
@@ -923,7 +923,7 @@ mod tests {
                         let mut out = ctx.run_ui(input, |ui| super::app_bar(&mut app, ui));
                         out.textures_delta.clear();
                     }
-                    let home = if integrated {
+                    let home = if integrated || custom {
                         ctx.read_response(egui::Id::new("workspace-home")).map(|r| r.rect)
                     } else {
                         ctx.viewport(|vp| {
@@ -937,9 +937,16 @@ mod tests {
                         })
                     }
                     .expect("Home button");
-                    let center = if integrated { crate::workspace::BAR_HEIGHT / 2.0 } else { 22.0 };
+                    let center = if integrated || custom { crate::workspace::BAR_HEIGHT / 2.0 } else { 22.0 };
                     assert!((home.center().y - center).abs() <= 1.0 / scale, "{integrated}, {width}, {scale}: {home:?}");
-                    assert!((home.left() - if integrated { 78.0 } else { 9.0 }).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
+                    let left = if integrated {
+                        78.0
+                    } else if custom {
+                        12.0
+                    } else {
+                        9.0
+                    };
+                    assert!((home.left() - left).abs() <= 1.0 / scale, "no leftover logo space: {home:?}");
                 }
             }
         }

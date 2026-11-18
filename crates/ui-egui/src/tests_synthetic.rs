@@ -60,6 +60,40 @@ fn object_count(app: &VectorcraftApp) -> usize {
 }
 
 #[test]
+fn control_resize_restores_a_maximized_window_before_requesting_its_size() {
+    let mut app = VectorcraftApp::new(Session::new(), Default::default());
+    let ctx = egui::Context::default();
+    let mut raw = egui::RawInput::default();
+    raw.viewports.entry(egui::ViewportId::ROOT).or_default().maximized = Some(true);
+    let mut out = ctx.run_ui(raw, |ui| control(&mut app, ui.ctx(), "ui.resize", json!({"width": 800, "height": 600})));
+    let commands = &out.viewport_output.get(&egui::ViewportId::ROOT).unwrap().commands;
+    let restore = commands.iter().position(|c| matches!(c, egui::ViewportCommand::Maximized(false))).expect("restore first");
+    let resize =
+        commands.iter().position(|c| matches!(c, egui::ViewportCommand::InnerSize(s) if *s == egui::vec2(800.0, 600.0))).expect("requested size");
+    assert!(restore < resize, "Windows cannot resize a maximized window: {commands:?}");
+    out.textures_delta.clear();
+}
+
+#[test]
+fn invalid_control_window_sizes_do_not_change_the_viewport() {
+    for params in [json!({"width": 0}), json!({"height": -1}), json!({"width": "wide"}), json!({"height": 1e300}), json!({"width": 1e-300})] {
+        let mut app = VectorcraftApp::new(Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let (req, _) = ControlRequest::new("ui.resize", params.clone());
+            let Outcome::Done(reply) = crate::control::handle(&mut app, ui.ctx(), &req) else { panic!("resize reply") };
+            assert_eq!(reply["ok"], false, "{params}: {reply}");
+        });
+        assert!(
+            out.viewport_output
+                .values()
+                .all(|v| v.commands.iter().all(|c| !matches!(c, egui::ViewportCommand::Maximized(_) | egui::ViewportCommand::InnerSize(_))))
+        );
+        out.textures_delta.clear();
+    }
+}
+
+#[test]
 fn shift_arrow_nudges_ten_points_and_alt_arrow_copies() {
     let (mut app, id) = one_square();
     let ctx = egui::Context::default();

@@ -1,4 +1,4 @@
-//! Canvas-first macOS workspace over the existing command and panel implementations.
+//! Shared desktop workspace over the existing command and panel implementations.
 
 use egui::{Align2, Context, CornerRadius, FontId, Id, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
@@ -8,11 +8,12 @@ use crate::theme::{self, Tokens};
 use crate::{VectorcraftApp, icons, menus, panels, widgets};
 
 pub const BAR_HEIGHT: f32 = 52.0;
+pub const MENU_HEIGHT: f32 = 28.0;
 pub const STATUS_HEIGHT: f32 = 28.0;
 pub const OVERLAY_BREAKPOINT: f32 = 960.0;
 
 pub fn enabled(app: &VectorcraftApp) -> bool {
-    app.integrated_titlebar && app.services.native_menu.is_some()
+    app.custom_titlebar || (app.integrated_titlebar && app.services.native_menu.is_some())
 }
 
 fn command(app: &mut VectorcraftApp, ui: &mut Ui, icon: &str, label: &str, id: &str) {
@@ -23,73 +24,98 @@ fn command(app: &mut VectorcraftApp, ui: &mut Ui, icon: &str, label: &str, id: &
 
 pub fn app_bar(app: &mut VectorcraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    egui::Panel::top("app_bar")
+    let custom = app.custom_titlebar;
+    let bar = egui::Panel::top("app_bar")
         .exact_size(BAR_HEIGHT)
         .frame(egui::Frame::NONE.fill(t.app_bar).inner_margin(egui::Margin { left: 0, right: 12, top: 0, bottom: 0 }))
         .show(ui, |ui| {
-            crate::titlebar::drag_area(ui, ui.max_rect());
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.add_space(78.0 / ui.ctx().zoom_factor());
-                let (rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
-                let home = ui.interact(rect, Id::new("workspace-home"), Sense::click());
-                if widgets::paint_icon_button(ui, home, "house", tl!("Home"), menus::home_showing(app)).clicked() {
-                    app.run("app.home", json!({})).ok();
-                }
-                let full = ui.max_rect();
-                let wide = full.width() >= 1050.0;
-                let tiny = full.width() < 620.0;
-                let search_width = if wide { 230.0 } else { 28.0 };
-                let workspace_name =
-                    if crate::workspaces::is_builtin(&app.ui.workspace) { tl!(&app.ui.workspace) } else { &app.ui.workspace }.to_string();
-                let text_width = |text: &str| ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(t.font_size), t.text).size().x;
-                let workspace_width = if wide { (text_width(&workspace_name) + 36.0).clamp(112.0, 180.0) } else { 28.0 };
-                let controls = search_width + workspace_width + 76.0 + 28.0 + if tiny { 18.0 } else { 52.0 + 2.0 * 28.0 + 6.0 * 6.0 };
-                let split = (full.right() - controls).max(ui.cursor().left() + 100.0);
-                let tabs = Rect::from_min_max(pos2(ui.cursor().left() + 4.0, full.top()), pos2(split - 12.0, full.bottom()));
-                crate::chrome::top_tabs::show(app, ui, tabs);
-                let right = Rect::from_min_max(pos2(split, full.top()), full.max);
-                let mut row = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                row.spacing_mut().item_spacing.x = 6.0;
-                let visible =
-                    app.ui.dock && !app.ui.dock_collapsed && (ui.ctx().content_rect().width() >= OVERLAY_BREAKPOINT || app.ui.inspector_overlay);
-                let toggle = row.push_id("workspace-panels", |ui| widgets::icon_toggle(ui, "dc-options", tl!("Panels"), visible, 28.0)).inner;
-                if toggle.clicked() {
-                    app.run("window.collapseDock", json!({"collapsed": visible})).ok();
-                    if !visible && !app.ui.dock {
-                        app.run("window.dock", json!({"enabled": true})).ok();
+            // The native Mac traffic lights live in the left gutter; custom desktop captions
+            // occupy their own right-hand region. Neither may steal clicks from document tabs.
+            let full = ui.max_rect();
+            let content = Rect::from_min_max(full.min, pos2(full.right() - if custom { crate::titlebar::WIDTH } else { 0.0 }, full.bottom()));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+                ui.set_clip_rect(ui.clip_rect().intersect(content));
+                crate::titlebar::drag_area(ui, content);
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.add_space(if custom { 12.0 } else { 78.0 / ui.ctx().zoom_factor() });
+                    let (rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
+                    let home = ui.interact(rect, Id::new("workspace-home"), Sense::click());
+                    if widgets::paint_icon_button(ui, home, "house", tl!("Home"), menus::home_showing(app)).clicked() {
+                        app.run("app.home", json!({})).ok();
                     }
-                    app.ui.inspector_overlay = !visible;
-                }
-                let ws = if wide {
-                    widgets::command_button(&mut row, "chevron-down", &workspace_name, vec2(workspace_width, 28.0), false)
-                } else {
-                    widgets::icon_button(&mut row, "layout-grid", tl!("Workspace"), false, 28.0)
-                };
-                egui::Popup::menu(&ws).show(|ui| crate::workspaces::popup(app, ui));
-                row.allocate_ui_with_layout(vec2(if tiny { 76.0 } else { 134.0 }, 28.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    crate::chrome::view_controls(app, ui, !tiny);
+                    let full = ui.max_rect();
+                    let wide = full.width() >= 1050.0;
+                    let tiny = full.width() < 620.0;
+                    let search_width = if wide { 230.0 } else { 28.0 };
+                    let workspace_name =
+                        if crate::workspaces::is_builtin(&app.ui.workspace) { tl!(&app.ui.workspace) } else { &app.ui.workspace }.to_string();
+                    let text_width = |text: &str| ui.painter().layout_no_wrap(text.to_string(), FontId::proportional(t.font_size), t.text).size().x;
+                    let workspace_width = if wide { (text_width(&workspace_name) + 36.0).clamp(112.0, 180.0) } else { 28.0 };
+                    let controls = search_width + workspace_width + 76.0 + 28.0 + if tiny { 18.0 } else { 52.0 + 2.0 * 28.0 + 6.0 * 6.0 };
+                    let split = (full.right() - controls).max(ui.cursor().left() + 100.0);
+                    let tabs = Rect::from_min_max(pos2(ui.cursor().left() + 4.0, full.top()), pos2(split - 12.0, full.bottom()));
+                    crate::chrome::top_tabs::show(app, ui, tabs);
+                    let right = Rect::from_min_max(pos2(split, full.top()), full.max);
+                    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));
+                    row.spacing_mut().item_spacing.x = 6.0;
+                    let visible =
+                        app.ui.dock && !app.ui.dock_collapsed && (ui.ctx().content_rect().width() >= OVERLAY_BREAKPOINT || app.ui.inspector_overlay);
+                    let toggle = row.push_id("workspace-panels", |ui| widgets::icon_toggle(ui, "dc-options", tl!("Panels"), visible, 28.0)).inner;
+                    if toggle.clicked() {
+                        app.run("window.collapseDock", json!({"collapsed": visible})).ok();
+                        if !visible && !app.ui.dock {
+                            app.run("window.dock", json!({"enabled": true})).ok();
+                        }
+                        app.ui.inspector_overlay = !visible;
+                    }
+                    let ws = if wide {
+                        widgets::command_button(&mut row, "chevron-down", &workspace_name, vec2(workspace_width, 28.0), false)
+                    } else {
+                        widgets::icon_button(&mut row, "layout-grid", tl!("Workspace"), false, 28.0)
+                    };
+                    egui::Popup::menu(&ws).show(|ui| crate::workspaces::popup(app, ui));
+                    row.allocate_ui_with_layout(
+                        vec2(if tiny { 76.0 } else { 134.0 }, 28.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            crate::chrome::view_controls(app, ui, !tiny);
+                        },
+                    );
+                    if !tiny {
+                        command(app, &mut row, "redo-2", "Redo", "edit.redo");
+                        command(app, &mut row, "undo-2", "Undo", "edit.undo");
+                    }
+                    let search = if wide {
+                        let (r, response) = row.allocate_exact_size(vec2(search_width, 28.0), Sense::click());
+                        row.painter().rect_filled(r, CornerRadius::same(6), t.input);
+                        icons::paint(&row, "search", Rect::from_center_size(r.left_center() + vec2(14.0, 0.0), vec2(16.0, 16.0)), t.icon);
+                        let text = r.shrink2(vec2(28.0, 0.0));
+                        single_line(&row, text, tl!("Search commands and tools"), t.text_dim, false);
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Search commands and tools")));
+                        response.on_hover_text(tl!("Search commands and tools"))
+                    } else {
+                        widgets::icon_button(&mut row, "search", tl!("Search commands and tools"), false, 28.0)
+                    };
+                    if search.clicked() {
+                        app.run("help.commandPalette", json!({})).ok();
+                    }
                 });
-                if !tiny {
-                    command(app, &mut row, "redo-2", "Redo", "edit.redo");
-                    command(app, &mut row, "undo-2", "Undo", "edit.undo");
-                }
-                let search = if wide {
-                    let (r, response) = row.allocate_exact_size(vec2(search_width, 28.0), Sense::click());
-                    row.painter().rect_filled(r, CornerRadius::same(6), t.input);
-                    icons::paint(&row, "search", Rect::from_center_size(r.left_center() + vec2(14.0, 0.0), vec2(16.0, 16.0)), t.icon);
-                    let text = r.shrink2(vec2(28.0, 0.0));
-                    single_line(&row, text, tl!("Search commands and tools"), t.text_dim, false);
-                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Search commands and tools")));
-                    response.on_hover_text(tl!("Search commands and tools"))
-                } else {
-                    widgets::icon_button(&mut row, "search", tl!("Search commands and tools"), false, 28.0)
-                };
-                if search.clicked() {
-                    app.run("help.commandPalette", json!({})).ok();
-                }
             });
         });
+    if custom {
+        crate::titlebar::caption_buttons(app, ui, bar.response.rect);
+        if app.services.native_menu.is_none() {
+            // Keep the full command tree and its text-field focus behavior on platforms without
+            // a system-wide menu bar. A separate compact row leaves document tabs enough room.
+            egui::Panel::top("workspace-menu-bar")
+                .exact_size(MENU_HEIGHT)
+                .frame(egui::Frame::NONE.fill(t.surface).inner_margin(egui::Margin::symmetric(8, 0)))
+                .show(ui, |ui| {
+                    ui.horizontal_centered(|ui| menus::menu_bar(app, ui));
+                });
+        }
+    }
 }
 
 pub fn inspector(app: &mut VectorcraftApp, ui: &mut Ui) {
@@ -393,6 +419,32 @@ mod tests {
                 app.ui(ui);
             });
             out.textures_delta.clear();
+        }
+    }
+
+    #[test]
+    fn custom_desktops_share_tabs_and_the_responsive_inspector_without_a_native_menu() {
+        for width in [800.0, 1440.0] {
+            let mut app = app();
+            app.services.native_menu = None;
+            app.integrated_titlebar = false;
+            app.custom_titlebar = true;
+            let ctx = Context::default();
+            frame(&mut app, &ctx, width, 900.0);
+            assert!(enabled(&app));
+            let tab = ctx.read_response(Id::new(("top-document-tabs", "tab", 0_usize))).expect("a compact document tab").rect;
+            assert!(tab.left() >= 0.0 && tab.right() < width - crate::titlebar::WIDTH, "{tab:?}");
+            assert_eq!(Tokens::get(&ctx).radius, 6);
+            assert_eq!(Tokens::get(&ctx).surface.a(), 255, "unsupported compositor materials keep an opaque backing");
+            app.run("window.panel", json!({"panel": "history"})).unwrap();
+            frame(&mut app, &ctx, width, 900.0);
+            assert_eq!(active_panel(&app), "history");
+            if width < OVERLAY_BREAKPOINT {
+                assert!(app.canvas_rect.unwrap().width() > 700.0);
+                assert!(ctx.memory(|m| m.area_rect(Id::new("workspace-inspector-overlay"))).is_some());
+            } else {
+                assert!(app.canvas_rect.unwrap().right() <= width - 279.0);
+            }
         }
     }
 

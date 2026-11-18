@@ -81,23 +81,6 @@ fn every_command_without_a_document() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Known bugs (see the `#[ignore]` repro tests below): (command, param key) pairs skipped by the
-/// junk sweep so the rest of the sweep stays meaningful.
-const KNOWN_BUGS: &[(&str, &str)] = &[
-    ("object.scale", "sx"),
-    ("object.transformEach", "scaleH"),
-    ("object.transformEach", "scaleV"),
-    ("object.distributeSpacing", "spacing"),
-    ("artboard.setProps", "x"),
-    ("artboard.setProps", "y"),
-    ("artboard.setProps", "width"),
-    ("artboard.setProps", "height"),
-];
-
-fn known_bug(id: &str, p: &Value) -> bool {
-    KNOWN_BUGS.iter().any(|(c, k)| *c == id && p.get(*k).is_some())
-}
-
 /// Regression: huge column counts used to panic with `capacity overflow`; in every layout and
 /// order (#681), with huge and negative spacing too.
 #[test]
@@ -157,9 +140,6 @@ fn every_command_with_junk_params() {
                 cases.truncate(12);
             }
             for p in &cases {
-                if known_bug(c.id, p) {
-                    continue;
-                }
                 calls += 1;
                 if let Some(f) = probe(fx, c.id, p) {
                     failures.push(f);
@@ -393,9 +373,6 @@ fn fuzzed_calls_keep_documents_serializable() {
                 let k = if k == "path" { continue } else { k };
                 let mut s = Fixture::Multi.session();
                 let p = json!({ k.clone(): v });
-                if known_bug(c.id, &p) {
-                    continue;
-                }
                 let ok = catch_quiet(|| s.execute(c.id, &p)).map(|r| r.is_ok()).unwrap_or(false);
                 if ok && let Err(e) = catch_quiet(|| check_all(&mut s)).unwrap_or_else(|m| Err(format!("panic in checks: {m}"))) {
                     failures.push(format!("{} {p}: {e}", c.id));

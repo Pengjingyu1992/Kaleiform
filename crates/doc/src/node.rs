@@ -339,7 +339,10 @@ pub struct ImageObject {
     pub placement: crate::links::PlacementOptions,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[path = "node_decode.rs"]
+mod decode;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum NodeKind {
     /// A top-level layer or sublayer.

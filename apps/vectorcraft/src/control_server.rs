@@ -7,7 +7,7 @@
 //! bounded ([`MAX_LINE`]) and so is the number of open connections ([`MAX_CONNECTIONS`]); junk
 //! never reaches the UI thread. See `docs/control-protocol.md`.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -63,7 +63,7 @@ fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Con
                 break;
             }
         };
-        if stream.set_nonblocking(false).is_err() {
+        if stream.set_nonblocking(false).and_then(|()| stream.set_nodelay(true)).is_err() {
             continue;
         }
         if status.connections.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
@@ -178,8 +178,11 @@ fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -
 /// Serve requests from `read`, answering on `out`, until the peer closes, sends something that is
 /// not a request, or `handle` returns `None` (app gone). `handle` gets `(method, params)` and
 /// returns the reply object (the request's `id` is added here).
-fn serve_lines<R: Read, W: Write>(read: R, mut out: W, mut handle: impl FnMut(String, Value) -> Option<Value>) {
+fn serve_lines<R: Read, W: Write>(read: R, out: W, mut handle: impl FnMut(String, Value) -> Option<Value>) {
     let mut reader = BufReader::new(read);
+    // JSON Display writes individual formatting fragments. Buffer each record so a client
+    // does not wait for TCP delayed ACKs before receiving its terminating newline.
+    let mut out = BufWriter::new(out);
     let mut buf = Vec::new();
     loop {
         let reject = match read_bounded_line(&mut reader, &mut buf, MAX_LINE) {
@@ -314,6 +317,38 @@ mod tests {
         assert_eq!(read_bounded_line(&mut &input[..], &mut buf, 10), Ok(true));
         assert_eq!(buf, line);
         assert!(read_bounded_line(&mut &[b'a'; 11][..], &mut buf, 10).is_err());
+    }
+
+    #[test]
+    fn replies_are_flushed_as_complete_records() {
+        #[derive(Clone)]
+        struct Writes(std::rc::Rc<std::cell::RefCell<Vec<Vec<u8>>>>);
+        impl Write for Writes {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.borrow_mut().push(bytes.to_vec());
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let writes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        serve_lines(&b"{\"id\":7,\"method\":\"echo\"}\njunk\n"[..], Writes(writes.clone()), |_, _| {
+            Some(json!({"ok": true, "text": "中文\n\"quoted\"", "items": [1, 2, 3]}))
+        });
+        let records = writes.borrow();
+        assert_eq!(records.len(), 2, "JSON formatting fragments must not become separate TCP writes");
+        let replies: Vec<Value> = records
+            .iter()
+            .map(|bytes| {
+                assert_eq!(bytes.last(), Some(&b'\n'));
+                serde_json::from_slice(bytes).unwrap()
+            })
+            .collect();
+        assert_eq!(replies[0]["id"], 7);
+        assert_eq!(replies[0]["text"], "中文\n\"quoted\"");
+        assert_eq!(replies[1]["ok"], false);
+        assert!(replies[1]["error"].as_str().unwrap().contains("closing the connection"));
     }
 
     #[test]

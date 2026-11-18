@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Exercise installed Kaleiform binaries on Windows and Linux."""
+import argparse
+import json
+import os
+from pathlib import Path
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import runpy
+
+
+def progress(message):
+    prefix = "::notice::" if os.environ.get("GITHUB_ACTIONS") == "true" else ""
+    print(prefix + message, flush=True)
+
+
+def windows_input_desktop():
+    """Read CI desktop accessibility on a failed capture; never switch or unlock it."""
+    import ctypes
+    from ctypes import wintypes
+
+    api = ctypes.WinDLL("user32", use_last_error=True)
+    api.OpenInputDesktop.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    api.OpenInputDesktop.restype = wintypes.HANDLE
+    api.CloseDesktop.argtypes = [wintypes.HANDLE]
+    api.GetThreadDesktop.argtypes = [wintypes.DWORD]
+    api.GetThreadDesktop.restype = wintypes.HANDLE
+    api.GetUserObjectInformationW.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+    kernel = ctypes.WinDLL("kernel32")
+    kernel.GetCurrentThreadId.restype = wintypes.DWORD
+    handle = api.OpenInputDesktop(0, False, 1)  # DESKTOP_READOBJECTS
+    error = ctypes.get_last_error() if not handle else 0
+    same_desktop = None
+
+    def session_state():
+        import struct
+        wts = ctypes.WinDLL("wtsapi32", use_last_error=True)
+        wts.WTSQuerySessionInformationW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.DWORD)]
+        wts.WTSFreeMemory.argtypes = [ctypes.c_void_p]
+        wts.WTSFreeMemory.restype = None
+        kernel.ProcessIdToSessionId.argtypes = [wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        session = wintypes.DWORD()
+        if not kernel.ProcessIdToSessionId(os.getpid(), ctypes.byref(session)):
+            return None
+        buffer, length = ctypes.c_void_p(), wintypes.DWORD()
+        if not wts.WTSQuerySessionInformationW(None, session.value, 25, ctypes.byref(buffer), ctypes.byref(length)):
+            return None
+        try:
+            if not buffer or length.value < 20:
+                return None
+            # Only the x64 WTSINFOEX header: do not read user/domain/station names.
+            header = ctypes.string_at(buffer, 20)
+            level = struct.unpack_from("<I", header)[0]
+            identifier, state, lock_flag = struct.unpack_from("<iii", header, 8)
+            if level != 1 or identifier != session.value or not 0 <= state <= 9 or lock_flag not in (-1, 0, 1):
+                return None
+            # Windows 8+: 0 locked, 1 unlocked; -1 unknown. No session is switched/unlocked.
+            return {"connectionState": state, "lockFlag": lock_flag}
+        finally:
+            wts.WTSFreeMemory(buffer)
+
+    def name(desktop):
+        length = wintypes.DWORD()
+        api.GetUserObjectInformationW(desktop, 2, None, 0, ctypes.byref(length))  # UOI_NAME
+        if not ctypes.sizeof(ctypes.c_wchar) <= length.value <= 4096:
+            return None
+        text = ctypes.create_unicode_buffer(length.value // ctypes.sizeof(ctypes.c_wchar))
+        if not api.GetUserObjectInformationW(desktop, 2, text, length.value, ctypes.byref(length)):
+            return None
+        return text.value
+
+    if handle:
+        try:
+            current = api.GetThreadDesktop(kernel.GetCurrentThreadId())
+            input_name, thread_name = name(handle), name(current) if current else None
+            if input_name is not None and thread_name is not None:
+                same_desktop = input_name.casefold() == thread_name.casefold()
+        finally:
+            api.CloseDesktop(handle)
+    # Desktop names remain local; only their equality is diagnostic evidence.
+    return {"inputDesktopAccessible": bool(handle), "testThreadOnInputDesktop": same_desktop, "session": session_state(), "error": error}
+
+
+def png(path, expected=None):
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 100, path
+    size = struct.unpack(">II", data[16:24])
+    assert min(size) > 0 and (expected is None or size == expected), size
+
+
+def run(bindir, desktop, work, extended=False):
+    suffix = ".exe" if os.name == "nt" else ""
+    cli = bindir / f"vectorcraft-cli{suffix}"
+    app = bindir / f"vectorcraft{suffix}"
+    runtime_env = dict(os.environ)
+    if os.name == "nt":
+        # Installed builds must not accidentally load DLLs from Visual Studio/Rust SDK paths.
+        system = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        runtime_env["PATH"] = os.pathsep.join((str(bindir), str(system / "System32"), str(system)))
+    native = work / "smoke.vectorcraft"
+    svg, raster, pdf = (work / f"smoke.{ext}" for ext in ("svg", "png", "pdf"))
+    progress("Starting CLI draw and SVG/PNG/PDF export")
+    subprocess.run([
+        str(cli), "run", "--cmd", "file.new", "--params", '{"width":240,"height":120}',
+        "--cmd", "shape.rectangle", "--params", '{"x":10,"y":10,"width":100,"height":50}',
+        "--cmd", "paint.setFill", "--params", '{"color":"#3366ff"}',
+        "--export", str(native), "--export", str(svg), "--export", str(raster), "--export", str(pdf),
+    ], check=True, stdout=subprocess.DEVNULL, env=runtime_env, cwd=work, timeout=180)
+    assert "3366ff" in svg.read_text(), "SVG lost the rectangle's fill"
+    assert pdf.read_bytes().startswith(b"%PDF-"), "Invalid PDF export"
+    png(raster, (240, 120))
+    progress("Starting CLI native document reopen")
+    reopened = subprocess.check_output([str(cli), "run", "--in", str(native), "--cmd", "document.inspect"], text=True, encoding="utf-8", env=runtime_env, cwd=work, timeout=60)
+    info = json.loads(reopened.splitlines()[-1])
+    assert info["result"]["artboards"][0]["width"] == 240, info
+    print("CLI: draw, SVG/PNG/PDF export and native document reopen passed", flush=True)
+    if not desktop:
+        return
+    if sys.platform == "linux" and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise RuntimeError("--desktop needs a display; use xvfb-run or a Wayland compositor")
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    env = dict(runtime_env, VECTORCRAFT_NO_PREFS="1")
+    progress("Starting the desktop application")
+    with (work / "desktop.log").open("w+", encoding="utf-8", errors="replace") as log:
+        proc = subprocess.Popen([str(app), "--control", str(port), str(native)], env=env, stdout=log, stderr=log, cwd=work)
+        try:
+            deadline = time.monotonic() + 45
+            while True:
+                if proc.poll() is not None:
+                    raise RuntimeError("Desktop exited before startup")
+                try:
+                    conn = socket.create_connection(("127.0.0.1", port), timeout=1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Desktop did not start within 45 seconds") from None
+                    time.sleep(0.2)
+            with conn:
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                progress("Desktop control channel connected")
+                conn.settimeout(20)
+                f = conn.makefile("rwb")
+
+                def call(method, params=None):
+                    f.write(json.dumps({"id": 1, "method": method, "params": params or {}}).encode() + b"\n")
+                    f.flush()
+                    reply = json.loads(f.readline())
+                    if not reply.get("ok") and method == "ui.screenshot" and os.name == "nt":
+                        reply["testDesktop"] = windows_input_desktop()
+                    assert reply.get("ok"), reply
+                    return reply["result"]
+
+                def command(name, params=None):
+                    return call("engine.execute", {"command": name, "params": params or {}})
+
+                def count(doc):
+                    def nodes(node):
+                        return int(node["kind"] not in ("Layer", "Group")) + sum(nodes(n) for n in node.get("children", []))
+                    return sum(nodes(n) for n in doc["layers"])
+
+                state = call("ui.inspect")
+                assert state["graphicsAdapter"] and min(state["window"]) > 0, state
+                assert len(state["documents"]) == 1, state["documents"]
+                if sys.platform in ("win32", "linux"):
+                    assert state["workspace"]["enabled"] and state["workspace"]["customTitlebar"], state["workspace"]
+                    assert not state["nativeMenuBar"], "Desktop menus must remain accessible inside the window"
+                assert command("app.language", {"lang": "zh-hans"}) == "zh-hans"
+                before = count(call("document.inspect"))
+                command("shape.ellipse", {"x": 140, "y": 20, "width": 60, "height": 60})
+                assert count(call("document.inspect")) == before + 1
+                command("edit.undo")
+                assert count(call("document.inspect")) == before
+                command("edit.redo")
+                assert count(call("document.inspect")) == before + 1
+                saved = work / "desktop-saved.vectorcraft"
+                progress("Starting desktop save, SVG/PNG/PDF export and reopen")
+                call("app.save", {"path": str(saved)})
+                exported = [work / f"desktop-export.{ext}" for ext in ("svg", "png", "pdf")]
+                for path in exported:
+                    call("app.export", {"path": str(path), "format": path.suffix[1:]})
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    if not call("ui.inspect")["background"] and all(path.exists() for path in [saved, *exported]):
+                        break
+                    time.sleep(.1)
+                assert saved.exists() and all(path.exists() for path in exported), "Desktop save/export did not finish"
+                assert "3366ff" in exported[0].read_text()
+                png(exported[1], (240, 120))
+                assert exported[2].read_bytes().startswith(b"%PDF-")
+                reopened = subprocess.check_output([str(cli), "run", "--in", str(saved), "--cmd", "document.inspect"], text=True, encoding="utf-8", env=runtime_env, cwd=work, timeout=60)
+                assert count(json.loads(reopened.splitlines()[-1])["result"]) == before + 1
+                # Keep an unsaved edit for the caption-close confirmation check below.
+                command("paint.setFill", {"color": "#f29b55"})
+                call("ui.render", {"path": str(work / "artboard.png")})
+                png(work / "artboard.png", (240, 120))
+                call("ui.screenshot", {"path": str(work / "desktop.png")})
+                png(work / "desktop.png")
+                def resize(width, height):
+                    call("ui.resize", {"width": width, "height": height})
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        state = call("ui.inspect")
+                        if all(abs(a-b) <= 1 for a, b in zip(state["window"], (width, height))):
+                            return state
+                        time.sleep(.1)
+                    raise AssertionError(f"Window resize expected {(width, height)}, got {state['window']}; {state.get('windowState')}")
+
+                if os.name == "nt" and not call("ui.inspect")["windowState"]["maximized"]:
+                    state = call("ui.inspect")
+                    call("ui.click", {"x": state["window"][0] - 69, "y": 26})
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if call("ui.inspect")["windowState"]["maximized"]:
+                            break
+                        time.sleep(.1)
+                    else:
+                        raise AssertionError("The Windows maximize caption did not maximize the window")
+                progress("Starting desktop theme, resize, new-dialog and unsaved-close checks")
+                resize(1440, 900)
+                for brightness in ("light", "dark"):
+                    call("ui.set", {"brightness": brightness})
+                    call("ui.screenshot", {"path": str(work / f"desktop-{brightness}.png")})
+                    png(work / f"desktop-{brightness}.png")
+                resize(800, 600)
+                command("window.panel", {"panel": "history"})
+                state = call("ui.inspect")
+                assert state["canvasRect"][2] > 700, state["canvasRect"]
+                call("ui.screenshot", {"path": str(work / "desktop-narrow.png")})
+                png(work / "desktop-narrow.png")
+                command("file.newDialog")
+                call("ui.screenshot", {"path": str(work / "new-document.png")})
+                png(work / "new-document.png")
+                call("ui.dialog.cancel")
+                state = call("ui.inspect")
+                assert len(state["documents"]) == 1, "Cancel must keep the existing document"
+                if state["workspace"]["customTitlebar"]:
+                    call("ui.click", {"x": state["window"][0] - 23, "y": 26})
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        state = call("ui.inspect")
+                        if state["ui"].get("dialog"):
+                            break
+                        time.sleep(.1)
+                    assert state["ui"]["dialog"]["kind"] == "saveChanges", state["ui"]["dialog"]
+                    call("ui.dialog.cancel")
+                print("Desktop: shared workspace, light/dark, narrow inspector, new-dialog cancel and unsaved caption close passed", flush=True)
+                print("Desktop: file launch, Chinese UI, draw, undo/redo, save/reopen, SVG/PNG/PDF export, render and screenshot passed; " + str(state["graphicsAdapter"]), flush=True)
+                if extended:
+                    visual = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_visual.py"))
+                    visual["run"](call, work)
+                    progress("Starting the extended desktop functional matrix")
+                    matrix = runpy.run_path(str(Path(__file__).resolve().parents[1] / "tests" / "desktop_functional.py"))
+                    matrix["run"](call, work)
+                    if os.name == "nt":
+                        # Exercise acquisition/readback after repeated swap-chain reconfiguration.
+                        # Keep the actual screenshot deadline and PNG assertions unchanged.
+                        for index, (width, height) in enumerate([(1440, 900), (950, 700), (800, 600), (1440, 900)] * 3):
+                            resize(width, height)
+                            path = work / f"resize-capture-{index:02}.png"
+                            captured = call("ui.screenshot", {"path": str(path)})
+                            png(path, (captured["width"], captured["height"]))
+                            assert abs(captured["width"] * height - captured["height"] * width) <= max(width, height), "Capture has stale surface dimensions"
+                        progress("Twelve repeated Windows resize/capture checks passed")
+        except Exception:
+            log.flush()
+            # A driver can log repeatedly while the desktop is failing. Keep diagnostics
+            # bounded instead of reading a growing file into the test runner's memory.
+            with (work / "desktop.log").open("rb") as captured:
+                captured.seek(0, os.SEEK_END)
+                captured.seek(max(0, captured.tell() - 16 * 1024))
+                print(captured.read(16 * 1024).decode("utf-8", errors="replace"), flush=True)
+            raise
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--prefix", type=Path, default=Path("/usr"))
+    parser.add_argument("--bin-dir", type=Path, help="Directory containing the app and CLI (Windows installer or portable folder)")
+    parser.add_argument("--desktop", action="store_true")
+    parser.add_argument("--extended", action="store_true", help="Also run the synthetic panel/preference/effect/format desktop matrix")
+    parser.add_argument("--output", type=Path, help="Retain generated evidence in this directory")
+    args = parser.parse_args()
+    bindir = args.bin_dir.resolve() if args.bin_dir else args.prefix.resolve() / "bin"
+    if args.output:
+        args.output.mkdir(parents=True, exist_ok=True)
+        run(bindir, args.desktop, args.output.resolve(), args.extended)
+    else:
+        with tempfile.TemporaryDirectory(prefix="kaleiform-smoke-") as directory:
+            run(bindir, args.desktop, Path(directory), args.extended)

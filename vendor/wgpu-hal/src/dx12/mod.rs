@@ -1735,7 +1735,11 @@ impl crate::Surface for Surface {
             wgt::Dx12UseFrameLatencyWaitableObject::None
             | wgt::Dx12UseFrameLatencyWaitableObject::DontWait => {}
             wgt::Dx12UseFrameLatencyWaitableObject::Wait => {
-                unsafe { sc.wait(timeout) }?;
+                // A timeout did not grant a presentation slot. Submitting anyway can
+                // grow the GPU queue indefinitely and starve capture readbacks.
+                if !unsafe { sc.wait(timeout) }? {
+                    return Err(crate::SurfaceError::Timeout);
+                }
             }
         }
 
